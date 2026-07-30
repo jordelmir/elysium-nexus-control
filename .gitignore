@@ -1,0 +1,36 @@
+# Build artifacts
+build/
+.gradle/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.cxx/
+
+# Generated
+**/generated/
+**/intermediates/
+**/outputs/
+
+# Keystores / secrets
+*.jks
+*.keystore
+*.p12
+secrets/
+secrets.json
+keystore.properties
+
+# Vendor secrets
+vendor-keys/
+*.lic
+*.signed
+
+# Tooling caches
+.kotlin/
+.cargo/
+
+# Coverage
+coverage/
+*.exec
+*.ec

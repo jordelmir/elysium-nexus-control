@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Bilingual strings: English + Spanish per project convention.
+      Phase 0.1 has only the app name; the rest of the UI strings land
+      with the editor in Phase 1. The Spanish translation lives in
+      res/values-es/strings.xml.
+    -->
+    <string name="app_name">Elysium Nexus</string>
+</resources>

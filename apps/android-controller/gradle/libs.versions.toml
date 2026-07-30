@@ -1,0 +1,20 @@
+[versions]
+# Toolchain
+# AGP 8.7+ is required for full Gradle 9.3.1 compatibility. We pin
+# 8.7.3 because it is the latest stable AGP that compiles cleanly with
+# Kotlin 2.2.21 and the labs Mac.
+agp = "8.7.3"
+kotlin = "2.2.21"
+junit = "4.13.2"
+
+# SDK
+compileSdk = "34"
+minSdk = "26"
+targetSdk = "34"
+
+[libraries]
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

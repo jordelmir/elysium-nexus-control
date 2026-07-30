@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Elysium Nexus — base theme.
+
+      We deliberately use a platform theme for 0.1 because there is no
+      UI yet. Material 3 / Compose come with the editor in Phase 1.
+    -->
+    <style name="Theme.ElysiumNexus" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Elysium Nexus Universal Controller — manifest (Phase 0.1)
+
+  Per MASTER_ORDER.md and ADR-0001, this manifest declares the absolute
+  minimum. No permissions, no services, no broadcast receivers, no
+  content providers, no activities yet. Each new permission / service /
+  activity will be added with a written reason in the changelog of the
+  iteration that introduces it.
+
+  Why so empty? Because the §38 disconnect test is a release blocker,
+  and the §2 impersonation rule is a constitutional one. We earn every
+  permission we declare.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:theme="@style/Theme.ElysiumNexus"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules" />
+
+</manifest>
