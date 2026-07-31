@@ -65,6 +65,10 @@ class FakeProfileDao : ProfileDao {
         profiles.size
     }
 
+    override suspend fun maxProfileId(): Int? = lock.read {
+        profiles.keys.maxOrNull()
+    }
+
     override suspend fun deleteProfile(id: Int) {
         lock.write {
             profiles.remove(id)

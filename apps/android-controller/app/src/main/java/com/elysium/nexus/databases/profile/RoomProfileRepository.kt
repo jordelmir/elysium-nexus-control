@@ -72,6 +72,12 @@ class RoomProfileRepository(
 
     override suspend fun count(): Int = dao.countProfiles()
 
+    override suspend fun nextId(): Int = (dao.maxProfileId() ?: -1) + 1
+
+    override suspend fun delete(id: Int) {
+        dao.deleteProfile(id)
+    }
+
     /**
      * Convert a [Profile] (domain) to its persistence
      * header shape.

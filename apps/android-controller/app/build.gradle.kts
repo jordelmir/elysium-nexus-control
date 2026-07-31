@@ -116,6 +116,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.activity.compose)
+    // Phase 1.5: Jetpack WindowManager for the §16
+    // foldable posture detection. The
+    // `WindowInfoTracker` + `FoldingFeature` APIs
+    // are the only platform-agnostic abstraction
+    // for foldable hinges.
+    implementation(libs.androidx.window)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)

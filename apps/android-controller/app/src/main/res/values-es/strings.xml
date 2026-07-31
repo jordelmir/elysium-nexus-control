@@ -14,6 +14,8 @@
     <string name="editor_undo">Deshacer</string>
     <string name="editor_redo">Rehacer</string>
     <string name="editor_opacity">Opacidad</string>
+    <string name="editor_new_profile">Nuevo perfil</string>
+    <string name="editor_delete_profile">Eliminar</string>
     <string name="editor_neutralize">Neutralizar (§38)</string>
     <string name="editor_diag_seq">seq</string>
     <string name="editor_diag_touches">toques</string>

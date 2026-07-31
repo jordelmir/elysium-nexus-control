@@ -20,6 +20,8 @@
     <string name="editor_undo">Undo</string>
     <string name="editor_redo">Redo</string>
     <string name="editor_opacity">Opacity</string>
+    <string name="editor_new_profile">New profile</string>
+    <string name="editor_delete_profile">Delete</string>
     <string name="editor_neutralize">Neutralize (§38)</string>
     <string name="editor_diag_seq">seq</string>
     <string name="editor_diag_touches">touches</string>

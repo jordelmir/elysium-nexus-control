@@ -189,6 +189,46 @@ class MainActivity : ComponentActivity() {
                             allProfilesFlow.value = repo?.all() ?: emptyList()
                         }
                     },
+                    onNewProfile = {
+                        scope?.launch {
+                            val newId = repo?.nextId() ?: return@launch
+                            val now = System.currentTimeMillis()
+                            val newProfile = Profile(
+                                id = newId,
+                                name = "Profile $newId",
+                                author = "user",
+                                controls = emptyList(),
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                            repo.upsert(newProfile)
+                            profileFlow.value = newProfile
+                            allProfilesFlow.value = repo.all()
+                        }
+                    },
+                    onDeleteProfile = {
+                        scope?.launch {
+                            val current = profileFlow.value ?: return@launch
+                            val r = repo ?: return@launch
+                            // Phase 1.5: refuse to delete the
+                            // last profile. The "default"
+                            // profile is the user's safety
+                            // net; deleting it would leave
+                            // the activity with no profile
+                            // to render. The full rule
+                            // (configurable, with a
+                            // confirmation dialog) lands in
+                            // Phase 1.6+.
+                            if (r.count() <= 1) {
+                                Log.w(tag, "Refusing to delete the last profile (id=${current.id}).")
+                                return@launch
+                            }
+                            r.delete(current.id)
+                            val next = r.firstOrNull()
+                            profileFlow.value = next
+                            allProfilesFlow.value = r.all()
+                        }
+                    },
                     onNeutralize = { engine.neutralize() }
                 )
             }

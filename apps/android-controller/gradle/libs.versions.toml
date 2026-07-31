@@ -49,6 +49,15 @@ ksp = "2.0.21-1.0.28"
 # `org.json` API surface.
 json = "20240303"
 
+# AndroidX Window — earned in Phase 1.5 for the §16
+# foldable posture detection. `WindowInfoTracker` +
+# `FoldingFeature` are the Jetpack APIs for observing
+# foldable hinge state. Pin 1.3.0 because it is the
+# version that ships clean with the rest of the
+# AndroidX 1.x line and provides the `FoldingFeature`
+# enum.
+androidx-window = "1.3.0"
+
 # SDK
 compileSdk = "34"
 minSdk = "26"
@@ -70,6 +79,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 org-json = { group = "org.json", name = "json", version.ref = "json" }
+androidx-window = { group = "androidx.window", name = "window", version.ref = "androidx-window" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

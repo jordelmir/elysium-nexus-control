@@ -7,6 +7,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+
 /**
  * Tests for [InMemoryProfileRepository] — the JVM-testeable
  * stand-in for the future Room implementation.
@@ -66,5 +67,39 @@ class InMemoryProfileRepositoryTest {
         repo.upsert(Profile.defaultProfile(id = 3, now = 3000L))
         assertEquals(3, repo.all().size)
         assertEquals(listOf(1, 2, 3), repo.all().map { it.id })
+    }
+
+    @Test
+    fun nextIdIsZeroOnEmpty() = runTest {
+        val repo = InMemoryProfileRepository()
+        assertEquals(0, repo.nextId())
+    }
+
+    @Test
+    fun nextIdIsMaxPlusOne() = runTest {
+        val repo = InMemoryProfileRepository()
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 5, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 3, now = 0L))
+        assertEquals(6, repo.nextId())
+    }
+
+    @Test
+    fun deleteRemovesProfile() = runTest {
+        val repo = InMemoryProfileRepository()
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 1, now = 0L))
+        repo.delete(0)
+        assertEquals(1, repo.count())
+        assertNull(repo.byId(0))
+        assertNotNull(repo.byId(1))
+    }
+
+    @Test
+    fun deleteMissingIdIsNoOp() = runTest {
+        val repo = InMemoryProfileRepository()
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.delete(99)
+        assertEquals(1, repo.count())
     }
 }

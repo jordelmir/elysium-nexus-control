@@ -64,4 +64,14 @@ class InMemoryProfileRepository : ProfileRepository {
     override suspend fun count(): Int = lock.read {
         profiles.size
     }
+
+    override suspend fun nextId(): Int = lock.read {
+        (profiles.maxOfOrNull { it.id } ?: -1) + 1
+    }
+
+    override suspend fun delete(id: Int) {
+        lock.write {
+            profiles.removeAll { it.id == id }
+        }
+    }
 }

@@ -79,6 +79,8 @@ fun EditorToolbar(
     onAdd: (ControlKind) -> Unit,
     onSave: () -> Unit,
     onReset: () -> Unit,
+    onNewProfile: () -> Unit = { },
+    onDeleteProfile: () -> Unit = { },
     isDirty: Boolean,
     onOpacityChange: (Float) -> Unit = { },
     selectedOpacity: Float? = null,
@@ -136,6 +138,22 @@ fun EditorToolbar(
                 label = { Text(stringResource(R.string.editor_reset)) },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = onNewProfile,
+                label = { Text(stringResource(R.string.editor_new_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = onDeleteProfile,
+                label = { Text(stringResource(R.string.editor_delete_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFFB42318),
                     labelColor = Color(0xFFF2F2F4)
                 )
             )

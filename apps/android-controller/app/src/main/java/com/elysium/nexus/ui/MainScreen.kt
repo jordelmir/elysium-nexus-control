@@ -72,6 +72,8 @@ fun MainScreen(
     allProfiles: List<Profile>,
     onProfileSelected: (Int) -> Unit,
     onProfileUpdated: (Profile) -> Unit,
+    onNewProfile: () -> Unit = { },
+    onDeleteProfile: () -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -148,6 +150,8 @@ fun MainScreen(
             // replaces this with a per-session history.
             onProfileUpdated(profile)
         },
+        onNewProfile = onNewProfile,
+        onDeleteProfile = onDeleteProfile,
         onNeutralize = onNeutralize,
         modifier = modifier
     )
@@ -172,6 +176,8 @@ private fun MainScreenContent(
     onControlAdded: (ControlKind) -> Unit,
     onControlDeleted: (controlId: Int) -> Unit,
     onReset: () -> Unit,
+    onNewProfile: () -> Unit = { },
+    onDeleteProfile: () -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -218,6 +224,8 @@ private fun MainScreenContent(
                     selectedId = null
                     onReset()
                 },
+                onNewProfile = onNewProfile,
+                onDeleteProfile = onDeleteProfile,
                 isDirty = false,
                 onOpacityChange = { newOpacity ->
                     selectedId?.let { id -> onOpacityChange(id, newOpacity) }
@@ -318,6 +326,8 @@ private fun MainScreenPreview() {
         onControlAdded = { },
         onControlDeleted = { },
         onReset = { },
+        onNewProfile = { },
+        onDeleteProfile = { },
         onNeutralize = { }
     )
 }

@@ -48,4 +48,22 @@ interface ProfileRepository {
      * @return the number of profiles in the database.
      */
     suspend fun count(): Int
+
+    /**
+     * @return the next available profile id. The
+     * next id is `max(existing id) + 1`, or `0` if
+     * the database is empty. Used by the "new
+     * profile" UI to allocate a fresh id without
+     * racing on `MAX(id)`.
+     */
+    suspend fun nextId(): Int
+
+    /**
+     * Delete the profile with id [id]. The CASCADE
+     * foreign key on `profile_control` removes
+     * every control row of the deleted profile.
+     * If no profile with [id] exists, the call is
+     * a no-op.
+     */
+    suspend fun delete(id: Int)
 }

@@ -258,4 +258,67 @@ class RoomProfileRepositoryTest {
         val reloaded = repo.byId(0)!!
         assertTrue(reloaded.controls.isEmpty())
     }
+
+    @Test
+    fun nextIdIsZeroOnEmpty() = runTest {
+        val repo = RoomProfileRepository(FakeProfileDao())
+        assertEquals(0, repo.nextId())
+    }
+
+    @Test
+    fun nextIdIsMaxPlusOne() = runTest {
+        val repo = RoomProfileRepository(FakeProfileDao())
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 5, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 3, now = 0L))
+        assertEquals(6, repo.nextId())
+    }
+
+    @Test
+    fun deleteRemovesProfile() = runTest {
+        val repo = RoomProfileRepository(FakeProfileDao())
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.upsert(Profile.defaultProfile(id = 1, now = 0L))
+        repo.delete(0)
+        assertEquals(1, repo.count())
+        assertNull(repo.byId(0))
+        assertNotNull(repo.byId(1))
+    }
+
+    @Test
+    fun deleteCascadesControls() = runTest {
+        // The Room foreign key is `CASCADE` on
+        // `profile_control`. A delete on the parent
+        // row removes every child row. The fake DAO
+        // mirrors this semantics (its
+        // `deleteProfile` clears the controls map
+        // for that profileId).
+        val fake = FakeProfileDao()
+        val repo = RoomProfileRepository(fake)
+        repo.upsert(Profile.defaultProfile(id = 0, now = 0L))
+        repo.upsert(
+            Profile(
+                id = 1,
+                name = "p1",
+                author = "tester",
+                controls = listOf(
+                    ControlElement(
+                        id = 0,
+                        type = ControlType.Button,
+                        visualBounds = NormalizedRect.CENTERED_SMALL,
+                        binding = CanonicalBinding.Neutralize
+                    )
+                ),
+                createdAt = 0L,
+                updatedAt = 0L
+            )
+        )
+        repo.delete(1)
+        // Profile 0's controls are untouched; profile 1's controls are gone.
+        assertEquals(1, fake.controlCount())
+        // The remaining control row belongs to profile 0.
+        val remaining = fake.allControlRows()
+        assertEquals(1, remaining.size)
+        assertEquals(0, remaining[0].profileId)
+    }
 }

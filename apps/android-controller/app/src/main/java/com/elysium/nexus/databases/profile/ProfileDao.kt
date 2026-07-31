@@ -76,6 +76,9 @@ interface ProfileDao {
     @Query("SELECT COUNT(*) FROM profile")
     suspend fun countProfiles(): Int
 
+    @Query("SELECT MAX(id) FROM profile")
+    suspend fun maxProfileId(): Int?
+
     @Query("DELETE FROM profile WHERE id = :id")
     suspend fun deleteProfile(id: Int)
 
