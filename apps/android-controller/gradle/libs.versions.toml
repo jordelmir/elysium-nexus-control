@@ -2,9 +2,13 @@
 # Toolchain
 # AGP 8.7+ is required for full Gradle 9.3.1 compatibility. We pin
 # 8.7.3 because it is the latest stable AGP that compiles cleanly with
-# Kotlin 2.2.21 and the labs Mac.
+# Kotlin 2.0.21 and the labs Mac. Pinned down from 2.2.21 in
+# Phase 1.0 because KSP's latest release for Kotlin 2.2.x has
+# not landed yet on Maven Central as of the labs' resolution
+# date; 2.0.21 is the most-recently-released KSP-supported Kotlin
+# version.
 agp = "8.7.3"
-kotlin = "2.2.21"
+kotlin = "2.0.21"
 junit = "4.13.2"
 
 # Coroutines — earned in Phase 0.4 because the engine is the first
@@ -18,6 +22,21 @@ coroutines = "1.10.1"
 # with the rest of the AndroidX 1.x line and the labs Mac.
 androidx-activity = "1.9.3"
 
+# Compose — earned in Phase 1.0 because the first Compose UI
+# screen (`MainScreen`) lands in this iteration. The Compose
+# BOM pins the versions of every Compose artefact
+# transitively, so we use the BOM and let the individual
+# libraries inherit their versions from it. 2024.10.01 is
+# the version that ships clean with Kotlin 2.2.21.
+compose-bom = "2024.10.01"
+activity-compose = "1.9.3"
+
+# Room — earned in Phase 1.0 for the compatibility database
+# persistence. Pin 2.6.1 because it is the version that ships
+# clean with Kotlin 2.2.21 and KSP 2.0.22.
+room = "2.6.1"
+ksp = "2.0.21-1.0.28"
+
 # SDK
 compileSdk = "34"
 minSdk = "26"
@@ -28,7 +47,19 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "androidx-activity" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

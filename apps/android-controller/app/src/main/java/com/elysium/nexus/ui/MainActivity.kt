@@ -3,12 +3,16 @@ package com.elysium.nexus.ui
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.platform.ComposeView
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
+import com.elysium.nexus.databases.compatibility.CompatibilityDatabase
+import com.elysium.nexus.databases.compatibility.RoomCompatibilityRepository
 import com.elysium.nexus.input.TouchSurfaceView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.i(tag, "MainActivity.onCreate — Phase 0.7 first-launch milestone")
+        Log.i(tag, "MainActivity.onCreate — Phase 1.0 first-Compose milestone")
 
         // 1. Create the engine. The engine's own scope is
         //    separate from the activity's scope: the engine
@@ -122,7 +126,39 @@ class MainActivity : ComponentActivity() {
                 engine.submitTouchPoint(id, point, t0Ns)
             }
         }
-        setContentView(touch)
+        // Phase 1.0: the activity's content is a
+        // `FrameLayout` that hosts the Compose view
+        // (the `MainScreen`) at the bottom and the touch
+        // surface on top. The touch surface is the LAST
+        // child added; Android dispatches touch to the
+        // last child first, so the touch view receives
+        // every MotionEvent. The Compose view is below
+        // the touch view; its background is transparent
+        // except where widgets draw, so the touch
+        // surface is visible. Phase 1.1+ replaces this
+        // with a single Compose surface that hosts the
+        // touch surface via `AndroidView`.
+        val root = FrameLayout(this).apply {
+            val matchParent = FrameLayout.LayoutParams.MATCH_PARENT
+            // Compose view first (added first, drawn first,
+            // touched last).
+            val composeView = ComposeView(this@MainActivity).apply {
+                setContent {
+                    MainScreen(engine = engine)
+                }
+            }
+            addView(
+                composeView,
+                FrameLayout.LayoutParams(matchParent, matchParent)
+            )
+            // Touch surface second (added second, drawn
+            // second, touched first).
+            addView(
+                touch,
+                FrameLayout.LayoutParams(matchParent, matchParent)
+            )
+        }
+        setContentView(root)
 
         // 4. Create the activity's scope and observe the
         //    engine's state. Every emission is logged to

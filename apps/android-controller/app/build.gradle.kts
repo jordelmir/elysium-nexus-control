@@ -10,6 +10,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -52,6 +54,13 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        // Phase 1.0: Compose is the first UI surface. The
+        // Compose compiler is wired by the Kotlin
+        // Compose plugin (declared in libs.versions.toml).
+        compose = true
+    }
+
     kotlin {
         jvmToolchain(17)
     }
@@ -86,10 +95,39 @@ dependencies {
     // available when the activity evolves to use
     // viewModels / by viewModels in 1.x. The reason is
     // documented in docs/changelogs/PHASE_0_7_FIRST_ACTIVITY.md.
+    //
+    // Phase 1.0 — earned:
+    //   - `androidx.activity:activity-compose` because the
+    //     activity evolves to use `setContent { ... }` for
+    //     the first Compose screen.
+    //   - `androidx.compose:compose-bom` (BOM) + `ui` +
+    //     `material3` + `ui-tooling-preview` because the
+    //     first Compose UI screen (MainScreen) lands in
+    //     1.0. The BOM pins the versions of every Compose
+    //     artefact transitively, so we use it and let the
+    //     individual libraries inherit their versions.
+    //   - `androidx.room:room-runtime` + `room-ktx` because
+    //     the compatibility database (Phase 0.9) is now
+    //     persisted. We use the KSP processor instead of
+    //     kapt because KSP is the modern recommendation
+    //     and ships clean with Kotlin 2.2.21.
+    //   - `androidx.compose.ui:ui-test-junit4` +
+    //     `ui-test-manifest` for the Compose smoke test.
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.activity)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
 // Phase 0.9 — the hid-descriptor-validator tool. A
