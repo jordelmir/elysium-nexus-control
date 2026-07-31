@@ -58,6 +58,15 @@ json = "20240303"
 # enum.
 androidx-window = "1.3.0"
 
+# AndroidX Core (Kotlin extensions) — earned in
+# Phase 1.17 for the §15 profile share intent. The
+# `FileProvider` API lives in `androidx.core`, the
+# `-ktx` flavour adds the Kotlin extensions and is
+# the dependency we want for the launcher. Pin 1.13.1
+# because it is the version that ships clean with
+# the rest of the AndroidX 1.x line on compileSdk 34.
+androidx-core-ktx = "1.13.1"
+
 # SDK
 compileSdk = "34"
 minSdk = "26"
@@ -80,6 +89,7 @@ androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = 
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 org-json = { group = "org.json", name = "json", version.ref = "json" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "androidx-window" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

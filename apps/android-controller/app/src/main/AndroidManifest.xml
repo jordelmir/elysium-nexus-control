@@ -37,6 +37,26 @@
             </intent-filter>
         </activity>
 
+        <!--
+          FileProvider for the §15 profile share intent
+          (Phase 1.17). The provider exposes
+          `cache/shares/` (see `res/xml/file_paths.xml`)
+          to other apps as `content://` URIs. The
+          authority is `com.elysium.nexus.controller.fileprovider`,
+          built from the applicationId. The grant is
+          `FLAG_GRANT_READ_URI_PERMISSION`; the receiving
+          app can read the file but not write to it.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

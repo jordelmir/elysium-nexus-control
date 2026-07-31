@@ -65,6 +65,7 @@ fun EditorToolbar(
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onShare: () -> Unit = { },
     onAlign: (AlignmentAction) -> Unit = { },
     onOpacityChange: (Float) -> Unit = { },
     selectedOpacity: Float? = null,
@@ -140,6 +141,18 @@ fun EditorToolbar(
                 label = { Text(stringResource(R.string.editor_delete_profile)) },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color(0xFFB42318),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            // Phase 1.17: the §15 share chip. Tapping
+            // it opens the system share sheet with
+            // the current profile as a JSON document
+            // (see [com.elysium.nexus.core.profile.AndroidProfileShareLauncher]).
+            AssistChip(
+                onClick = onShare,
+                label = { Text(stringResource(R.string.editor_share_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
                     labelColor = Color(0xFFF2F2F4)
                 )
             )

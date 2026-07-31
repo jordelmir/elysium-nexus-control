@@ -82,6 +82,7 @@ fun MainScreen(
     onProfileUpdated: (Profile) -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onShareProfile: () -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -164,6 +165,7 @@ fun MainScreen(
         },
         onNewProfile = onNewProfile,
         onDeleteProfile = onDeleteProfile,
+        onShareProfile = onShareProfile,
         onNeutralize = onNeutralize,
         modifier = modifier
     )
@@ -194,6 +196,7 @@ private fun MainScreenContent(
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onShareProfile: () -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -254,6 +257,7 @@ private fun MainScreenContent(
                 },
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
+                onShare = onShareProfile,
                 onAlign = { action ->
                     val now = System.currentTimeMillis()
                     val sid = selectedId
@@ -380,6 +384,7 @@ private fun MainScreenPreview() {
         onReset = { },
         onNewProfile = { },
         onDeleteProfile = { },
+        onShareProfile = { },
         onTransportSelected = { },
         onNeutralize = { }
     )

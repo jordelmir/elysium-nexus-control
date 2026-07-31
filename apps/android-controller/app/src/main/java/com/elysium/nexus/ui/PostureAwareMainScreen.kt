@@ -88,6 +88,7 @@ fun PostureAwareMainScreen(
     onProfileUpdated: (Profile) -> Unit,
     onNewProfile: () -> Unit,
     onDeleteProfile: () -> Unit,
+    onShareProfile: () -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -104,6 +105,7 @@ fun PostureAwareMainScreen(
                 onProfileUpdated = onProfileUpdated,
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
+                onShareProfile = onShareProfile,
                 onNeutralize = onNeutralize,
                 modifier = modifier
             )
@@ -115,6 +117,7 @@ fun PostureAwareMainScreen(
             onProfileUpdated = onProfileUpdated,
             onNewProfile = onNewProfile,
             onDeleteProfile = onDeleteProfile,
+            onShareProfile = onShareProfile,
             onNeutralize = onNeutralize,
             modifier = modifier
         )
@@ -154,6 +157,7 @@ private fun TabletopMainScreen(
     onProfileUpdated: (Profile) -> Unit,
     onNewProfile: () -> Unit,
     onDeleteProfile: () -> Unit,
+    onShareProfile: () -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -244,6 +248,7 @@ private fun TabletopMainScreen(
                     onReset = { selectedId = null; onProfileUpdated(profile) },
                     onNewProfile = onNewProfile,
                     onDeleteProfile = onDeleteProfile,
+                    onShare = onShareProfile,
                     onOpacityChange = { newOpacity ->
                         selectedId?.let { id -> onProfileUpdated(
                             EditorActions.setOpacity(profile, id, newOpacity, System.currentTimeMillis())

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider paths for Elysium Nexus Universal Controller.
+
+  The `cache-path` tag exposes the app's *cache* directory to
+  other apps via a `content://` URI. The cache is the right
+  place for ephemeral share artifacts (the OS wipes it on
+  storage pressure), and the directory is *not* in the user's
+  long-term storage (the user never sees the file again after
+  the share target is done with it).
+
+  The authority is built from the applicationId (`com.elysium.nexus.controller`)
+  plus the suffix `.fileprovider`; see the manifest's
+  `<provider>` element for the binding.
+
+  The path is intentionally narrow: only `shares/` inside
+  the cache. The activity's `AndroidProfileShareLauncher`
+  writes share artifacts to `cacheDir/shares/...`; the
+  FileProvider's grant cannot reach the rest of the cache.
+-->
+<paths>
+    <cache-path
+        name="shares"
+        path="shares/" />
+</paths>

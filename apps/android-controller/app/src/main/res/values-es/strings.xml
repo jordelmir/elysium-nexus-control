@@ -32,4 +32,10 @@
     <string name="editor_title">Elysium Nexus</string>
     <string name="editor_saved">Guardado</string>
     <string name="editor_added_control">Se agregó %1$s</string>
+    <!--
+      Phase 1.17 — Compartir perfil (es).
+    -->
+    <string name="editor_share_profile">Compartir</string>
+    <string name="share_profile_chooser_title">Compartir perfil</string>
+    <string name="share_profile_failed">No se pudo compartir</string>
 </resources>

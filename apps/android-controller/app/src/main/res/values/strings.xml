@@ -38,4 +38,15 @@
     <string name="editor_title">Elysium Nexus</string>
     <string name="editor_saved">Saved</string>
     <string name="editor_added_control">Added %1$s</string>
+    <!--
+      Phase 1.17 — Profile share intent. The
+      "Share" chip on the editor toolbar opens
+      the Android share sheet with the current
+      profile as a JSON document. The chooser
+      title is what the share sheet displays at
+      the top of the picker.
+    -->
+    <string name="editor_share_profile">Share</string>
+    <string name="share_profile_chooser_title">Share profile</string>
+    <string name="share_profile_failed">Share failed</string>
 </resources>

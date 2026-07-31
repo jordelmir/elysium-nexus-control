@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import com.elysium.nexus.R
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.engine.TransportBinding
@@ -19,7 +20,9 @@ import com.elysium.nexus.core.posture.AndroidPostureObserver
 import com.elysium.nexus.core.posture.NullPostureObserver
 import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.posture.PostureObserver
+import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.profile.ProfileShareBuilder
 import com.elysium.nexus.core.transport.BluetoothHidTransport
 import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.core.transport.LocalEchoTransport
@@ -112,6 +115,7 @@ class MainActivity : ComponentActivity() {
     private var profileRepository: ProfileRepository? = null
     private var transportBinding: TransportBinding? = null
     private var transportJob: Job? = null
+    private var shareLauncher: AndroidProfileShareLauncher? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
     private val postureFlow: MutableStateFlow<Posture> = MutableStateFlow(Posture.UNKNOWN)
@@ -267,6 +271,34 @@ class MainActivity : ComponentActivity() {
                             allProfilesFlow.value = r.all()
                         }
                     },
+                    onShareProfile = {
+                        // Phase 1.17: the §15 share
+                        // intent. We build a
+                        // [com.elysium.nexus.core.profile.ProfileShare]
+                        // artifact from the current
+                        // profile and hand it to the
+                        // [AndroidProfileShareLauncher].
+                        // The launcher writes the JSON
+                        // to the cache and returns a
+                        // chooser Intent; we surface it
+                        // via `startActivity`. Per §38
+                        // we never crash the activity
+                        // here: a null intent (I/O
+                        // failure, missing FileProvider)
+                        // is logged and dropped.
+                        val current = profileFlow.value ?: return@PostureAwareMainScreen
+                        val launcher = shareLauncher ?: return@PostureAwareMainScreen
+                        val share = ProfileShareBuilder.build(current)
+                        val intent = launcher.launch(
+                            share = share,
+                            chooserTitle = getString(R.string.share_profile_chooser_title)
+                        )
+                        if (intent != null) {
+                            startActivity(intent)
+                        } else {
+                            Log.w(tag, "Share intent was null; sharing dropped.")
+                        }
+                    },
                     onNeutralize = { engine.neutralize() }
                 )
             }
@@ -309,6 +341,18 @@ class MainActivity : ComponentActivity() {
         transportJob = engine.state
             .onEach { state -> transportBinding.forwardRealtime(state) }
             .launchIn(activityScope)
+
+        // Phase 1.17: the §15 profile share
+        // launcher. The launcher is a thin Android
+        // adapter around
+        // [com.elysium.nexus.core.profile.ProfileShareBuilder]
+        // — it writes the JSON to the cache and
+        // returns a chooser Intent. The activity
+        // owns the launcher for its lifetime; the
+        // launcher has no per-call state of its
+        // own, so `onDestroy` only needs to null
+        // the field.
+        shareLauncher = AndroidProfileShareLauncher(this)
 
         driverJob = engine.state
             .onEach { state -> logState(state) }
@@ -440,6 +484,7 @@ class MainActivity : ComponentActivity() {
         this.postureSource = null
         this.transportBinding = null
         this.transportJob = null
+        this.shareLauncher = null
     }
 
     /**

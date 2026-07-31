@@ -122,6 +122,13 @@ dependencies {
     // are the only platform-agnostic abstraction
     // for foldable hinges.
     implementation(libs.androidx.window)
+    // Phase 1.17: §15 profile share intent. The
+    // `FileProvider` lives in `androidx.core`; we
+    // depend on the `-ktx` flavour for the Kotlin
+    // extensions. The provider is declared in
+    // AndroidManifest.xml with the authority
+    // `${applicationId}.fileprovider`.
+    implementation(libs.androidx.core.ktx)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
