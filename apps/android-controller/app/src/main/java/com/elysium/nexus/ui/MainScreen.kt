@@ -1,6 +1,7 @@
 package com.elysium.nexus.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,57 +22,51 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
+import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.ui.editor.EditorCanvas
 
 /**
  * The first Compose UI screen of the project.
  *
  * `MASTER_ORDER.md` §15 (controls editor) and §11 (touch
- * surface) describe the production UI. The first screen
- * in Phase 1.0 is the simplest possible Compose surface:
+ * surface) describe the production UI. The screen has
+ * evolved across phases:
  *
- *  - A `Text` showing the engine's current state
- *    (`buttons`, `dpad`, sticks, triggers, touches).
- *  - A `Button` that calls [CanonicalInputEngine.neutralize]
- *    — the §38 release-blocker trigger.
+ *  - Phase 1.0: a `Text`-only projection of the engine
+ *    state + a `Button` that calls
+ *    [CanonicalInputEngine.neutralize].
+ *  - Phase 1.1: the `EditorCanvas` is layered on top of
+ *    the engine projection. The user can drag the
+ *    profile's controls around; the changes are
+ *    persisted via the `ProfileRepository`.
  *
- * The screen is intentionally minimal. Phase 1.1+ adds
- * the controls editor (the §15 deliverable). Phase 1.2+
- * adds the profile selector. Phase 1.3+ adds the
- * transport multiplexer. Each iteration adds one
- * component; the screen is a real (if small) UI
- * surface from day one.
- *
- * ## Why a Composable function, not a View
- *
- * Compose is the modern Android UI toolkit. The
- * production UI will be Compose; the first screen
- * should be Compose too. The touch surface (the
- * `TouchSurfaceView`) is a View subclass because
- * `MotionEvent` consumption is the §11 pipeline; the
- * `MainScreen` is a Composable because everything else
- * is declarative UI.
- *
- * ## Why a stateless composable
- *
- * The composable takes the engine as a parameter. The
- * engine's state is observed via `collectAsState()`. The
- * composable does not own the engine's lifecycle; the
- * `MainActivity` does. The composable is the projection
- * of the engine's state into pixels.
+ * Phase 1.2+ adds: the toolbar ("Add button", "Save",
+ * "Reset"), scale + rotate + opacity, the profile
+ * selector, the transport multiplexer.
  */
 @Composable
 fun MainScreen(
     engine: CanonicalInputEngine,
+    profile: Profile,
+    onProfileUpdated: (Profile) -> Unit,
+    onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // `collectAsState` collects the StateFlow and
-    // recomposes the composable on every emission. The
-    // engine's state flow is the source of truth; the
-    // composable is its projection.
     val state by engine.state.collectAsState()
     MainScreenContent(
         state = state,
-        onNeutralize = { engine.neutralize() },
+        profile = profile,
+        onControlMoved = { controlId, newVisualBounds ->
+            val now = System.currentTimeMillis()
+            val updated = profile.withControlReplaced(
+                controlId = controlId,
+                updated = profile.controls.first { it.id == controlId }
+                    .copy(visualBounds = newVisualBounds),
+                now = now
+            )
+            onProfileUpdated(updated)
+        },
+        onNeutralize = onNeutralize,
         modifier = modifier
     )
 }
@@ -79,12 +74,13 @@ fun MainScreen(
 /**
  * The stateless projection. Splitting this out makes
  * the composable previewable from Android Studio
- * without instantiating an engine, which is the
- * conventional Compose pattern.
+ * without instantiating an engine.
  */
 @Composable
 private fun MainScreenContent(
     state: UniversalControllerState,
+    profile: Profile,
+    onControlMoved: (controlId: Int, newVisualBounds: com.elysium.nexus.core.profile.NormalizedRect) -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -92,64 +88,64 @@ private fun MainScreenContent(
         modifier = modifier.fillMaxSize(),
         color = Color(0xFF0F0F12) // brand_ink
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "Elysium Nexus",
-                color = Color(0xFFF2F2F4), // brand_paper
-                fontSize = 28.sp,
-                style = MaterialTheme.typography.headlineMedium
+        Box(modifier = Modifier.fillMaxSize()) {
+            // The editor canvas: the user's profile rendered
+            // as draggable controls.
+            EditorCanvas(
+                profile = profile,
+                onMoved = onControlMoved,
+                onTapped = { /* Phase 1.2: select + show handles */ }
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            StateRow(label = "Buttons", value = state.buttons.size().toString())
-            StateRow(label = "D-pad", value = state.dpad.toString())
-            StateRow(
-                label = "Left stick",
-                value = "(${state.leftStick.x}, ${state.leftStick.y})"
-            )
-            StateRow(
-                label = "Right stick",
-                value = "(${state.rightStick.x}, ${state.rightStick.y})"
-            )
-            StateRow(label = "Left trigger", value = state.leftTrigger.value.toString())
-            StateRow(label = "Right trigger", value = state.rightTrigger.value.toString())
-            StateRow(label = "Touches", value = state.touches.size().toString())
-            StateRow(label = "Motion", value = if (state.motion == null) "off" else "on")
-            StateRow(label = "Sequence", value = state.sequence.toString())
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onNeutralize) {
+            // The diagnostic overlay: small text in the
+            // corner showing the engine state. This is
+            // temporary; Phase 1.2 replaces it with a proper
+            // diagnostic panel.
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Elysium Nexus",
+                    color = Color(0xFFF2F2F4),
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "seq=${state.sequence}, touches=${state.touches.size()}",
+                    color = Color(0xFFAAAAAA),
+                    fontSize = 10.sp
+                )
+            }
+            // The §38 Neutralize button: a floating
+            // button in the bottom-right corner.
+            Button(
+                onClick = onNeutralize,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
                 Text("Neutralize (§38)")
             }
         }
     }
 }
 
-@Composable
-private fun StateRow(label: String, value: String) {
-    Text(
-        text = "$label: $value",
-        color = Color(0xFFF2F2F4),
-        fontSize = 16.sp
-    )
-}
-
 /**
- * Android Studio preview. A no-op that shows the layout
- * with a synthetic neutral state. Useful for
- * screenshotting the screen layout without an engine.
+ * Android Studio preview. A no-op that shows the
+ * layout with a synthetic neutral state and the
+ * default profile. Useful for screenshotting the
+ * screen layout without an engine.
  */
 @Preview
 @Composable
 private fun MainScreenPreview() {
-    MaterialTheme {
-        MainScreenContent(
-            state = UniversalControllerState.neutral(),
-            onNeutralize = {}
-        )
-    }
+    val state = UniversalControllerState.neutral()
+    val profile = Profile.defaultProfile(now = 0L)
+    MainScreenContent(
+        state = state,
+        profile = profile,
+        onControlMoved = { _, _ -> },
+        onNeutralize = {}
+    )
 }

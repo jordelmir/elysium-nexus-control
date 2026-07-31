@@ -6,13 +6,18 @@ import android.util.Log
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
+import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.databases.compatibility.CompatibilityDatabase
 import com.elysium.nexus.databases.compatibility.RoomCompatibilityRepository
+import com.elysium.nexus.databases.profile.InMemoryProfileRepository
+import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.input.TouchSurfaceView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +25,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlin.system.measureTimeMillis
 
 /**
@@ -85,6 +93,10 @@ class MainActivity : ComponentActivity() {
     private var latencyTracker: LatencyTracker? = null
     private var activityScope: CoroutineScope? = null
     private var driverJob: Job? = null
+    private var latencyJob: Job? = null
+    private var touch: TouchSurfaceView? = null
+    private var profileRepository: ProfileRepository? = null
+    private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,11 +154,7 @@ class MainActivity : ComponentActivity() {
             val matchParent = FrameLayout.LayoutParams.MATCH_PARENT
             // Compose view first (added first, drawn first,
             // touched last).
-            val composeView = ComposeView(this@MainActivity).apply {
-                setContent {
-                    MainScreen(engine = engine)
-                }
-            }
+            val composeView = ComposeView(this@MainActivity)
             addView(
                 composeView,
                 FrameLayout.LayoutParams(matchParent, matchParent)
@@ -159,6 +167,33 @@ class MainActivity : ComponentActivity() {
             )
         }
         setContentView(root)
+
+        // Phase 1.1: the editor observes the profile via
+        // `profileFlow.collectAsState()`. The Compose
+        // view is rebuilt every time the user drags a
+        // control. The initial profile is the default
+        // (loaded from the in-memory repo in step 7
+        // above); a future phase swaps the in-memory
+        // impl for the Room impl and reads the persisted
+        // profile on first launch.
+        (root.getChildAt(0) as? ComposeView)?.setContent {
+            val profile by profileFlow.collectAsState()
+            val scope = activityScope
+            val repo = profileRepository
+            profile?.let { current ->
+                MainScreen(
+                    engine = engine,
+                    profile = current,
+                    onProfileUpdated = { updated ->
+                        scope?.launch {
+                            repo?.upsert(updated)
+                            profileFlow.value = updated
+                        }
+                    },
+                    onNeutralize = { engine.neutralize() }
+                )
+            }
+        }
 
         // 4. Create the activity's scope and observe the
         //    engine's state. Every emission is logged to
@@ -192,6 +227,26 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+
+        // 7. Phase 1.1: the profile repository. For 1.1
+        //    the implementation is in-memory; Phase 1.2
+        //    swaps in the Room-backed implementation.
+        //    The default profile is loaded on first
+        //    launch and exposed as a StateFlow so the
+        //    Compose UI can observe it. When the user
+        //    drags a control in the editor, the activity
+        //    updates the repository and pushes the new
+        //    value into the flow; the editor recomposes.
+        val profileRepo: ProfileRepository = InMemoryProfileRepository()
+        this.profileRepository = profileRepo
+        runBlocking {
+            if (profileRepo.count() == 0) {
+                profileRepo.upsert(
+                    Profile.defaultProfile(now = System.currentTimeMillis())
+                )
+            }
+            profileFlow.value = profileRepo.firstOrNull()
         }
     }
 
