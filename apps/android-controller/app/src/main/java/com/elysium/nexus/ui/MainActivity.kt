@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
+import com.elysium.nexus.core.engine.TransportBinding
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
@@ -19,6 +20,9 @@ import com.elysium.nexus.core.posture.NullPostureObserver
 import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.transport.BluetoothHidTransport
+import com.elysium.nexus.core.transport.ControllerTransport
+import com.elysium.nexus.core.transport.LocalEchoTransport
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.databases.profile.RoomProfileRepository
@@ -106,9 +110,12 @@ class MainActivity : ComponentActivity() {
     private var postureSource: PostureObserver? = null
     private var postureJob: Job? = null
     private var profileRepository: ProfileRepository? = null
+    private var transportBinding: TransportBinding? = null
+    private var transportJob: Job? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
     private val postureFlow: MutableStateFlow<Posture> = MutableStateFlow(Posture.UNKNOWN)
+    private val transportFlow: MutableStateFlow<ControllerTransport?> = MutableStateFlow(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -251,6 +258,36 @@ class MainActivity : ComponentActivity() {
         //    harness (T0..T8 instrumentation) lands in 0.8.
         val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         this.activityScope = activityScope
+
+        // Phase 1.13 — the §17 transport binding.
+        //    The activity wires a default
+        //    [LocalEchoTransport] (the test-friendly
+        //    transport that records every frame). The
+        //    engine's `state` flow is forwarded to the
+        //    transport via [TransportBinding]. The
+        //    activity's [TransportSelector] lets the
+        //    user pick a different transport at runtime
+        //    (Phase 1.14). The transport is the
+        //    destination of the engine's `submit*`
+        //    calls; the [LocalEchoTransport] is the
+        //    test surface for the engine→transport
+        //    pipeline.
+        val defaultTransport = LocalEchoTransport()
+        runBlocking {
+            defaultTransport.start()
+            defaultTransport.connect()
+        }
+        val transportBinding = TransportBinding(defaultTransport)
+        this.transportBinding = transportBinding
+        transportFlow.value = defaultTransport
+        // Forward every engine state to the
+        // transport. The [LocalEchoTransport] just
+        // records; the real transports send over
+        // BT / USB / Wi-Fi.
+        transportJob = engine.state
+            .onEach { state -> transportBinding.forwardRealtime(state) }
+            .launchIn(activityScope)
+
         driverJob = engine.state
             .onEach { state -> logState(state) }
             .launchIn(activityScope)
@@ -354,6 +391,12 @@ class MainActivity : ComponentActivity() {
         runCatching { engine.transitionTo(EngineState.Reconnecting) }
         runCatching { engine.transitionTo(EngineState.Disconnected) }
         engine.neutralize()
+        // §38: forward the neutralization to the
+        // transport as a `releaseAll` event.
+        // The [LocalEchoTransport] records the
+        // event; the real transports emit a
+        // "release all" report to the host.
+        runBlocking { transportBinding?.transport?.value?.releaseAll() }
         // Cancel the activity's scope. The engine's own
         // scope is cancelled too — it has no internal jobs
         // today, but the cancel is the safe default.
@@ -362,6 +405,8 @@ class MainActivity : ComponentActivity() {
         motionSource?.close()
         postureJob?.cancel()
         postureSource?.close()
+        transportJob?.cancel()
+        runBlocking { transportBinding?.transport?.value?.stop() }
         activityScope?.cancel()
         this.engine = null
         this.latencyTracker = null
@@ -371,6 +416,8 @@ class MainActivity : ComponentActivity() {
         this.motionSource = null
         this.postureJob = null
         this.postureSource = null
+        this.transportBinding = null
+        this.transportJob = null
     }
 
     /**
