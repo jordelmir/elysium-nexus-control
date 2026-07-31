@@ -1,6 +1,7 @@
 package com.elysium.nexus.input
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -80,12 +81,17 @@ class TouchSurfaceView @JvmOverloads constructor(
      *
      * `point` is `null` when the pointer has been released
      * or cancelled.
+     *
+     * `t0Ns` is the platform-level timestamp at which the
+     * underlying `MotionEvent` was delivered (§30 T0). The
+     * View propagates it so the engine can record the
+     * per-event processing latency (T2 - T0).
      */
-    var onTouchPointChange: (id: Int, point: TouchPoint?) -> Unit = { _, _ -> }
+    var onTouchPointChange: (id: Int, point: TouchPoint?, t0Ns: Long?) -> Unit = { _, _, _ -> }
 
     private val dispatcher: TouchEventDispatcher =
-        TouchEventDispatcher { id, point ->
-            onTouchPointChange(id, point)
+        TouchEventDispatcher { id, point, t0Ns ->
+            onTouchPointChange(id, point, t0Ns)
         }
 
     /**
@@ -108,6 +114,12 @@ class TouchSurfaceView @JvmOverloads constructor(
             // to this view, but we do not dispatch.
             return true
         }
+        // §30 T0: the platform-level timestamp at which
+        // the MotionEvent was delivered. We use
+        // `SystemClock.elapsedRealtimeNanos()` (the
+        // Android-standard monotonic clock) so the diff
+        // to the engine's T2 is in the same units.
+        val t0Ns = SystemClock.elapsedRealtimeNanos()
         val pointers = (0 until event.pointerCount).map { i ->
             // Normalise over the view's current bounds. The
             // view's `width` / `height` are reported in
@@ -127,7 +139,7 @@ class TouchSurfaceView @JvmOverloads constructor(
                 pressure = pressure
             )
         }
-        dispatcher.process(action, pointers)
+        dispatcher.process(action, pointers, t0Ns)
         return true
     }
 

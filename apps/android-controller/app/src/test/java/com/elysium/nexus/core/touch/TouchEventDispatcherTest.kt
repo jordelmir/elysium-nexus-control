@@ -17,7 +17,7 @@ class TouchEventDispatcherTest {
      */
     private fun recorder(): Pair<TouchEventDispatcher, RecordingCallback> {
         val rec = RecordingCallback()
-        val d = TouchEventDispatcher { id, point -> rec.record(id, point) }
+        val d = TouchEventDispatcher { id, point, _ -> rec.record(id, point) }
         return d to rec
     }
 

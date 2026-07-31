@@ -14,13 +14,21 @@ package com.elysium.nexus.core.touch
  *
  * Per the agent-memory lesson on `Context`-dependent
  * code, the dispatcher exposes a narrow callback shape
- * (`(id: Int, point: TouchPoint?) -> Unit`) that captures
- * only the values the engine actually consumes. The
- * production caller wires the callback to
+ * (`(id: Int, point: TouchPoint?, t0Ns: Long?) -> Unit`)
+ * that captures only the values the engine actually
+ * consumes. The production caller wires the callback to
  * `engine.submitTouchPoint`; tests wire it to a recording
  * lambda. The dispatcher itself has no dependency on
  * `CanonicalInputEngine`, on Android, on coroutines, or
  * on any global state.
+ *
+ * The optional `t0Ns` parameter is the T0 timestamp from
+ * the §30 latency budget — the time the platform
+ * delivered the `MotionEvent` to the view. The engine
+ * uses it to compute the per-event processing latency
+ * (T2 - T0) and feed it to a `LatencyTracker`. The
+ * dispatcher does not interpret T0; it just propagates
+ * it.
  *
  * ## State model
  *
@@ -34,7 +42,11 @@ package com.elysium.nexus.core.touch
  * stale touch when the dispatcher is reset.
  */
 class TouchEventDispatcher(
-    private val callback: (id: Int, point: com.elysium.nexus.core.model.TouchPoint?) -> Unit
+    private val callback: (
+        id: Int,
+        point: com.elysium.nexus.core.model.TouchPoint?,
+        t0Ns: Long?
+    ) -> Unit
 ) {
 
     private val active: MutableMap<Int, PointerInfo> = LinkedHashMap()
@@ -59,13 +71,22 @@ class TouchEventDispatcher(
      * applies the change to its state and emits per-pointer
      * callbacks as a side effect.
      *
+     * [t0Ns] is the platform-level timestamp at which the
+     * underlying `MotionEvent` was delivered. The
+     * dispatcher propagates it to every callback so the
+     * engine can compute the per-event processing
+     * latency. When the dispatcher is reset or called
+     * outside the platform's `onTouchEvent`, [t0Ns] is
+     * `null`; the engine treats `null` as "do not
+     * record".
+     *
      * Per §11, every event that *removes* a pointer emits
      * a `null` callback. Per §38, the dispatcher's state is
      * always coherent: the engine never sees a "removed"
      * pointer followed by a `Move` event that re-asserts
      * the same pointer.
      */
-    fun process(action: TouchAction, pointers: List<PointerInfo>) {
+    fun process(action: TouchAction, pointers: List<PointerInfo>, t0Ns: Long? = null) {
         when (action) {
             TouchAction.Down -> {
                 // The first finger down resets the state. Any
@@ -79,14 +100,14 @@ class TouchEventDispatcher(
                 for (p in pointers) {
                     require(p.id >= 0) { "Pointer id must be non-negative (got ${p.id})." }
                     active[p.id] = p
-                    callback(p.id, p.toTouchPoint())
+                    callback(p.id, p.toTouchPoint(), t0Ns)
                 }
             }
             TouchAction.PointerDown -> {
                 for (p in pointers) {
                     require(p.id >= 0) { "Pointer id must be non-negative (got ${p.id})." }
                     active[p.id] = p
-                    callback(p.id, p.toTouchPoint())
+                    callback(p.id, p.toTouchPoint(), t0Ns)
                 }
             }
             TouchAction.Move -> {
@@ -97,7 +118,7 @@ class TouchEventDispatcher(
                 for (p in pointers) {
                     if (p.id in active) {
                         active[p.id] = p
-                        callback(p.id, p.toTouchPoint())
+                        callback(p.id, p.toTouchPoint(), t0Ns)
                     } else {
                         // A `Move` for a pointer we have not
                         // seen go down. Defensive: the
@@ -105,14 +126,14 @@ class TouchEventDispatcher(
                         // but if it does, treat it as a fresh
                         // `PointerDown` for the same id.
                         active[p.id] = p
-                        callback(p.id, p.toTouchPoint())
+                        callback(p.id, p.toTouchPoint(), t0Ns)
                     }
                 }
             }
             TouchAction.PointerUp -> {
                 for (p in pointers) {
                     active.remove(p.id)
-                    callback(p.id, null)
+                    callback(p.id, null, t0Ns)
                 }
             }
             TouchAction.Up -> {
@@ -123,12 +144,12 @@ class TouchEventDispatcher(
                 val leftover = active.keys.toList()
                 for (p in pointers) {
                     active.remove(p.id)
-                    callback(p.id, null)
+                    callback(p.id, null, t0Ns)
                 }
                 for (id in leftover) {
                     if (id in active) {
                         active.remove(id)
-                        callback(id, null)
+                        callback(id, null, t0Ns)
                     }
                 }
             }
@@ -140,14 +161,14 @@ class TouchEventDispatcher(
                 val ids = active.keys.toList()
                 active.clear()
                 for (id in ids) {
-                    callback(id, null)
+                    callback(id, null, t0Ns)
                 }
                 // If the Cancel event also lists pointers
                 // (some platforms do), make sure their
                 // removal is also signalled — though the
                 // active set has already been cleared.
                 for (p in pointers) {
-                    callback(p.id, null)
+                    callback(p.id, null, t0Ns)
                 }
             }
         }
@@ -162,11 +183,11 @@ class TouchEventDispatcher(
      * progress does not leave a stuck pointer on the
      * host.
      */
-    fun reset() {
+    fun reset(t0Ns: Long? = null) {
         val ids = active.keys.toList()
         active.clear()
         for (id in ids) {
-            callback(id, null)
+            callback(id, null, t0Ns)
         }
     }
 }

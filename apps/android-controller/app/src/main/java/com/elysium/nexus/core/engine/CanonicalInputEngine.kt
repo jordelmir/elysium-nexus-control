@@ -2,6 +2,7 @@ package com.elysium.nexus.core.engine
 
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.filter.StickFilters
+import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.BatteryState
 import com.elysium.nexus.core.model.ButtonSet
 import com.elysium.nexus.core.model.CanonicalButton
@@ -64,7 +65,21 @@ class CanonicalInputEngine(
     private val rightStickConfig: StickConfig,
     @Suppress("unused") // reserved for future engine-internal jobs (0.5+)
     private val scope: kotlinx.coroutines.CoroutineScope,
-    private val clock: () -> ULong = { System.nanoTime().toULong() }
+    private val clock: () -> ULong = { System.nanoTime().toULong() },
+    /**
+     * Optional latency tracker. When present, every
+     * `submit*` call that carries a `t0Ns` parameter
+     * records the diff between T2 (the commit time) and
+     * T0 (the platform-level timestamp the caller saw)
+     * into the tracker. This is the §30 latency budget's
+     * first measurement.
+     *
+     * `null` disables latency tracking — useful for
+     * unit tests that do not need it. Production wires a
+     * tracker so the activity can log p50/p95 to
+     * logcat.
+     */
+    private val latencyTracker: LatencyTracker? = null
 ) {
 
     private val _state: MutableStateFlow<UniversalControllerState> =
@@ -199,10 +214,22 @@ class CanonicalInputEngine(
      * either updates it (if found) or appends it (if not).
      * Removing a touch is signaled by `null`.
      *
+     * [t0Ns] is the platform-level timestamp at which the
+     * underlying `MotionEvent` was delivered (the §30 T0).
+     * The engine records the diff between T2 (the commit
+     * time) and T0 into the [latencyTracker] if one is
+     * configured. `null` disables the measurement for this
+     * call (used by the engine-internal transitions, which
+     * do not have a T0).
+     *
      * 0.4 ships this as the most direct shape the touch surface
      * will use in 0.5.
      */
-    fun submitTouchPoint(id: Int, point: TouchPoint?): SubmitResult {
+    fun submitTouchPoint(
+        id: Int,
+        point: TouchPoint?,
+        t0Ns: Long? = null
+    ): SubmitResult {
         if (!_engineState.value.isActive()) {
             return SubmitResult.WrongStateMachine(
                 state = _engineState.value,
@@ -238,7 +265,7 @@ class CanonicalInputEngine(
                 existing + point
             }
         }
-        return commit(current.copy(touches = TouchCollection(next)))
+        return commit(current.copy(touches = TouchCollection(next)), t0Ns)
     }
 
     /**
@@ -374,8 +401,18 @@ class CanonicalInputEngine(
      * and timestamp, and commit it. On validation failure,
      * the canonical state is unchanged and the rejection is
      * returned.
+     *
+     * [t0Ns] is the §30 T0 timestamp, when present. The
+     * engine records the diff between T2 (the commit time)
+     * and T0 into the [latencyTracker] if one is configured.
+     * The recording happens *after* validation so a
+     * rejected submission does not pollute the latency
+     * percentiles.
      */
-    private fun commit(candidate: UniversalControllerState): SubmitResult {
+    private fun commit(
+        candidate: UniversalControllerState,
+        t0Ns: Long? = null
+    ): SubmitResult {
         val seq = nextSequence
         val ts = monotonicTimestamp()
         val next = candidate.copy(sequence = seq, timestampNs = ts)
@@ -386,6 +423,13 @@ class CanonicalInputEngine(
                 // commit succeeds, so a rejected submission does
                 // not consume a sequence number.
                 nextSequence = max(nextSequence, seq) + 1uL
+                // Record the per-event latency into the
+                // tracker, if any. The diff is in nanoseconds.
+                if (latencyTracker != null && t0Ns != null) {
+                    val t2 = ts.toLong()
+                    val diff = t2 - t0Ns
+                    latencyTracker.record(if (diff < 0) 0L else diff)
+                }
                 return SubmitResult.Accepted(next)
             }
             is com.elysium.nexus.core.model.ValidationResult.Invalid -> {

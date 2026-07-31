@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.filter.StickConfig
+import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.input.TouchSurfaceView
 import kotlinx.coroutines.CoroutineScope
@@ -14,8 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlin.system.measureTimeMillis
 
 /**
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     private val tag = "ElysiumNexus"
     private var engine: CanonicalInputEngine? = null
+    private var latencyTracker: LatencyTracker? = null
     private var activityScope: CoroutineScope? = null
     private var driverJob: Job? = null
 
@@ -88,12 +92,15 @@ class MainActivity : ComponentActivity() {
         //    parameter is reserved for future engine-internal
         //    jobs), so we use a minimal scope here.
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val latencyTracker = LatencyTracker()
         val engine = CanonicalInputEngine(
             leftStickConfig = StickConfig(),
             rightStickConfig = StickConfig(),
-            scope = engineScope
+            scope = engineScope,
+            latencyTracker = latencyTracker
         )
         this.engine = engine
+        this.latencyTracker = latencyTracker
 
         // 2. Drive the engine through the §32 state machine.
         //    Phase 2+ replaces this with a real transport;
@@ -111,8 +118,8 @@ class MainActivity : ComponentActivity() {
             // for 0.7; the resource-based theming lands in
             // Phase 1+ with the editor.
             setBackgroundColor(Color.parseColor("#0F0F12"))
-            onTouchPointChange = { id, point ->
-                engine.submitTouchPoint(id, point)
+            onTouchPointChange = { id, point, t0Ns ->
+                engine.submitTouchPoint(id, point, t0Ns)
             }
         }
         setContentView(touch)
@@ -128,6 +135,28 @@ class MainActivity : ComponentActivity() {
         driverJob = engine.state
             .onEach { state -> logState(state) }
             .launchIn(activityScope)
+
+        // 5. The §30 latency budget reporter. Every second
+        //    we log the current p50 / p95 of the touch
+        //    processing path. The full T0..T8 harness
+        //    (transport + receiver) lands in Phase 2+ /
+        //    Phase 4.
+        driverJob = activityScope.launch {
+            while (true) {
+                delay(1000L)
+                val snapshot = latencyTracker.snapshot()
+                if (snapshot.count > 0) {
+                    Log.i(
+                        tag,
+                        "latency[count=${snapshot.count}]: " +
+                            "p50=${snapshot.p50 / 1_000_000f}ms, " +
+                            "p95=${snapshot.p95 / 1_000_000f}ms, " +
+                            "p99=${snapshot.p99 / 1_000_000f}ms, " +
+                            "max=${snapshot.max / 1_000_000f}ms"
+                    )
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -150,6 +179,7 @@ class MainActivity : ComponentActivity() {
         driverJob?.cancel()
         activityScope?.cancel()
         this.engine = null
+        this.latencyTracker = null
         this.activityScope = null
         this.driverJob = null
     }
