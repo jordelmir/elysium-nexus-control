@@ -77,7 +77,17 @@ dependencies {
     // is the first component that needs StateFlow and a
     // CoroutineScope. The reason is documented in
     // docs/changelogs/PHASE_0_4_ENGINE.md.
+    //
+    // Phase 0.7 — earned `androidx.activity:activity-ktx`
+    // because the first Activity (MainActivity) extends
+    // ComponentActivity, the modern base class for activities
+    // that do not need AppCompat shims. We use the
+    // -ktx flavour so we have the Kotlin extensions
+    // available when the activity evolves to use
+    // viewModels / by viewModels in 1.x. The reason is
+    // documented in docs/changelogs/PHASE_0_7_FIRST_ACTIVITY.md.
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.activity)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }

@@ -12,6 +12,12 @@ junit = "4.13.2"
 # because it is the version that ships clean on Kotlin 2.2.21.
 coroutines = "1.10.1"
 
+# AndroidX — earned in Phase 0.7 for ComponentActivity (the
+# modern base class for activities that do not need AppCompat
+# shims). Pin 1.9.3 because it is the version that ships clean
+# with the rest of the AndroidX 1.x line and the labs Mac.
+androidx-activity = "1.9.3"
+
 # SDK
 compileSdk = "34"
 minSdk = "26"
@@ -21,6 +27,7 @@ targetSdk = "34"
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "androidx-activity" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
