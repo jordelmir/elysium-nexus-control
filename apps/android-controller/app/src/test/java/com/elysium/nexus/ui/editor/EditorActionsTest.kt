@@ -255,6 +255,257 @@ class EditorActionsTest {
         assertEquals(90f, c.rotation, 1e-6f)
     }
 
+    // ---- Alignment ----
+
+    @Test
+    fun alignLeftMovesToLeftmostOtherControl() {
+        val profile = Profile(
+            id = 0,
+            name = "align",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.1f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.alignLeft(profile, controlId = 1, now = 0L)
+        // Control 1's x moves to 0.1 (control 0's x).
+        assertEquals(0.1f, updated.controls[1].visualBounds.x, 1e-6f)
+    }
+
+    @Test
+    fun alignRightMovesToRightmostOtherControl() {
+        val profile = Profile(
+            id = 0,
+            name = "align",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.1f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.3f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.alignRight(profile, controlId = 0, now = 0L)
+        // Control 0's right edge (0.2) moves to control 1's right edge (0.4).
+        // New x = 0.4 - 0.1 = 0.3.
+        assertEquals(0.3f, updated.controls[0].visualBounds.x, 1e-6f)
+    }
+
+    @Test
+    fun alignTopAlignsYToTopmost() {
+        val profile = Profile(
+            id = 0,
+            name = "align",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.1f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.alignTop(profile, controlId = 1, now = 0L)
+        assertEquals(0.1f, updated.controls[1].visualBounds.y, 1e-6f)
+    }
+
+    @Test
+    fun alignBottomAlignsYToBottommost() {
+        val profile = Profile(
+            id = 0,
+            name = "align",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.1f, 0.1f, 0.2f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.2f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.alignBottom(profile, controlId = 0, now = 0L)
+        // Control 0's bottom edge (0.3) should align with control 1's bottom edge (0.3).
+        // They are already equal, so the y stays 0.1 (bottom = 0.3). x is unchanged.
+        assertEquals(0.1f, updated.controls[0].visualBounds.y, 1e-6f)
+        assertEquals(0.5f, updated.controls[0].visualBounds.x, 1e-6f)
+    }
+
+    @Test
+    fun alignOnSingleControlProfileIsNoOp() {
+        val profile = profileWithOneControl()
+        val updated = EditorActions.alignLeft(profile, controlId = 0, now = 0L)
+        assertEquals(profile, updated)
+    }
+
+    // ---- Distribution ----
+
+    @Test
+    fun distributeHorizontallyEvenlySpaces() {
+        val profile = Profile(
+            id = 0,
+            name = "dist",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.0f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.3f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 2,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.6f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 3,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.9f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.distributeHorizontally(profile, now = 0L)
+        val centers = updated.controls
+            .sortedBy { it.visualBounds.x }
+            .map { it.visualBounds.x + it.visualBounds.width / 2f }
+        // 4 controls, 3 intervals. Step = 0.3.
+        assertEquals(0.05f, centers[0], 1e-4f)
+        assertEquals(0.35f, centers[1], 1e-4f)
+        assertEquals(0.65f, centers[2], 1e-4f)
+        assertEquals(0.95f, centers[3], 1e-4f)
+    }
+
+    @Test
+    fun distributeVerticallyEvenlySpaces() {
+        val profile = Profile(
+            id = 0,
+            name = "dist",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.0f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.4f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 2,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.9f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.distributeVertically(profile, now = 0L)
+        val centers = updated.controls
+            .sortedBy { it.visualBounds.y }
+            .map { it.visualBounds.y + it.visualBounds.height / 2f }
+        // 3 controls, 2 intervals. Step = 0.45.
+        assertEquals(0.05f, centers[0], 1e-4f)
+        assertEquals(0.5f, centers[1], 1e-4f)
+        assertEquals(0.95f, centers[2], 1e-4f)
+    }
+
+    @Test
+    fun distributeOnTwoControlProfileIsNoOp() {
+        val profile = Profile(
+            id = 0,
+            name = "dist",
+            author = "tester",
+            controls = listOf(
+                ControlElement(
+                    id = 0,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.0f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                ),
+                ControlElement(
+                    id = 1,
+                    type = ControlType.Button,
+                    visualBounds = NormalizedRect(0.5f, 0.5f, 0.1f, 0.1f),
+                    binding = CanonicalBinding.Neutralize
+                )
+            ),
+            createdAt = 0L,
+            updatedAt = 0L
+        )
+        val updated = EditorActions.distributeHorizontally(profile, now = 0L)
+        // 2 controls is fewer than 3; no-op.
+        assertEquals(profile.controls.map { it.visualBounds.x }, updated.controls.map { it.visualBounds.x })
+    }
+
+    // ---- HitBounds ----
+
+    @Test
+    fun setHitBoundsUpdatesHitBoundsOnly() {
+        val profile = profileWithOneControl()
+        val newHit = NormalizedRect(0.0f, 0.0f, 0.5f, 0.5f)
+        val updated = EditorActions.setHitBounds(profile, 0, newHit, now = 0L)
+        val c = updated.controls[0]
+        assertEquals(newHit, c.hitBounds)
+        // visualBounds unchanged.
+        assertEquals(NormalizedRect.CENTERED_SMALL, c.visualBounds)
+    }
+
     // ---- identity / immutability ----
 
     @Test

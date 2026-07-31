@@ -14,6 +14,10 @@ import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.motion.AndroidMotionSensorSource
 import com.elysium.nexus.core.motion.MotionSensorSource
 import com.elysium.nexus.core.motion.NullMotionSensorSource
+import com.elysium.nexus.core.posture.AndroidPostureObserver
+import com.elysium.nexus.core.posture.NullPostureObserver
+import com.elysium.nexus.core.posture.Posture
+import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
@@ -99,9 +103,12 @@ class MainActivity : ComponentActivity() {
     private var latencyJob: Job? = null
     private var motionJob: Job? = null
     private var motionSource: MotionSensorSource? = null
+    private var postureSource: PostureObserver? = null
+    private var postureJob: Job? = null
     private var profileRepository: ProfileRepository? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
+    private val postureFlow: MutableStateFlow<Posture> = MutableStateFlow(Posture.UNKNOWN)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,13 +176,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             val profile by profileFlow.collectAsState()
             val allProfiles by allProfilesFlow.collectAsState()
+            val posture by postureFlow.collectAsState()
             val scope = activityScope
             val repo = profileRepository
             profile?.let { current ->
-                MainScreen(
+                PostureAwareMainScreen(
                     engine = engine,
                     profile = current,
                     allProfiles = allProfiles,
+                    posture = posture,
                     onProfileSelected = { id ->
                         scope?.launch {
                             val next = repo?.byId(id) ?: return@launch
@@ -299,6 +308,36 @@ class MainActivity : ComponentActivity() {
                 Log.w(tag, "Motion sample collection failed; motion is dormant.", e)
             }
         }
+
+        // 8. Phase 1.5 / 1.8 — the §16 foldable
+        //    posture observer. The activity owns
+        //    the source for the activity's lifetime.
+        //    The source's `postures()` flow is
+        //    collected on the activity's scope; each
+        //    new posture updates the `postureFlow`,
+        //    which the `PostureAwareMainScreen`
+        //    observes. On a non-foldable device, the
+        //    observer returns `UNKNOWN` for the
+        //    lifetime of the activity.
+        val postureSource: PostureObserver = try {
+            AndroidPostureObserver(this, activityScope)
+        } catch (e: Throwable) {
+            // The source may fail on devices without
+            // a `WindowInfoTracker` (rare). Fall back
+            // to the no-op source.
+            Log.w(tag, "AndroidPostureObserver failed; using NullPostureObserver.", e)
+            NullPostureObserver()
+        }
+        this.postureSource = postureSource
+        postureJob = activityScope.launch {
+            try {
+                postureSource.postures().collect { posture ->
+                    postureFlow.value = posture
+                }
+            } catch (e: Throwable) {
+                Log.w(tag, "Posture observation failed; posture is dormant.", e)
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -321,6 +360,8 @@ class MainActivity : ComponentActivity() {
         driverJob?.cancel()
         motionJob?.cancel()
         motionSource?.close()
+        postureJob?.cancel()
+        postureSource?.close()
         activityScope?.cancel()
         this.engine = null
         this.latencyTracker = null
@@ -328,6 +369,8 @@ class MainActivity : ComponentActivity() {
         this.driverJob = null
         this.motionJob = null
         this.motionSource = null
+        this.postureJob = null
+        this.postureSource = null
     }
 
     /**
