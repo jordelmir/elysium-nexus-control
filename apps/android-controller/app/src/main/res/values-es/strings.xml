@@ -46,6 +46,9 @@
     <string name="import_profile_paste_hint">Pegue un documento JSON de perfil abajo.</string>
     <string name="import_profile_placeholder">{ "schemaVersion": 1, … }</string>
     <string name="import_profile_button">Importar</string>
+    <string name="editor_duplicate_profile">Duplicar</string>
+    <string name="editor_rename_profile">Renombrar</string>
+    <string name="rename_profile_hint">Ingrese un nuevo nombre para este perfil.</string>
     <string name="settings_title">Ajustes</string>
     <string name="settings_section_sticks">Sticks</string>
     <string name="settings_left_stick_sensitivity">Sensibilidad stick izquierdo</string>

@@ -39,6 +39,7 @@ import com.elysium.nexus.ui.editor.EditorActions
 import com.elysium.nexus.ui.editor.EditorCanvas
 import com.elysium.nexus.ui.editor.EditorToolbar
 import com.elysium.nexus.ui.editor.ProfileImportDialog
+import com.elysium.nexus.ui.editor.ProfileRenameDialog
 import com.elysium.nexus.ui.editor.ProfileSelector
 import com.elysium.nexus.ui.editor.TouchSurfaceViewHost
 import com.elysium.nexus.ui.editor.TransportSelector
@@ -86,6 +87,8 @@ fun MainScreen(
     onProfileUpdated: (Profile) -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onDuplicateProfile: () -> Unit = { },
+    onRenameProfile: (String) -> Unit = { },
     onShareProfile: () -> Unit = { },
     onImportProfile: (String) -> ProfileImportResult = { ProfileImportResult.Failure("Not wired") },
     settings: AppSettings,
@@ -172,6 +175,8 @@ fun MainScreen(
         },
         onNewProfile = onNewProfile,
         onDeleteProfile = onDeleteProfile,
+        onDuplicateProfile = onDuplicateProfile,
+        onRenameProfile = onRenameProfile,
         onShareProfile = onShareProfile,
         onImportProfile = onImportProfile,
         settings = settings,
@@ -206,6 +211,8 @@ private fun MainScreenContent(
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onDuplicateProfile: () -> Unit = { },
+    onRenameProfile: (String) -> Unit = { },
     onShareProfile: () -> Unit = { },
     onImportProfile: (String) -> ProfileImportResult = { ProfileImportResult.Failure("Not wired") },
     settings: AppSettings,
@@ -236,6 +243,12 @@ private fun MainScreenContent(
     // a failure stays on the dialog with the
     // reason inline.
     var showImport by remember { mutableStateOf(false) }
+    // Phase 1.24: the rename dialog visibility is
+    // *local* state. The dialog is dismissed by
+    // tapping "Close" or any tap outside the
+    // dialog's body. The new name is reported
+    // by the caller via [onRenameProfile].
+    var showRename by remember { mutableStateOf(false) }
     // The selected control's current opacity; null
     // when no control is selected. The toolbar's
     // opacity slider uses this to show the current
@@ -287,6 +300,8 @@ private fun MainScreenContent(
                 },
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
+                onDuplicateProfile = onDuplicateProfile,
+                onRenameProfile = { showRename = true },
                 onShare = onShareProfile,
                 onImport = { showImport = true },
                 onSettings = { showSettings = true },
@@ -411,6 +426,20 @@ private fun MainScreenContent(
                 onDismiss = { showImport = false }
             )
         }
+        // Phase 1.24: the rename dialog. The
+        // dialog is hosted by the screen
+        // itself; the new name is reported
+        // by [onRenameProfile]. The caller
+        // (the activity) does the
+        // [com.elysium.nexus.core.profile.ProfileActions.rename]
+        // call and the repository `upsert`.
+        if (showRename) {
+            ProfileRenameDialog(
+                currentName = profile.name,
+                onRename = onRenameProfile,
+                onDismiss = { showRename = false }
+            )
+        }
     }
 }
 
@@ -447,6 +476,8 @@ private fun MainScreenPreview() {
         onReset = { },
         onNewProfile = { },
         onDeleteProfile = { },
+        onDuplicateProfile = { },
+        onRenameProfile = { _ -> },
         onShareProfile = { },
         onImportProfile = { ProfileImportResult.Failure("Preview") },
         settings = com.elysium.nexus.core.settings.AppSettings(),

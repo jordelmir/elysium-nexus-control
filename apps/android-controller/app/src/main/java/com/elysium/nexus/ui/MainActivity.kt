@@ -26,6 +26,7 @@ import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.profile.ProfileActions
 import com.elysium.nexus.core.profile.ProfileImportResult
 import com.elysium.nexus.core.profile.ProfileImporter
 import com.elysium.nexus.core.profile.ProfileShareBuilder
@@ -301,6 +302,60 @@ class MainActivity : ComponentActivity() {
                             val next = r.firstOrNull()
                             profileFlow.value = next
                             allProfilesFlow.value = r.all()
+                        }
+                    },
+                    onDuplicateProfile = {
+                        // Phase 1.24: the §15 duplicate
+                        // action. We grab the current
+                        // profile, compute a fresh
+                        // duplicate (new id, fresh
+                        // timestamps, "name (copy)"
+                        // suffix), and upsert. The
+                        // duplicate is a *new* profile;
+                        // editing it does not touch the
+                        // source.
+                        scope?.launch {
+                            val current = profileFlow.value ?: return@launch
+                            val r = repo ?: return@launch
+                            val now = System.currentTimeMillis()
+                            val newId = r.nextId()
+                            val duplicate = ProfileActions.duplicate(
+                                source = current,
+                                newId = newId,
+                                now = now
+                            )
+                            r.upsert(duplicate)
+                            profileFlow.value = duplicate
+                            allProfilesFlow.value = r.all()
+                            haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
+                            Log.i(tag, "Duplicated profile: ${current.name} → id=$newId")
+                        }
+                    },
+                    onRenameProfile = { newName ->
+                        // Phase 1.24: the §15 rename
+                        // action. The dialog returns
+                        // the new name; we run
+                        // [ProfileActions.rename] and
+                        // upsert. A blank name is
+                        // rejected by [Profile.init].
+                        val current = profileFlow.value ?: return@PostureAwareMainScreen
+                        val now = System.currentTimeMillis()
+                        val renamed = try {
+                            ProfileActions.rename(
+                                source = current,
+                                newName = newName,
+                                now = now
+                            )
+                        } catch (e: IllegalArgumentException) {
+                            Log.w(tag, "Rename failed: ${e.message}")
+                            return@PostureAwareMainScreen
+                        }
+                        scope?.launch {
+                            repo?.upsert(renamed)
+                            profileFlow.value = renamed
+                            allProfilesFlow.value = repo?.all() ?: emptyList()
+                            haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
+                            Log.i(tag, "Renamed profile id=${current.id} → '${newName}'")
                         }
                     },
                     onShareProfile = {

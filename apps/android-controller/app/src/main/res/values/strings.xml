@@ -60,6 +60,9 @@
     <string name="import_profile_paste_hint">Paste a profile JSON document below.</string>
     <string name="import_profile_placeholder">{ "schemaVersion": 1, … }</string>
     <string name="import_profile_button">Import</string>
+    <string name="editor_duplicate_profile">Duplicate</string>
+    <string name="editor_rename_profile">Rename</string>
+    <string name="rename_profile_hint">Enter a new name for this profile.</string>
     <string name="settings_title">Settings</string>
     <string name="settings_section_sticks">Sticks</string>
     <string name="settings_left_stick_sensitivity">Left stick sensitivity</string>

@@ -65,6 +65,8 @@ fun EditorToolbar(
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
+    onDuplicateProfile: () -> Unit = { },
+    onRenameProfile: () -> Unit = { },
     onShare: () -> Unit = { },
     onImport: () -> Unit = { },
     onSettings: () -> Unit = { },
@@ -143,6 +145,31 @@ fun EditorToolbar(
                 label = { Text(stringResource(R.string.editor_delete_profile)) },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color(0xFFB42318),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            // Phase 1.24: the §15 duplicate chip.
+            // Tapping it produces a fresh copy of
+            // the current profile (new id, fresh
+            // timestamps) and adds it to the
+            // library.
+            AssistChip(
+                onClick = onDuplicateProfile,
+                label = { Text(stringResource(R.string.editor_duplicate_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            // Phase 1.24: the §15 rename chip.
+            // Tapping it opens a small dialog
+            // (see [com.elysium.nexus.ui.editor.ProfileRenameDialog])
+            // pre-filled with the current name.
+            AssistChip(
+                onClick = onRenameProfile,
+                label = { Text(stringResource(R.string.editor_rename_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
                     labelColor = Color(0xFFF2F2F4)
                 )
             )
