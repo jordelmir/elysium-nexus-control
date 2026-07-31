@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,14 +26,14 @@ import androidx.compose.ui.unit.sp
 import com.elysium.nexus.R
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
-import com.elysium.nexus.core.profile.CanonicalBinding
-import com.elysium.nexus.core.profile.ControlElement
-import com.elysium.nexus.core.profile.ControlType
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.ui.editor.ControlKind
+import com.elysium.nexus.ui.editor.EditorActions
 import com.elysium.nexus.ui.editor.EditorCanvas
 import com.elysium.nexus.ui.editor.EditorToolbar
+import com.elysium.nexus.ui.editor.ProfileSelector
+import com.elysium.nexus.ui.editor.TouchSurfaceViewHost
 
 /**
  * The first Compose UI screen of the project.
@@ -52,42 +53,88 @@ import com.elysium.nexus.ui.editor.EditorToolbar
  *    the user can "Add button" / "Add stick" / "Add
  *    trigger" and "Save" / "Reset". The currently
  *    selected control is highlighted in the canvas.
+ *  - Phase 1.3: the [TouchSurfaceViewHost] is *inside*
+ *    the Compose tree via `AndroidView` (Bug #18 fix).
+ *    The editor's `pointerInput` consumes touches
+ *    inside control hitBoxes; everything else falls
+ *    through to the touch surface. The
+ *    [ProfileSelector] lists every profile in the DB.
+ *    Long-press a control to delete it.
  *
- * Phase 1.3+ adds: scale + rotate + opacity, the
- * profile selector, the transport multiplexer.
+ * Phase 1.4+ adds: opacity slider, the alignment /
+ * distribution helpers, the import / export, the
+ * signature, the §11 transport multiplexer.
  */
 @Composable
 fun MainScreen(
     engine: CanonicalInputEngine,
     profile: Profile,
+    allProfiles: List<Profile>,
+    onProfileSelected: (Int) -> Unit,
     onProfileUpdated: (Profile) -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state by engine.state.collectAsState()
     MainScreenContent(
+        engine = engine,
         state = state,
         profile = profile,
+        allProfiles = allProfiles,
+        onProfileSelected = onProfileSelected,
         onControlMoved = { controlId, newVisualBounds ->
-            val now = System.currentTimeMillis()
-            val updated = profile.withControlReplaced(
-                controlId = controlId,
-                updated = profile.controls.first { it.id == controlId }
-                    .copy(visualBounds = newVisualBounds),
-                now = now
+            onProfileUpdated(
+                EditorActions.moveControl(
+                    profile = profile,
+                    controlId = controlId,
+                    newVisualBounds = newVisualBounds,
+                    now = System.currentTimeMillis()
+                )
             )
-            onProfileUpdated(updated)
+        },
+        onControlScaled = { controlId, newW, newH ->
+            onProfileUpdated(
+                EditorActions.resizeControl(
+                    profile = profile,
+                    controlId = controlId,
+                    newWidth = newW,
+                    newHeight = newH,
+                    now = System.currentTimeMillis()
+                )
+            )
+        },
+        onControlRotated = { controlId, newRotation ->
+            onProfileUpdated(
+                EditorActions.rotateControl(
+                    profile = profile,
+                    controlId = controlId,
+                    newRotation = newRotation,
+                    now = System.currentTimeMillis()
+                )
+            )
         },
         onControlAdded = { kind ->
-            val now = System.currentTimeMillis()
-            val newId = (profile.controls.maxOfOrNull { it.id } ?: -1) + 1
-            val newControl = createDefaultControl(newId, kind)
-            onProfileUpdated(profile.withControlAdded(newControl, now))
+            onProfileUpdated(
+                EditorActions.addControl(
+                    profile = profile,
+                    kind = kind,
+                    now = System.currentTimeMillis()
+                )
+            )
+        },
+        onControlDeleted = { controlId ->
+            onProfileUpdated(
+                EditorActions.removeControl(
+                    profile = profile,
+                    controlId = controlId,
+                    now = System.currentTimeMillis()
+                )
+            )
         },
         onReset = {
             // Phase 1.2 reset: re-issue the profile's
             // own controls in their original positions.
-            // The §15 "history" milestone (Phase 1.3+)
+            // The §15 "history" milestone (Phase 1.4+)
             // replaces this with a per-session history.
             onProfileUpdated(profile)
         },
@@ -103,10 +150,16 @@ fun MainScreen(
  */
 @Composable
 private fun MainScreenContent(
+    engine: CanonicalInputEngine,
     state: UniversalControllerState,
     profile: Profile,
+    allProfiles: List<Profile>,
+    onProfileSelected: (Int) -> Unit,
     onControlMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
+    onControlScaled: (controlId: Int, newWidth: Float, newHeight: Float) -> Unit,
+    onControlRotated: (controlId: Int, newRotation: Float) -> Unit,
     onControlAdded: (ControlKind) -> Unit,
+    onControlDeleted: (controlId: Int) -> Unit,
     onReset: () -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
@@ -123,6 +176,19 @@ private fun MainScreenContent(
         color = Color(0xFF0F0F12) // brand_ink
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // Phase 1.3: the profile selector. The user
+            // can switch between every profile in the
+            // database. The selector sits above the
+            // toolbar.
+            ProfileSelector(
+                profiles = allProfiles,
+                currentProfileId = profile.id,
+                onProfileSelected = {
+                    selectedId = null
+                    onProfileSelected(it)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
             // The editor toolbar: Add / Save / Reset.
             EditorToolbar(
                 onAdd = onControlAdded,
@@ -134,17 +200,37 @@ private fun MainScreenContent(
                 isDirty = false
             )
             Box(modifier = Modifier.fillMaxSize()) {
-                // The editor canvas: the user's profile rendered
-                // as draggable controls. The selected control
-                // gets a paper-coloured outline.
+                // Phase 1.3: the touch surface is
+                // hosted *inside* the Compose tree via
+                // `AndroidView` (the [TouchSurfaceViewHost]
+                // composable). It sits behind the
+                // editor and receives every touch that
+                // the editor's `pointerInput` does NOT
+                // consume. This is the Bug #18 fix: the
+                // touch surface is no longer dead.
+                TouchSurfaceViewHost(
+                    onTouchPointChange = { id, point, t0Ns ->
+                        engine.submitTouchPoint(id, point, t0Ns)
+                    }
+                )
+                // The editor canvas: the user's profile
+                // rendered as draggable, scalable,
+                // rotatable controls. The selected
+                // control gets a paper-coloured outline.
                 EditorCanvas(
                     profile = profile,
                     onMoved = onControlMoved,
+                    onScaled = onControlScaled,
+                    onRotated = onControlRotated,
                     onTapped = { id -> selectedId = id },
+                    onLongPressed = { id ->
+                        selectedId = null
+                        onControlDeleted(id)
+                    },
                     selectedId = selectedId
                 )
-                // The diagnostic overlay: small text in the
-                // corner showing the engine state.
+                // The diagnostic overlay: small text in
+                // the corner showing the engine state.
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -179,40 +265,6 @@ private fun MainScreenContent(
 }
 
 /**
- * Build a default [ControlElement] for the toolbar's
- * "Add" action. The position is centred; the user
- * drags it from there. The binding is the next
- * available in the §10/§12/§13 taxonomy:
- *
- *  - Button → the next [com.elysium.nexus.core.model.CanonicalButton]
- *    that is not already bound. If all are bound, fall
- *    back to the §38 Neutralize binding.
- *  - Stick → the [com.elysium.nexus.core.engine.StickSide]
- *    that is not already bound. If both, default to Left.
- *  - Trigger → the [com.elysium.nexus.core.engine.StickSide]
- *    that is not already bound. If both, default to Left.
- */
-private fun createDefaultControl(id: Int, kind: ControlKind): ControlElement {
-    val bounds = NormalizedRect.CENTERED_SMALL
-    val binding: CanonicalBinding = when (kind) {
-        ControlKind.Button -> CanonicalBinding.Neutralize
-        ControlKind.Stick -> CanonicalBinding.Stick(com.elysium.nexus.core.engine.StickSide.Left)
-        ControlKind.Trigger -> CanonicalBinding.Trigger(com.elysium.nexus.core.engine.StickSide.Left)
-    }
-    val type: ControlType = when (kind) {
-        ControlKind.Button -> ControlType.Button
-        ControlKind.Stick -> ControlType.Stick
-        ControlKind.Trigger -> ControlType.Trigger
-    }
-    return ControlElement(
-        id = id,
-        type = type,
-        visualBounds = bounds,
-        binding = binding
-    )
-}
-
-/**
  * Android Studio preview. A no-op that shows the
  * layout with a synthetic neutral state and the
  * default profile. Useful for screenshotting the
@@ -223,11 +275,22 @@ private fun createDefaultControl(id: Int, kind: ControlKind): ControlElement {
 private fun MainScreenPreview() {
     val state = UniversalControllerState.neutral()
     val profile = Profile.defaultProfile(now = 0L)
+    val previewScope = rememberCoroutineScope()
     MainScreenContent(
+        engine = CanonicalInputEngine(
+            leftStickConfig = com.elysium.nexus.core.filter.StickConfig(),
+            rightStickConfig = com.elysium.nexus.core.filter.StickConfig(),
+            scope = previewScope
+        ),
         state = state,
         profile = profile,
+        allProfiles = listOf(profile),
+        onProfileSelected = { },
         onControlMoved = { _, _ -> },
+        onControlScaled = { _, _, _ -> },
+        onControlRotated = { _, _ -> },
         onControlAdded = { },
+        onControlDeleted = { },
         onReset = { },
         onNeutralize = { }
     )

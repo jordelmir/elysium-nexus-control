@@ -1,11 +1,9 @@
 package com.elysium.nexus.ui
 
-import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
-import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.platform.ComposeView
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.elysium.nexus.core.engine.CanonicalInputEngine
@@ -14,12 +12,9 @@ import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.profile.Profile
-import com.elysium.nexus.databases.compatibility.CompatibilityDatabase
-import com.elysium.nexus.databases.compatibility.RoomCompatibilityRepository
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.databases.profile.RoomProfileRepository
-import com.elysium.nexus.input.TouchSurfaceView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,7 +22,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -47,13 +41,17 @@ import kotlin.system.measureTimeMillis
  *  2. Drives the engine through the §32 state machine from
  *     `Idle` to `Active`, simulating the transport layer
  *     for now.
- *  3. Creates a [TouchSurfaceView] that owns the touch
- *     pipeline and wires its callback to
- *     `engine.submitTouchPoint`.
- *  4. Sets the view as the activity's content.
- *  5. Subscribes to the engine's [CanonicalInputEngine.state]
+ *  3. Sets the activity's content to the Compose
+ *     `MainScreen` via `setContent`. The
+ *     [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
+ *     is inside the Compose tree (Phase 1.3's
+ *     [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
+ *     pattern; the Phase 1.1+ `FrameLayout` was removed
+ *     in Phase 1.3 when the touch surface moved into
+ *     Compose).
+ *  4. Subscribes to the engine's [CanonicalInputEngine.state]
  *     and logs every emission to logcat.
- *  6. On `onDestroy`, drives the engine to `Disconnected`,
+ *  5. On `onDestroy`, drives the engine to `Disconnected`,
  *     calls `engine.neutralize()` for the §38 abrupt path,
  *     and cancels the activity's scope.
  *
@@ -95,13 +93,13 @@ class MainActivity : ComponentActivity() {
     private var activityScope: CoroutineScope? = null
     private var driverJob: Job? = null
     private var latencyJob: Job? = null
-    private var touch: TouchSurfaceView? = null
     private var profileRepository: ProfileRepository? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
+    private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.i(tag, "MainActivity.onCreate — Phase 1.0 first-Compose milestone")
+        Log.i(tag, "MainActivity.onCreate — Phase 1.3 editor + AndroidView arbitration")
 
         // 1. Create the engine. The engine's own scope is
         //    separate from the activity's scope: the engine
@@ -124,90 +122,65 @@ class MainActivity : ComponentActivity() {
         //    for 0.7 the activity is the transport.
         driveEngineToActive(engine)
 
-        // 3. Create the touch surface. The view is the
-        //    Android-specific shell around the dispatcher
-        //    (Phase 0.5). Its callback is wired directly to
-        //    the engine's `submitTouchPoint`.
-        val touch = TouchSurfaceView(this).apply {
-            // Use the brand `brand_ink` for the surface
-            // background. We avoid XML resources here
-            // because the view is constructed programmatically
-            // for 0.7; the resource-based theming lands in
-            // Phase 1+ with the editor.
-            setBackgroundColor(Color.parseColor("#0F0F12"))
-            onTouchPointChange = { id, point, t0Ns ->
-                engine.submitTouchPoint(id, point, t0Ns)
+        // 3. Phase 1.2: the profile repository. The
+        //    Room-backed implementation persists the
+        //    profile across process death. The default
+        //    profile is loaded on first launch
+        //    (when the database is empty) and exposed
+        //    as a StateFlow so the Compose UI can
+        //    observe it. When the user drags a control
+        //    in the editor, the activity updates the
+        //    repository and pushes the new value into
+        //    the flow; the editor recomposes.
+        //
+        // Phase 1.3: also expose the *list* of every
+        // profile in the DB so the editor's
+        // [com.elysium.nexus.ui.editor.ProfileSelector]
+        // can render the user's library.
+        val profileRepo: ProfileRepository = RoomProfileRepository(
+            ProfileDatabase.getInstance(this).profileDao()
+        )
+        this.profileRepository = profileRepo
+        runBlocking {
+            if (profileRepo.count() == 0) {
+                profileRepo.upsert(
+                    Profile.defaultProfile(now = System.currentTimeMillis())
+                )
             }
+            profileFlow.value = profileRepo.firstOrNull()
+            allProfilesFlow.value = profileRepo.all()
         }
-        // Phase 1.2: the activity's content is a
-        // `FrameLayout` that hosts the touch surface at
-        // the bottom and the Compose view (the
-        // `MainScreen`) on top. The Compose view is
-        // the LAST child added; Android dispatches
-        // touch to the last child first, so the
-        // Compose view receives every MotionEvent.
-        //
-        // The Phase 1.1 architecture had the order
-        // inverted (touch surface on top), which made
-        // the editor's drag gestures non-functional
-        // on-device: the touch surface consumed every
-        // event before the editor saw it. The fix is
-        // a one-line swap: ComposeView added LAST →
-        // on TOP → receives every event.
-        //
-        // The editor's `pointerInput` calls
-        // `change.consume()` on drag, so a touch
-        // *inside* a control's hitBounds is consumed
-        // by the editor and never reaches the touch
-        // surface. A touch *outside* any control
-        // falls through to the touch surface (the
-        // Compose view is transparent except where
-        // widgets draw). The proper arbitration
-        // lands in Phase 1.3+ via `AndroidView` so
-        // the touch surface can sit *inside* the
-        // Compose tree.
-        val root = FrameLayout(this).apply {
-            val matchParent = FrameLayout.LayoutParams.MATCH_PARENT
-            // Touch surface first (added first, drawn
-            // first, behind the Compose view).
-            addView(
-                touch,
-                FrameLayout.LayoutParams(matchParent, matchParent)
-            )
-            // Compose view second (added second, drawn
-            // second, on top, touched first).
-            val composeView = ComposeView(this@MainActivity)
-            addView(
-                composeView,
-                FrameLayout.LayoutParams(matchParent, matchParent)
-            )
-        }
-        setContentView(root)
 
-        // Phase 1.2: the editor observes the profile via
-        // `profileFlow.collectAsState()`. The Compose
-        // view is rebuilt every time the user drags a
-        // control. The initial profile is the default
-        // (loaded from the Room repo in step 7 below).
-        //
-        // The ComposeView is the SECOND child of the
-        // `FrameLayout` (the touch surface is the first,
-        // behind the editor). The cast on
-        // `getChildAt(1)` is safe: we just added the
-        // view, and we just cast the same class to
-        // `ComposeView` on the way down.
-        (root.getChildAt(1) as? ComposeView)?.setContent {
+        // 4. Phase 1.3: set the activity's content
+        //    directly to the Compose `MainScreen`. The
+        //    [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
+        //    is hosted *inside* the Compose tree via
+        //    `AndroidView`. The activity no longer
+        //    needs a `FrameLayout`; the Compose tree
+        //    is the only content view. This is the
+        //    Phase 1.3 fix for Bug #18: the touch
+        //    surface is no longer dead.
+        setContent {
             val profile by profileFlow.collectAsState()
+            val allProfiles by allProfilesFlow.collectAsState()
             val scope = activityScope
             val repo = profileRepository
             profile?.let { current ->
                 MainScreen(
                     engine = engine,
                     profile = current,
+                    allProfiles = allProfiles,
+                    onProfileSelected = { id ->
+                        scope?.launch {
+                            val next = repo?.byId(id) ?: return@launch
+                            profileFlow.value = next
+                        }
+                    },
                     onProfileUpdated = { updated ->
                         scope?.launch {
                             repo?.upsert(updated)
                             profileFlow.value = updated
+                            allProfilesFlow.value = repo?.all() ?: emptyList()
                         }
                     },
                     onNeutralize = { engine.neutralize() }
@@ -215,7 +188,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 4. Create the activity's scope and observe the
+        // 5. Create the activity's scope and observe the
         //    engine's state. Every emission is logged to
         //    logcat with the latency from the previous
         //    emission, which is the cheapest first cut of
@@ -227,7 +200,7 @@ class MainActivity : ComponentActivity() {
             .onEach { state -> logState(state) }
             .launchIn(activityScope)
 
-        // 5. The §30 latency budget reporter. Every second
+        // 6. The §30 latency budget reporter. Every second
         //    we log the current p50 / p95 of the touch
         //    processing path. The full T0..T8 harness
         //    (transport + receiver) lands in Phase 2+ /
@@ -247,29 +220,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-
-        // 7. Phase 1.2: the profile repository. The
-        //    Room-backed implementation persists the
-        //    profile across process death. The default
-        //    profile is loaded on first launch
-        //    (when the database is empty) and exposed
-        //    as a StateFlow so the Compose UI can
-        //    observe it. When the user drags a control
-        //    in the editor, the activity updates the
-        //    repository and pushes the new value into
-        //    the flow; the editor recomposes.
-        val profileRepo: ProfileRepository = RoomProfileRepository(
-            ProfileDatabase.getInstance(this).profileDao()
-        )
-        this.profileRepository = profileRepo
-        runBlocking {
-            if (profileRepo.count() == 0) {
-                profileRepo.upsert(
-                    Profile.defaultProfile(now = System.currentTimeMillis())
-                )
-            }
-            profileFlow.value = profileRepo.firstOrNull()
         }
     }
 

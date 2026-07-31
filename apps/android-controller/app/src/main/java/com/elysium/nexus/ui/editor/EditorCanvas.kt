@@ -3,6 +3,8 @@ package com.elysium.nexus.ui.editor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -31,6 +33,8 @@ import com.elysium.nexus.core.profile.ControlElement
 import com.elysium.nexus.core.profile.ControlType
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -39,24 +43,21 @@ import kotlin.math.roundToInt
  * `MASTER_ORDER.md` §15 says the user can "create
  * controls from scratch" with "drag, scale, rotate,
  * duplicate, group, lock, align, distribute, opacity".
- * Phase 1.1 ships the smallest first slice:
+ * The canvas has grown across phases:
  *
- *  - A `Box` that fills the parent.
- *  - The active profile's [ControlElement]s rendered
- *    as circles (for visibility during drag).
- *  - Each control is draggable via
- *    `pointerInput { detectDragGestures }`.
- *  - The drag is normalised to the parent size and
- *    persisted back into the profile via the
- *    `onMoved` callback.
+ *  - Phase 1.1: render + drag (`detectDragGestures`).
+ *  - Phase 1.2: `selectedId` outline + EditorToolbar
+ *    "Add" / "Save" / "Reset" chips.
+ *  - Phase 1.3: scale (pinch) + rotate (two-finger
+ *    twist) via `detectTransformGestures`, long-press
+ *    to delete via `detectTapGestures(onLongPress)`.
+ *    The "drag" gesture is now inside a
+ *    `Box` that hosts the `TouchSurfaceView` via
+ *    `AndroidView` (Phase 1.3's Bug #18 fix).
  *
- * Phase 1.2 adds: the toolbar ("Add button", "Add stick",
- * "Add trigger", "Save", "Reset") and the `selectedId`
- * highlight (a single control's outline turns
- * `brand_accent` when the user taps it). Phase 1.3+
- * adds: scale (pinch), rotate (two-finger twist),
- * opacity slider, long-press to delete, profile
- * selector, import/export, signature.
+ * Phase 1.4+ adds: opacity slider (per-control), the
+ * `hitBounds` editor, the alignment / distribution
+ * helpers, the import / export, the signature.
  *
  * ## Why a `Box` with `Modifier.offset` instead of
  * `Modifier.layout` or `Canvas`
@@ -84,7 +85,10 @@ import kotlin.math.roundToInt
 fun EditorCanvas(
     profile: Profile,
     onMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
+    onScaled: (controlId: Int, newWidth: Float, newHeight: Float) -> Unit,
+    onRotated: (controlId: Int, newRotation: Float) -> Unit,
     onTapped: (controlId: Int) -> Unit,
+    onLongPressed: (controlId: Int) -> Unit,
     selectedId: Int? = null,
     modifier: Modifier = Modifier
 ) {
@@ -104,18 +108,43 @@ fun EditorCanvas(
                 parentSize = parentSize.value,
                 isSelected = selectedId == control.id,
                 onMoved = onMoved,
-                onTapped = onTapped
+                onScaled = onScaled,
+                onRotated = onRotated,
+                onTapped = onTapped,
+                onLongPressed = onLongPressed
             )
         }
     }
 }
 
 /**
- * Render a single [ControlElement] as a draggable
- * circle. The control's `visualBounds` is converted to
- * pixel positions using the parent's size; the drag
- * gesture updates the visual bounds and calls
- * [onMoved] to persist the change.
+ * Render a single [ControlElement] as a draggable,
+ * scalable, rotatable circle. The control's
+ * `visualBounds` is converted to pixel positions using
+ * the parent's size; the gestures update the visual
+ * bounds and call [onMoved] / [onScaled] / [onRotated]
+ * to persist the change.
+ *
+ * ## Why three `pointerInput` blocks and not one
+ *
+ * Compose's `pointerInput { }` blocks are stacked.
+ * If we used a single block with all three
+ * detectors, the first to claim the gesture would
+ * win and the others would be silent. Splitting
+ * into three blocks lets `detectTapGestures` and
+ * `detectDragGestures` and `detectTransformGestures`
+ * all observe the touch stream; each one consumes
+ * only when its gesture is recognised.
+ *
+ * `detectTapGestures` consumes a `Press` only when
+ * the gesture is recognised (a single tap or a
+ * long press). The `detectDragGestures` /
+ * `detectTransformGestures` blocks consume their
+ * own events. The `change.consume()` calls mark
+ * the events as handled, so the underlying
+ * `pointerInput` tree does not propagate them
+ * further (in particular, the `TouchSurfaceView`
+ * behind the editor does not see them).
  */
 @Composable
 private fun ControlView(
@@ -123,7 +152,10 @@ private fun ControlView(
     parentSize: IntSize,
     isSelected: Boolean,
     onMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
-    onTapped: (controlId: Int) -> Unit
+    onScaled: (controlId: Int, newWidth: Float, newHeight: Float) -> Unit,
+    onRotated: (controlId: Int, newRotation: Float) -> Unit,
+    onTapped: (controlId: Int) -> Unit,
+    onLongPressed: (controlId: Int) -> Unit
 ) {
     if (parentSize == IntSize.Zero) return
 
@@ -169,11 +201,26 @@ private fun ControlView(
                     Modifier
                 }
             )
+            // Tap detector: single tap selects the
+            // control; long press deletes it. Both
+            // gestures are recognised by the same
+            // detector; the long-press recogniser
+            // wins if the press is held past the
+            // platform's long-press timeout (~500ms).
+            .pointerInput(control.id) {
+                detectTapGestures(
+                    onTap = { onTapped(control.id) },
+                    onLongPress = { onLongPressed(control.id) }
+                )
+            }
+            // Drag detector: 1-finger drag moves the
+            // control. The drag is normalised to the
+            // parent's size. The drag also calls
+            // `onTapped` to mark the control as
+            // selected (the same effect as a tap).
             .pointerInput(control.id) {
                 detectDragGestures(
-                    onDragStart = {
-                        onTapped(control.id)
-                    },
+                    onDragStart = { onTapped(control.id) },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         val parentW = parentSize.width.toFloat()
@@ -183,6 +230,37 @@ private fun ControlView(
                         val dyNormalized = dragAmount.y / parentH
                         val moved = control.movedBy(dxNormalized, dyNormalized)
                         onMoved(control.id, moved.visualBounds)
+                    }
+                )
+            }
+            // Transform detector: 2-finger pinch +
+            // twist. `detectTransformGestures` only
+            // fires after the second pointer is
+            // down; a 1-finger drag is left to
+            // `detectDragGestures` above. The
+            // detector calls `change.consume()` on
+            // the centroid / pan / zoom / rotation
+            // changes, so the underlying touch
+            // surface does not see the gestures.
+            .pointerInput(control.id) {
+                detectTransformGestures(
+                    onGesture = { _, _, zoom, rotationDelta ->
+                        // Pan is ignored here because
+                        // detectDragGestures handles
+                        // 1-finger movement. Zoom and
+                        // rotation are the 2-finger
+                        // gestures.
+                        if (zoom != 1f) {
+                            val newW = (control.visualBounds.width * zoom)
+                                .coerceIn(0.05f, 1f - control.visualBounds.x)
+                            val newH = (control.visualBounds.height * zoom)
+                                .coerceIn(0.05f, 1f - control.visualBounds.y)
+                            onScaled(control.id, newW, newH)
+                        }
+                        if (rotationDelta != 0f) {
+                            val newRotation = ((control.rotation + rotationDelta) % 360f + 360f) % 360f
+                            onRotated(control.id, newRotation)
+                        }
                     }
                 )
             },
@@ -196,3 +274,34 @@ private fun ControlView(
         )
     }
 }
+
+/**
+ * The minimum width / height of a control in
+ * normalized coordinates. Below this, a pinch would
+ * produce a 0-sized control. The threshold is 5% of
+ * the parent's shorter axis — small enough that the
+ * user can intentionally shrink to a corner marker,
+ * large enough that a control is still visible and
+ * tappable.
+ */
+private const val MIN_CONTROL_DIM: Float = 0.05f
+
+/**
+ * The maximum width / height of a control. The
+ * upper bound is the parent's axis minus the
+ * control's current offset (so the control cannot
+ * overflow the parent). The `coerceIn` clamp is
+ * applied per-axis at the call site.
+ */
+@Suppress("unused")
+private fun maxControlDim(coord: Float, parentAxis: Float): Float =
+    min(parentAxis - coord, parentAxis)
+
+/**
+ * A helper used in tests: the smallest of the two
+ * axes of a control, in normalized `[0, 1]`
+ * coordinates. Used as the minimum-size floor for
+ * the §15 "hitbox" feature.
+ */
+@Suppress("unused")
+internal fun minDim(rect: NormalizedRect): Float = max(MIN_CONTROL_DIM, min(rect.width, rect.height))

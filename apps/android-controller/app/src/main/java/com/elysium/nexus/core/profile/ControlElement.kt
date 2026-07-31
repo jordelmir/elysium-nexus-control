@@ -81,6 +81,49 @@ data class ControlElement(
             visualBounds = visualBounds.movedBy(dx, dy),
             hitBounds = hitBounds.movedBy(dx, dy)
         )
+
+    /**
+     * @return a copy of this element with the visual
+     *   bounds resized to ([newWidth], [newHeight])
+     *   in normalized coordinates. The bounds are
+     *   clamped to the valid `[0, 1]` range on each
+     *   axis. The position is unchanged; the
+     *   control grows / shrinks toward the bottom-
+     *   right. Used by the editor's pinch gesture.
+     *
+     * Phase 1.3+ replaces the "grow toward BR" with
+     * a "grow from centre" or "grow from corner"
+     * option (the §15 "transform" menu).
+     */
+    fun resized(newWidth: Float, newHeight: Float): ControlElement {
+        val w = newWidth.coerceIn(0.05f, 1f - visualBounds.x)
+        val h = newHeight.coerceIn(0.05f, 1f - visualBounds.y)
+        return copy(
+            visualBounds = NormalizedRect(
+                x = visualBounds.x,
+                y = visualBounds.y,
+                width = w,
+                height = h
+            ),
+            hitBounds = NormalizedRect(
+                x = hitBounds.x,
+                y = hitBounds.y,
+                width = w,
+                height = h
+            )
+        )
+    }
+
+    /**
+     * @return a copy of this element with the visual
+     *   rotation set to [newRotation] degrees, in
+     *   the range `[0, 360]`. Used by the editor's
+     *   two-finger twist gesture.
+     */
+    fun rotated(newRotation: Float): ControlElement {
+        val r = ((newRotation % 360f) + 360f) % 360f
+        return copy(rotation = r)
+    }
 }
 
 private fun NormalizedRect.movedBy(dx: Float, dy: Float): NormalizedRect {
@@ -88,3 +131,4 @@ private fun NormalizedRect.movedBy(dx: Float, dy: Float): NormalizedRect {
     val newY = (y + dy).coerceIn(0f, 1f - height)
     return NormalizedRect(newX, newY, width, height)
 }
+
