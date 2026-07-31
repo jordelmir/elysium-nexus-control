@@ -171,7 +171,22 @@ class MainActivity : ComponentActivity() {
             allProfilesFlow.value = profileRepo.all()
         }
 
-        // 4. Phase 1.3: set the activity's content
+        // 4. Phase 1.16 — the default transport must
+        //    be in scope *before* the setContent block
+        //    so the composable lambda can reference
+        //    it (the §17 multiplexer). We create the
+        //    [LocalEchoTransport], start and connect
+        //    it (the test-friendly transport, 0 ms
+        //    latency), and stash it in the activity
+        //    field for the onDestroy §38 path.
+        val defaultTransport = LocalEchoTransport()
+        runBlocking {
+            defaultTransport.start()
+            defaultTransport.connect()
+        }
+        transportFlow.value = defaultTransport
+
+        // 5. Phase 1.3: set the activity's content
         //    directly to the Compose `MainScreen`. The
         //    [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
         //    is hosted *inside* the Compose tree via
@@ -184,6 +199,7 @@ class MainActivity : ComponentActivity() {
             val profile by profileFlow.collectAsState()
             val allProfiles by allProfilesFlow.collectAsState()
             val posture by postureFlow.collectAsState()
+            val currentTransport by transportFlow.collectAsState()
             val scope = activityScope
             val repo = profileRepository
             profile?.let { current ->
@@ -191,6 +207,12 @@ class MainActivity : ComponentActivity() {
                     engine = engine,
                     profile = current,
                     allProfiles = allProfiles,
+                    transports = listOfNotNull(currentTransport),
+                    currentTransport = currentTransport ?: defaultTransport,
+                    onTransportSelected = { t ->
+                        transportBinding?.setTransport(t)
+                        transportFlow.value = t
+                    },
                     posture = posture,
                     onProfileSelected = { id ->
                         scope?.launch {
@@ -272,14 +294,14 @@ class MainActivity : ComponentActivity() {
         //    calls; the [LocalEchoTransport] is the
         //    test surface for the engine→transport
         //    pipeline.
-        val defaultTransport = LocalEchoTransport()
-        runBlocking {
-            defaultTransport.start()
-            defaultTransport.connect()
-        }
+        //
+        // Note: `defaultTransport` is declared in step
+        // 4 (above `setContent`) so the Compose
+        // lambda can reference it. We only build the
+        // [TransportBinding] here, after the activity's
+        // own scope exists.
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
-        transportFlow.value = defaultTransport
         // Forward every engine state to the
         // transport. The [LocalEchoTransport] just
         // records; the real transports send over

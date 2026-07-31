@@ -30,6 +30,7 @@ import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.ui.editor.AlignmentAction
 import com.elysium.nexus.ui.editor.ControlKind
 import com.elysium.nexus.ui.editor.EditorActions
@@ -37,6 +38,7 @@ import com.elysium.nexus.ui.editor.EditorCanvas
 import com.elysium.nexus.ui.editor.EditorToolbar
 import com.elysium.nexus.ui.editor.ProfileSelector
 import com.elysium.nexus.ui.editor.TouchSurfaceViewHost
+import com.elysium.nexus.ui.editor.TransportSelector
 
 /**
  * The first Compose UI screen of the project.
@@ -73,6 +75,9 @@ fun MainScreen(
     engine: CanonicalInputEngine,
     profile: Profile,
     allProfiles: List<Profile>,
+    transports: List<ControllerTransport>,
+    currentTransport: ControllerTransport,
+    onTransportSelected: (ControllerTransport) -> Unit,
     onProfileSelected: (Int) -> Unit,
     onProfileUpdated: (Profile) -> Unit,
     onNewProfile: () -> Unit = { },
@@ -86,6 +91,9 @@ fun MainScreen(
         state = state,
         profile = profile,
         allProfiles = allProfiles,
+        transports = transports,
+        currentTransport = currentTransport,
+        onTransportSelected = onTransportSelected,
         onProfileSelected = onProfileSelected,
         onControlMoved = { controlId, newVisualBounds ->
             onProfileUpdated(
@@ -146,6 +154,7 @@ fun MainScreen(
                 )
             )
         },
+        onProfileUpdated = onProfileUpdated,
         onReset = {
             // Phase 1.2 reset: re-issue the profile's
             // own controls in their original positions.
@@ -171,6 +180,9 @@ private fun MainScreenContent(
     state: UniversalControllerState,
     profile: Profile,
     allProfiles: List<Profile>,
+    transports: List<ControllerTransport>,
+    currentTransport: ControllerTransport,
+    onTransportSelected: (ControllerTransport) -> Unit,
     onProfileSelected: (Int) -> Unit,
     onControlMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
     onControlScaled: (controlId: Int, newWidth: Float, newHeight: Float) -> Unit,
@@ -216,6 +228,17 @@ private fun MainScreenContent(
                     selectedId = null
                     onProfileSelected(it)
                 },
+                modifier = Modifier.fillMaxWidth()
+            )
+            // Phase 1.16: the transport selector. The
+            // user can pick the active transport at
+            // runtime. The selector is above the
+            // toolbar; the current transport is
+            // highlighted; tapping a chip switches.
+            TransportSelector(
+                transports = transports,
+                currentTransport = currentTransport,
+                onTransportSelected = onTransportSelected,
                 modifier = Modifier.fillMaxWidth()
             )
             // The editor toolbar: Add / Save / Reset +
@@ -345,6 +368,8 @@ private fun MainScreenPreview() {
         state = state,
         profile = profile,
         allProfiles = listOf(profile),
+        transports = listOf(com.elysium.nexus.core.transport.LocalEchoTransport()),
+        currentTransport = com.elysium.nexus.core.transport.LocalEchoTransport(),
         onProfileSelected = { },
         onControlMoved = { _, _ -> },
         onControlScaled = { _, _, _ -> },
@@ -355,6 +380,7 @@ private fun MainScreenPreview() {
         onReset = { },
         onNewProfile = { },
         onDeleteProfile = { },
+        onTransportSelected = { },
         onNeutralize = { }
     )
 }
