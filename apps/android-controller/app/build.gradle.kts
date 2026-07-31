@@ -72,5 +72,12 @@ android {
 
 dependencies {
     // No third-party deps in 0.1. See ADR-0001.
+    //
+    // Phase 0.4 — earned `kotlinx-coroutines` because the engine
+    // is the first component that needs StateFlow and a
+    // CoroutineScope. The reason is documented in
+    // docs/changelogs/PHASE_0_4_ENGINE.md.
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

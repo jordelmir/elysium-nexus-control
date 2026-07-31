@@ -7,6 +7,11 @@ agp = "8.7.3"
 kotlin = "2.2.21"
 junit = "4.13.2"
 
+# Coroutines — earned in Phase 0.4 because the engine is the first
+# piece of code that needs StateFlow + CoroutineScope. We pin 1.10.1
+# because it is the version that ships clean on Kotlin 2.2.21.
+coroutines = "1.10.1"
+
 # SDK
 compileSdk = "34"
 minSdk = "26"
@@ -14,6 +19,8 @@ targetSdk = "34"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
