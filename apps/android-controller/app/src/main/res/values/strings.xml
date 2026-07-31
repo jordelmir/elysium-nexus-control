@@ -2,9 +2,27 @@
 <resources>
     <!--
       Bilingual strings: English + Spanish per project convention.
-      Phase 0.1 has only the app name; the rest of the UI strings land
-      with the editor in Phase 1. The Spanish translation lives in
-      res/values-es/strings.xml.
+      The Spanish translation lives in res/values-es/strings.xml.
     -->
     <string name="app_name">Elysium Nexus</string>
+
+    <!--
+      Phase 1.2 — Editor toolbar.
+      These strings are the labels on the buttons of the editor's
+      top toolbar. They are bilingual; the same key in
+      res/values-es/strings.xml carries the Spanish translation.
+    -->
+    <string name="editor_add_button">Add button</string>
+    <string name="editor_add_stick">Add stick</string>
+    <string name="editor_add_trigger">Add trigger</string>
+    <string name="editor_save">Save</string>
+    <string name="editor_reset">Reset</string>
+    <string name="editor_undo">Undo</string>
+    <string name="editor_redo">Redo</string>
+    <string name="editor_neutralize">Neutralize (§38)</string>
+    <string name="editor_diag_seq">seq</string>
+    <string name="editor_diag_touches">touches</string>
+    <string name="editor_title">Elysium Nexus</string>
+    <string name="editor_saved">Saved</string>
+    <string name="editor_added_control">Added %1$s</string>
 </resources>

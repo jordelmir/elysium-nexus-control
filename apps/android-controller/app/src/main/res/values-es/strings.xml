@@ -1,4 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Elysium Nexus</string>
+
+    <!--
+      Phase 1.2 — Editor toolbar (Spanish).
+      Translation of the English keys in res/values/strings.xml.
+    -->
+    <string name="editor_add_button">Agregar botón</string>
+    <string name="editor_add_stick">Agregar stick</string>
+    <string name="editor_add_trigger">Agregar trigger</string>
+    <string name="editor_save">Guardar</string>
+    <string name="editor_reset">Restablecer</string>
+    <string name="editor_undo">Deshacer</string>
+    <string name="editor_redo">Rehacer</string>
+    <string name="editor_neutralize">Neutralizar (§38)</string>
+    <string name="editor_diag_seq">seq</string>
+    <string name="editor_diag_touches">toques</string>
+    <string name="editor_title">Elysium Nexus</string>
+    <string name="editor_saved">Guardado</string>
+    <string name="editor_added_control">Se agregó %1$s</string>
 </resources>

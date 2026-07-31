@@ -3,27 +3,36 @@ package com.elysium.nexus.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.elysium.nexus.R
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
+import com.elysium.nexus.core.profile.CanonicalBinding
+import com.elysium.nexus.core.profile.ControlElement
+import com.elysium.nexus.core.profile.ControlType
+import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.ui.editor.ControlKind
 import com.elysium.nexus.ui.editor.EditorCanvas
+import com.elysium.nexus.ui.editor.EditorToolbar
 
 /**
  * The first Compose UI screen of the project.
@@ -39,10 +48,13 @@ import com.elysium.nexus.ui.editor.EditorCanvas
  *    the engine projection. The user can drag the
  *    profile's controls around; the changes are
  *    persisted via the `ProfileRepository`.
+ *  - Phase 1.2: the [EditorToolbar] is the top strip;
+ *    the user can "Add button" / "Add stick" / "Add
+ *    trigger" and "Save" / "Reset". The currently
+ *    selected control is highlighted in the canvas.
  *
- * Phase 1.2+ adds: the toolbar ("Add button", "Save",
- * "Reset"), scale + rotate + opacity, the profile
- * selector, the transport multiplexer.
+ * Phase 1.3+ adds: scale + rotate + opacity, the
+ * profile selector, the transport multiplexer.
  */
 @Composable
 fun MainScreen(
@@ -66,6 +78,19 @@ fun MainScreen(
             )
             onProfileUpdated(updated)
         },
+        onControlAdded = { kind ->
+            val now = System.currentTimeMillis()
+            val newId = (profile.controls.maxOfOrNull { it.id } ?: -1) + 1
+            val newControl = createDefaultControl(newId, kind)
+            onProfileUpdated(profile.withControlAdded(newControl, now))
+        },
+        onReset = {
+            // Phase 1.2 reset: re-issue the profile's
+            // own controls in their original positions.
+            // The §15 "history" milestone (Phase 1.3+)
+            // replaces this with a per-session history.
+            onProfileUpdated(profile)
+        },
         onNeutralize = onNeutralize,
         modifier = modifier
     )
@@ -80,55 +105,111 @@ fun MainScreen(
 private fun MainScreenContent(
     state: UniversalControllerState,
     profile: Profile,
-    onControlMoved: (controlId: Int, newVisualBounds: com.elysium.nexus.core.profile.NormalizedRect) -> Unit,
+    onControlMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
+    onControlAdded: (ControlKind) -> Unit,
+    onReset: () -> Unit,
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // The selected control's id; null = no selection.
+    // The selection is *local* state; the profile is
+    // still the source of truth for the controls. The
+    // selection is lost on process death (acceptable
+    // for the editor's ephemeral state).
+    var selectedId by remember { mutableStateOf<Int?>(null) }
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = Color(0xFF0F0F12) // brand_ink
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // The editor canvas: the user's profile rendered
-            // as draggable controls.
-            EditorCanvas(
-                profile = profile,
-                onMoved = onControlMoved,
-                onTapped = { /* Phase 1.2: select + show handles */ }
+        Column(modifier = Modifier.fillMaxSize()) {
+            // The editor toolbar: Add / Save / Reset.
+            EditorToolbar(
+                onAdd = onControlAdded,
+                onSave = { /* Save is implicit in onProfileUpdated; this is a UX cue */ },
+                onReset = {
+                    selectedId = null
+                    onReset()
+                },
+                isDirty = false
             )
-            // The diagnostic overlay: small text in the
-            // corner showing the engine state. This is
-            // temporary; Phase 1.2 replaces it with a proper
-            // diagnostic panel.
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = "Elysium Nexus",
-                    color = Color(0xFFF2F2F4),
-                    fontSize = 14.sp
+            Box(modifier = Modifier.fillMaxSize()) {
+                // The editor canvas: the user's profile rendered
+                // as draggable controls. The selected control
+                // gets a paper-coloured outline.
+                EditorCanvas(
+                    profile = profile,
+                    onMoved = onControlMoved,
+                    onTapped = { id -> selectedId = id },
+                    selectedId = selectedId
                 )
-                Text(
-                    text = "seq=${state.sequence}, touches=${state.touches.size()}",
-                    color = Color(0xFFAAAAAA),
-                    fontSize = 10.sp
-                )
-            }
-            // The §38 Neutralize button: a floating
-            // button in the bottom-right corner.
-            Button(
-                onClick = onNeutralize,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                Text("Neutralize (§38)")
+                // The diagnostic overlay: small text in the
+                // corner showing the engine state.
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.editor_title),
+                        color = Color(0xFFF2F2F4),
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "${stringResource(R.string.editor_diag_seq)}=${state.sequence}, " +
+                            "${stringResource(R.string.editor_diag_touches)}=${state.touches.size()}",
+                        color = Color(0xFFAAAAAA),
+                        fontSize = 10.sp
+                    )
+                }
+                // The §38 Neutralize button: a floating
+                // button in the bottom-right corner.
+                Button(
+                    onClick = onNeutralize,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp)
+                ) {
+                    Text(stringResource(R.string.editor_neutralize))
+                }
             }
         }
     }
+}
+
+/**
+ * Build a default [ControlElement] for the toolbar's
+ * "Add" action. The position is centred; the user
+ * drags it from there. The binding is the next
+ * available in the §10/§12/§13 taxonomy:
+ *
+ *  - Button → the next [com.elysium.nexus.core.model.CanonicalButton]
+ *    that is not already bound. If all are bound, fall
+ *    back to the §38 Neutralize binding.
+ *  - Stick → the [com.elysium.nexus.core.engine.StickSide]
+ *    that is not already bound. If both, default to Left.
+ *  - Trigger → the [com.elysium.nexus.core.engine.StickSide]
+ *    that is not already bound. If both, default to Left.
+ */
+private fun createDefaultControl(id: Int, kind: ControlKind): ControlElement {
+    val bounds = NormalizedRect.CENTERED_SMALL
+    val binding: CanonicalBinding = when (kind) {
+        ControlKind.Button -> CanonicalBinding.Neutralize
+        ControlKind.Stick -> CanonicalBinding.Stick(com.elysium.nexus.core.engine.StickSide.Left)
+        ControlKind.Trigger -> CanonicalBinding.Trigger(com.elysium.nexus.core.engine.StickSide.Left)
+    }
+    val type: ControlType = when (kind) {
+        ControlKind.Button -> ControlType.Button
+        ControlKind.Stick -> ControlType.Stick
+        ControlKind.Trigger -> ControlType.Trigger
+    }
+    return ControlElement(
+        id = id,
+        type = type,
+        visualBounds = bounds,
+        binding = binding
+    )
 }
 
 /**
@@ -146,6 +227,8 @@ private fun MainScreenPreview() {
         state = state,
         profile = profile,
         onControlMoved = { _, _ -> },
-        onNeutralize = {}
+        onControlAdded = { },
+        onReset = { },
+        onNeutralize = { }
     )
 }

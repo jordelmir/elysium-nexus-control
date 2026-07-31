@@ -1,6 +1,7 @@
 package com.elysium.nexus.ui.editor
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,12 +50,13 @@ import kotlin.math.roundToInt
  *    persisted back into the profile via the
  *    `onMoved` callback.
  *
- * Phase 1.2 adds: scale (pinch), rotate (two-finger
- * twist), opacity slider, long-press to delete,
- * tap-to-select with handles for resize/rotate, the
- * toolbar ("Add button", "Add stick", "Add trigger",
- * "Save", "Reset"). Phase 1.3+ adds: profile selector,
- * import/export, signature.
+ * Phase 1.2 adds: the toolbar ("Add button", "Add stick",
+ * "Add trigger", "Save", "Reset") and the `selectedId`
+ * highlight (a single control's outline turns
+ * `brand_accent` when the user taps it). Phase 1.3+
+ * adds: scale (pinch), rotate (two-finger twist),
+ * opacity slider, long-press to delete, profile
+ * selector, import/export, signature.
  *
  * ## Why a `Box` with `Modifier.offset` instead of
  * `Modifier.layout` or `Canvas`
@@ -83,6 +85,7 @@ fun EditorCanvas(
     profile: Profile,
     onMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
     onTapped: (controlId: Int) -> Unit,
+    selectedId: Int? = null,
     modifier: Modifier = Modifier
 ) {
     // The parent size, used to convert the control's
@@ -99,6 +102,7 @@ fun EditorCanvas(
             ControlView(
                 control = control,
                 parentSize = parentSize.value,
+                isSelected = selectedId == control.id,
                 onMoved = onMoved,
                 onTapped = onTapped
             )
@@ -117,6 +121,7 @@ fun EditorCanvas(
 private fun ControlView(
     control: ControlElement,
     parentSize: IntSize,
+    isSelected: Boolean,
     onMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
     onTapped: (controlId: Int) -> Unit
 ) {
@@ -152,6 +157,17 @@ private fun ControlView(
                     else -> Color(0xFF1F6FEB) // brand_accent
                 },
                 shape = CircleShape
+            )
+            .then(
+                if (isSelected) {
+                    Modifier.border(
+                        width = 2.dp,
+                        color = Color(0xFFF2F2F4), // brand_paper
+                        shape = CircleShape
+                    )
+                } else {
+                    Modifier
+                }
             )
             .pointerInput(control.id) {
                 detectDragGestures(
