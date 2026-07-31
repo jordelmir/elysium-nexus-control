@@ -26,53 +26,37 @@ import androidx.compose.ui.unit.dp
 import com.elysium.nexus.R
 
 /**
+ * The kind of alignment / distribution action
+ * the toolbar's row 2 chips dispatch.
+ */
+enum class AlignmentAction {
+    AlignLeft,
+    AlignRight,
+    AlignTop,
+    AlignBottom,
+    DistributeHorizontally,
+    DistributeVertically
+}
+
+/**
+ * The kind of control the toolbar's "Add" chip
+ * creates.
+ */
+enum class ControlKind { Button, Stick, Trigger }
+
+/**
  * The top toolbar of the editor.
  *
- * `MASTER_ORDER.md` §15 calls for a "toolbar" with the
- * primary editor actions: add a control, save, reset,
- * undo, redo, opacity. The toolbar has grown across
- * phases:
+ * The toolbar is three rows:
+ *  - Row 1: the action chips (Add, Save, Reset,
+ *    New profile, Delete).
+ *  - Row 2: the alignment / distribution chips
+ *    (Phase 1.12).
+ *  - Row 3: the opacity slider (Phase 1.4).
  *
- *  - Phase 1.2: Add button / stick / trigger, Save,
- *    Reset.
- *  - Phase 1.3: long-press to delete (via the editor
- *    canvas, not the toolbar).
- *  - Phase 1.4: opacity slider for the selected
- *    control. The slider is inline in the toolbar
- *    (a single Material 3 `Slider`) so the user can
- *    drag the opacity without opening a side panel.
- *
- * The toolbar is now two rows:
- *  - Row 1: the action chips (Add, Save, Reset).
- *  - Row 2: the opacity slider (Phase 1.4).
- *
- * The two rows are stacked in a `Column` by the
- * caller; the function emits a single `Row` (the
- * chips) and a single `Slider` (the opacity).
- *
- * ## Why chips, not buttons
- *
- * The toolbar is dense (5+ actions on a 360dp screen).
- * `AssistChip` / `FilterChip` are the Material 3
- * compact controls; they keep the bar at a single
- * 48dp height and stay legible at small font scales.
- * The brand uses `brand_accent` (`#1F6FEB`) for the
- * active variant and a transparent background for
- * the inactive variants.
- *
- * ## Why `Save` is a button, not an autosave
- *
- * The editor's mutation rate is *interactive* (every
- * drag emits a new profile). Autosaving on every
- * mutation would write the database on every frame
- * the user drags; the §30 latency budget forbids
- * I/O on the input thread. The `Save` button is
- * explicit: the user indicates the work is done.
- * The activity writes the current profile to Room
- * on every `onProfileUpdated` *and* on `Save` (the
- * two are equivalent for now; the `Save` button
- * surface in the toolbar is the "I'm done" cue for
- * the user).
+ * Each row is horizontally scrollable; the
+ * toolbar is wider than a 360dp screen on a
+ * phone.
  */
 @Composable
 fun EditorToolbar(
@@ -81,13 +65,15 @@ fun EditorToolbar(
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
-    isDirty: Boolean,
+    onAlign: (AlignmentAction) -> Unit = { },
     onOpacityChange: (Float) -> Unit = { },
     selectedOpacity: Float? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val scrollState2 = rememberScrollState()
     Column(modifier = modifier) {
+        // Row 1: the primary action chips.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,7 +109,7 @@ fun EditorToolbar(
             )
             Spacer(modifier = Modifier.width(8.dp))
             FilterChip(
-                selected = isDirty,
+                selected = false,
                 onClick = onSave,
                 label = { Text(stringResource(R.string.editor_save)) },
                 colors = FilterChipDefaults.filterChipColors(
@@ -158,11 +144,67 @@ fun EditorToolbar(
                 )
             )
         }
-        // Phase 1.4: the opacity slider. The slider
-        // is enabled only when a control is selected
-        // (i.e. `selectedOpacity != null`); the
-        // screen wires the selected control's
-        // opacity to the slider's value.
+        // Row 2: alignment / distribution chips.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F0F12))
+                .horizontalScroll(scrollState2)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.AlignLeft) },
+                label = { Text(stringResource(R.string.editor_align_left)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.AlignRight) },
+                label = { Text(stringResource(R.string.editor_align_right)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.AlignTop) },
+                label = { Text(stringResource(R.string.editor_align_top)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.AlignBottom) },
+                label = { Text(stringResource(R.string.editor_align_bottom)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.DistributeHorizontally) },
+                label = { Text(stringResource(R.string.editor_distribute_horizontally)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            AssistChip(
+                onClick = { onAlign(AlignmentAction.DistributeVertically) },
+                label = { Text(stringResource(R.string.editor_distribute_vertically)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+        }
+        // Row 3: opacity slider.
         if (selectedOpacity != null) {
             Row(
                 modifier = Modifier
@@ -191,14 +233,3 @@ fun EditorToolbar(
         }
     }
 }
-
-/**
- * The kind of control the toolbar's "Add" chip creates.
- *
- * The enum lives in the UI layer because the toolbar is
- * the only place that needs it. The activity maps the
- * kind to a [com.elysium.nexus.core.profile.ControlType]
- * and a [com.elysium.nexus.core.profile.CanonicalBinding].
- */
-enum class ControlKind { Button, Stick, Trigger }
-

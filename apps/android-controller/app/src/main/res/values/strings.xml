@@ -22,6 +22,16 @@
     <string name="editor_opacity">Opacity</string>
     <string name="editor_new_profile">New profile</string>
     <string name="editor_delete_profile">Delete</string>
+    <string name="editor_align_left">Align L</string>
+    <string name="editor_align_right">Align R</string>
+    <string name="editor_align_top">Align T</string>
+    <string name="editor_align_bottom">Align B</string>
+    <string name="editor_distribute_horizontally">Dist H</string>
+    <string name="editor_distribute_vertically">Dist V</string>
+    <string name="delete_profile_confirm_title">Delete profile?</string>
+    <string name="delete_profile_confirm_message">The controls of this profile will be removed. This action cannot be undone.</string>
+    <string name="delete_profile_confirm_ok">Delete</string>
+    <string name="delete_profile_confirm_cancel">Cancel</string>
     <string name="editor_neutralize">Neutralize (§38)</string>
     <string name="editor_diag_seq">seq</string>
     <string name="editor_diag_touches">touches</string>

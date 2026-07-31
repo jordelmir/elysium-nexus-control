@@ -16,6 +16,16 @@
     <string name="editor_opacity">Opacidad</string>
     <string name="editor_new_profile">Nuevo perfil</string>
     <string name="editor_delete_profile">Eliminar</string>
+    <string name="editor_align_left">Alinear izq</string>
+    <string name="editor_align_right">Alinear der</string>
+    <string name="editor_align_top">Alinear sup</string>
+    <string name="editor_align_bottom">Alinear inf</string>
+    <string name="editor_distribute_horizontally">Distr H</string>
+    <string name="editor_distribute_vertically">Distr V</string>
+    <string name="delete_profile_confirm_title">¿Eliminar perfil?</string>
+    <string name="delete_profile_confirm_message">Los controles de este perfil se eliminarán. Esta acción no se puede deshacer.</string>
+    <string name="delete_profile_confirm_ok">Eliminar</string>
+    <string name="delete_profile_confirm_cancel">Cancelar</string>
     <string name="editor_neutralize">Neutralizar (§38)</string>
     <string name="editor_diag_seq">seq</string>
     <string name="editor_diag_touches">toques</string>

@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +30,7 @@ import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.ui.editor.AlignmentAction
 import com.elysium.nexus.ui.editor.ControlKind
 import com.elysium.nexus.ui.editor.EditorActions
 import com.elysium.nexus.ui.editor.EditorCanvas
@@ -175,6 +178,7 @@ private fun MainScreenContent(
     onOpacityChange: (controlId: Int, newOpacity: Float) -> Unit,
     onControlAdded: (ControlKind) -> Unit,
     onControlDeleted: (controlId: Int) -> Unit,
+    onProfileUpdated: (Profile) -> Unit = { },
     onReset: () -> Unit,
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
@@ -216,7 +220,8 @@ private fun MainScreenContent(
             )
             // The editor toolbar: Add / Save / Reset +
             // (when a control is selected) the opacity
-            // slider.
+            // slider + the alignment / distribution
+            // chips.
             EditorToolbar(
                 onAdd = onControlAdded,
                 onSave = { /* Save is implicit in onProfileUpdated; this is a UX cue */ },
@@ -226,7 +231,29 @@ private fun MainScreenContent(
                 },
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
-                isDirty = false,
+                onAlign = { action ->
+                    val now = System.currentTimeMillis()
+                    val sid = selectedId
+                    val updated = when (action) {
+                        AlignmentAction.AlignLeft ->
+                            if (sid != null) EditorActions.alignLeft(profile, sid, now)
+                            else profile
+                        AlignmentAction.AlignRight ->
+                            if (sid != null) EditorActions.alignRight(profile, sid, now)
+                            else profile
+                        AlignmentAction.AlignTop ->
+                            if (sid != null) EditorActions.alignTop(profile, sid, now)
+                            else profile
+                        AlignmentAction.AlignBottom ->
+                            if (sid != null) EditorActions.alignBottom(profile, sid, now)
+                            else profile
+                        AlignmentAction.DistributeHorizontally ->
+                            EditorActions.distributeHorizontally(profile, now)
+                        AlignmentAction.DistributeVertically ->
+                            EditorActions.distributeVertically(profile, now)
+                    }
+                    onProfileUpdated(updated)
+                },
                 onOpacityChange = { newOpacity ->
                     selectedId?.let { id -> onOpacityChange(id, newOpacity) }
                 },

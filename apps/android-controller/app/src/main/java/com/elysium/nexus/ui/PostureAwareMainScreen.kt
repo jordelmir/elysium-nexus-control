@@ -238,7 +238,6 @@ private fun TabletopMainScreen(
                     onReset = { selectedId = null; onProfileUpdated(profile) },
                     onNewProfile = onNewProfile,
                     onDeleteProfile = onDeleteProfile,
-                    isDirty = false,
                     onOpacityChange = { newOpacity ->
                         selectedId?.let { id -> onProfileUpdated(
                             EditorActions.setOpacity(profile, id, newOpacity, System.currentTimeMillis())
