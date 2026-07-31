@@ -13,6 +13,7 @@
     <string name="editor_reset">Restablecer</string>
     <string name="editor_undo">Deshacer</string>
     <string name="editor_redo">Rehacer</string>
+    <string name="editor_opacity">Opacidad</string>
     <string name="editor_neutralize">Neutralizar (§38)</string>
     <string name="editor_diag_seq">seq</string>
     <string name="editor_diag_touches">toques</string>

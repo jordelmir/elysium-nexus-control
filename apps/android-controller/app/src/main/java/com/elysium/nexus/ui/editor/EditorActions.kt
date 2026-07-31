@@ -145,6 +145,24 @@ object EditorActions {
     )
 
     /**
+     * Set the opacity of the control with [controlId]
+     * to [newOpacity] (clamped to `[0, 1]` in
+     * [ControlElement.withOpacity]). The `updatedAt`
+     * is set to [now].
+     */
+    fun setOpacity(
+        profile: Profile,
+        controlId: Int,
+        newOpacity: Float,
+        now: Long
+    ): Profile = profile.withControlReplaced(
+        controlId = controlId,
+        updated = profile.controls.first { it.id == controlId }
+            .withOpacity(newOpacity = newOpacity),
+        now = now
+    )
+
+    /**
      * @return the next id that
      * [addControl] will use for a new control.
      * Useful for tests that want to know what id

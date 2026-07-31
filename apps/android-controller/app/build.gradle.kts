@@ -127,6 +127,14 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
+    // Phase 1.4: the real `org.json` implementation.
+    // The Android stub returns default values
+    // (`null` / `0` / `""`) under
+    // `unitTests.isReturnDefaultValues = true`, so
+    // the JVM tests cannot exercise the real
+    // serialisation. The real reference
+    // implementation is API-compatible.
+    testImplementation(libs.org.json)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 

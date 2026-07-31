@@ -113,6 +113,16 @@ fun MainScreen(
                 )
             )
         },
+        onOpacityChange = { controlId, newOpacity ->
+            onProfileUpdated(
+                EditorActions.setOpacity(
+                    profile = profile,
+                    controlId = controlId,
+                    newOpacity = newOpacity,
+                    now = System.currentTimeMillis()
+                )
+            )
+        },
         onControlAdded = { kind ->
             onProfileUpdated(
                 EditorActions.addControl(
@@ -158,6 +168,7 @@ private fun MainScreenContent(
     onControlMoved: (controlId: Int, newVisualBounds: NormalizedRect) -> Unit,
     onControlScaled: (controlId: Int, newWidth: Float, newHeight: Float) -> Unit,
     onControlRotated: (controlId: Int, newRotation: Float) -> Unit,
+    onOpacityChange: (controlId: Int, newOpacity: Float) -> Unit,
     onControlAdded: (ControlKind) -> Unit,
     onControlDeleted: (controlId: Int) -> Unit,
     onReset: () -> Unit,
@@ -170,6 +181,14 @@ private fun MainScreenContent(
     // selection is lost on process death (acceptable
     // for the editor's ephemeral state).
     var selectedId by remember { mutableStateOf<Int?>(null) }
+    // The selected control's current opacity; null
+    // when no control is selected. The toolbar's
+    // opacity slider uses this to show the current
+    // value; the slider's `onValueChange` calls
+    // `onOpacityChange` which mutates the profile.
+    val selectedOpacity: Float? = selectedId?.let { id ->
+        profile.controls.firstOrNull { it.id == id }?.opacity
+    }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -189,7 +208,9 @@ private fun MainScreenContent(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
-            // The editor toolbar: Add / Save / Reset.
+            // The editor toolbar: Add / Save / Reset +
+            // (when a control is selected) the opacity
+            // slider.
             EditorToolbar(
                 onAdd = onControlAdded,
                 onSave = { /* Save is implicit in onProfileUpdated; this is a UX cue */ },
@@ -197,7 +218,11 @@ private fun MainScreenContent(
                     selectedId = null
                     onReset()
                 },
-                isDirty = false
+                isDirty = false,
+                onOpacityChange = { newOpacity ->
+                    selectedId?.let { id -> onOpacityChange(id, newOpacity) }
+                },
+                selectedOpacity = selectedOpacity
             )
             Box(modifier = Modifier.fillMaxSize()) {
                 // Phase 1.3: the touch surface is
@@ -289,6 +314,7 @@ private fun MainScreenPreview() {
         onControlMoved = { _, _ -> },
         onControlScaled = { _, _, _ -> },
         onControlRotated = { _, _ -> },
+        onOpacityChange = { _, _ -> },
         onControlAdded = { },
         onControlDeleted = { },
         onReset = { },

@@ -11,6 +11,9 @@ import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
+import com.elysium.nexus.core.motion.AndroidMotionSensorSource
+import com.elysium.nexus.core.motion.MotionSensorSource
+import com.elysium.nexus.core.motion.NullMotionSensorSource
 import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
@@ -22,6 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -93,6 +97,8 @@ class MainActivity : ComponentActivity() {
     private var activityScope: CoroutineScope? = null
     private var driverJob: Job? = null
     private var latencyJob: Job? = null
+    private var motionJob: Job? = null
+    private var motionSource: MotionSensorSource? = null
     private var profileRepository: ProfileRepository? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
@@ -221,6 +227,38 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // 7. Phase 1.4 — the §14 motion / IMU source.
+        //    The activity owns the source for the
+        //    activity's lifetime. The source's
+        //    `samples()` flow is collected on the
+        //    activity's scope; each sample is
+        //    forwarded to the engine via
+        //    `engine.submitMotion`. On the emulator
+        //    (no real IMU), the source returns an
+        //    empty flow and no samples are forwarded
+        //    — the engine's `motion` field stays
+        //    `null` (the canonical neutral for motion).
+        val motionSource: MotionSensorSource = try {
+            AndroidMotionSensorSource(this)
+        } catch (e: Throwable) {
+            // The source may fail on devices without
+            // a SensorManager (rare; the emulator
+            // does have one). Fall back to the no-op
+            // source so the activity still launches.
+            Log.w(tag, "AndroidMotionSensorSource failed; using NullMotionSensorSource.", e)
+            NullMotionSensorSource()
+        }
+        this.motionSource = motionSource
+        motionJob = activityScope.launch {
+            try {
+                motionSource.samples().collect { sample ->
+                    engine.submitMotion(sample)
+                }
+            } catch (e: Throwable) {
+                Log.w(tag, "Motion sample collection failed; motion is dormant.", e)
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -241,11 +279,15 @@ class MainActivity : ComponentActivity() {
         // scope is cancelled too — it has no internal jobs
         // today, but the cancel is the safe default.
         driverJob?.cancel()
+        motionJob?.cancel()
+        motionSource?.close()
         activityScope?.cancel()
         this.engine = null
         this.latencyTracker = null
         this.activityScope = null
         this.driverJob = null
+        this.motionJob = null
+        this.motionSource = null
     }
 
     /**

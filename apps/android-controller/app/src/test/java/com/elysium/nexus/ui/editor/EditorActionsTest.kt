@@ -220,6 +220,41 @@ class EditorActionsTest {
         assertEquals(270f, updated.controls[0].rotation, 1e-6f)
     }
 
+    // ---- setOpacity ----
+
+    @Test
+    fun setOpacityUpdatesOpacity() {
+        val profile = profileWithOneControl()
+        val updated = EditorActions.setOpacity(profile, 0, newOpacity = 0.42f, now = 0L)
+        assertEquals(0.42f, updated.controls[0].opacity, 1e-6f)
+    }
+
+    @Test
+    fun setOpacityClampsToValidRange() {
+        val profile = profileWithOneControl()
+        val low = EditorActions.setOpacity(profile, 0, newOpacity = -1f, now = 0L)
+        val high = EditorActions.setOpacity(profile, 0, newOpacity = 2f, now = 0L)
+        assertEquals(0f, low.controls[0].opacity, 1e-6f)
+        assertEquals(1f, high.controls[0].opacity, 1e-6f)
+    }
+
+    @Test
+    fun setOpacityPreservesOtherFields() {
+        val original = ControlElement(
+            id = 0,
+            type = ControlType.Stick,
+            visualBounds = NormalizedRect(0.5f, 0.5f, 0.1f, 0.1f),
+            binding = CanonicalBinding.Stick(StickSide.Left),
+            rotation = 90f
+        )
+        val profile = profileWithOneControl(control = original)
+        val updated = EditorActions.setOpacity(profile, 0, newOpacity = 0.5f, now = 0L)
+        val c = updated.controls[0]
+        assertEquals(ControlType.Stick, c.type)
+        assertEquals(CanonicalBinding.Stick(StickSide.Left), c.binding)
+        assertEquals(90f, c.rotation, 1e-6f)
+    }
+
     // ---- identity / immutability ----
 
     @Test

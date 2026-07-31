@@ -124,6 +124,17 @@ data class ControlElement(
         val r = ((newRotation % 360f) + 360f) % 360f
         return copy(rotation = r)
     }
+
+    /**
+     * @return a copy of this element with the visual
+     *   opacity set to [newOpacity], clamped to
+     *   `[0, 1]`. Used by the editor's opacity
+     *   slider (§15 "opacidad").
+     */
+    fun withOpacity(newOpacity: Float): ControlElement {
+        val o = newOpacity.coerceIn(0f, 1f)
+        return copy(opacity = o)
+    }
 }
 
 private fun NormalizedRect.movedBy(dx: Float, dy: Float): NormalizedRect {
