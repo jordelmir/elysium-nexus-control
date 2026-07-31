@@ -66,6 +66,7 @@ fun EditorToolbar(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShare: () -> Unit = { },
+    onSettings: () -> Unit = { },
     onAlign: (AlignmentAction) -> Unit = { },
     onOpacityChange: (Float) -> Unit = { },
     selectedOpacity: Float? = null,
@@ -151,6 +152,17 @@ fun EditorToolbar(
             AssistChip(
                 onClick = onShare,
                 label = { Text(stringResource(R.string.editor_share_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            // Phase 1.18: the §15 settings chip.
+            // Tapping it opens the settings dialog
+            // (see [com.elysium.nexus.ui.settings.SettingsDialog]).
+            AssistChip(
+                onClick = onSettings,
+                label = { Text(stringResource(R.string.editor_settings)) },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color(0xFF1A1A1F),
                     labelColor = Color(0xFFF2F2F4)

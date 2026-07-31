@@ -11,6 +11,9 @@ import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.engine.TransportBinding
 import com.elysium.nexus.core.filter.StickConfig
+import com.elysium.nexus.core.haptics.AndroidHaptics
+import com.elysium.nexus.core.haptics.Haptics
+import com.elysium.nexus.core.haptics.SettingsAwareHaptics
 import com.elysium.nexus.core.latency.LatencyTracker
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.motion.AndroidMotionSensorSource
@@ -23,6 +26,9 @@ import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
 import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.core.profile.ProfileShareBuilder
+import com.elysium.nexus.core.settings.AndroidAppSettingsStore
+import com.elysium.nexus.core.settings.AppSettings
+import com.elysium.nexus.core.settings.AppSettingsStore
 import com.elysium.nexus.core.transport.BluetoothHidTransport
 import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.core.transport.LocalEchoTransport
@@ -116,10 +122,13 @@ class MainActivity : ComponentActivity() {
     private var transportBinding: TransportBinding? = null
     private var transportJob: Job? = null
     private var shareLauncher: AndroidProfileShareLauncher? = null
+    private var settingsStore: AppSettingsStore? = null
+    private var haptics: Haptics? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
     private val postureFlow: MutableStateFlow<Posture> = MutableStateFlow(Posture.UNKNOWN)
     private val transportFlow: MutableStateFlow<ControllerTransport?> = MutableStateFlow(null)
+    private val settingsFlow: MutableStateFlow<AppSettings> = MutableStateFlow(AppSettings())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -175,7 +184,26 @@ class MainActivity : ComponentActivity() {
             allProfilesFlow.value = profileRepo.all()
         }
 
-        // 4. Phase 1.16 — the default transport must
+        // 4. Phase 1.18 — the §15 settings store. The
+        //    store is the source of truth for the
+        //    user-tunable knobs (stick sensitivity,
+        //    axis inversion, haptics on/off). The
+        //    store is backed by SharedPreferences;
+        //    the in-memory [MutableStateFlow] is the
+        //    Compose-friendly view. The haptics is
+        //    wrapped in [SettingsAwareHaptics] so a
+        //    settings change immediately gates the
+        //    next [HapticEvent].
+        val settingsStore: AppSettingsStore = AndroidAppSettingsStore(this)
+        this.settingsStore = settingsStore
+        settingsFlow.value = settingsStore.current
+        val haptics: Haptics = SettingsAwareHaptics(
+            inner = AndroidHaptics(this),
+            settingsFlow = settingsFlow
+        )
+        this.haptics = haptics
+
+        // 5. Phase 1.16 — the default transport must
         //    be in scope *before* the setContent block
         //    so the composable lambda can reference
         //    it (the §17 multiplexer). We create the
@@ -204,6 +232,7 @@ class MainActivity : ComponentActivity() {
             val allProfiles by allProfilesFlow.collectAsState()
             val posture by postureFlow.collectAsState()
             val currentTransport by transportFlow.collectAsState()
+            val settings by settingsFlow.collectAsState()
             val scope = activityScope
             val repo = profileRepository
             profile?.let { current ->
@@ -298,6 +327,21 @@ class MainActivity : ComponentActivity() {
                         } else {
                             Log.w(tag, "Share intent was null; sharing dropped.")
                         }
+                    },
+                    settings = settings,
+                    onSettingsChange = { updated ->
+                        settingsStore?.update(updated)
+                        settingsFlow.value = updated
+                        // Phase 1.18 also: trigger a
+                        // haptic on settings change so
+                        // the user knows the value was
+                        // committed. The haptics
+                        // respects the §15 toggle
+                        // (hapticsEnabled); a change
+                        // with hapticsEnabled=false
+                        // is a no-op except for the
+                        // value persistence.
+                        haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
                     },
                     onNeutralize = { engine.neutralize() }
                 )
@@ -485,6 +529,8 @@ class MainActivity : ComponentActivity() {
         this.transportBinding = null
         this.transportJob = null
         this.shareLauncher = null
+        this.settingsStore = null
+        this.haptics = null
     }
 
     /**

@@ -30,6 +30,7 @@ import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.settings.AppSettings
 import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.ui.editor.AlignmentAction
 import com.elysium.nexus.ui.editor.ControlKind
@@ -39,6 +40,7 @@ import com.elysium.nexus.ui.editor.EditorToolbar
 import com.elysium.nexus.ui.editor.ProfileSelector
 import com.elysium.nexus.ui.editor.TouchSurfaceViewHost
 import com.elysium.nexus.ui.editor.TransportSelector
+import com.elysium.nexus.ui.settings.SettingsDialog
 
 /**
  * The first Compose UI screen of the project.
@@ -83,6 +85,8 @@ fun MainScreen(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShareProfile: () -> Unit = { },
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -166,6 +170,8 @@ fun MainScreen(
         onNewProfile = onNewProfile,
         onDeleteProfile = onDeleteProfile,
         onShareProfile = onShareProfile,
+        settings = settings,
+        onSettingsChange = onSettingsChange,
         onNeutralize = onNeutralize,
         modifier = modifier
     )
@@ -197,6 +203,8 @@ private fun MainScreenContent(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShareProfile: () -> Unit = { },
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit = { },
     onNeutralize: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -206,6 +214,15 @@ private fun MainScreenContent(
     // selection is lost on process death (acceptable
     // for the editor's ephemeral state).
     var selectedId by remember { mutableStateOf<Int?>(null) }
+    // Phase 1.18: the settings dialog visibility is
+    // *local* state. The settings document itself is
+    // the [settings] parameter, owned by the caller
+    // (the [com.elysium.nexus.core.settings.AppSettingsStore]
+    // is the source of truth). The dialog is
+    // dismissed by tapping "Close" or any tap outside
+    // the dialog's body (the default Compose
+    // `onDismissRequest` behaviour).
+    var showSettings by remember { mutableStateOf(false) }
     // The selected control's current opacity; null
     // when no control is selected. The toolbar's
     // opacity slider uses this to show the current
@@ -258,6 +275,7 @@ private fun MainScreenContent(
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
                 onShare = onShareProfile,
+                onSettings = { showSettings = true },
                 onAlign = { action ->
                     val now = System.currentTimeMillis()
                     val sid = selectedId
@@ -348,6 +366,22 @@ private fun MainScreenContent(
                 }
             }
         }
+        // Phase 1.18: the settings dialog. The
+        // dialog is hosted by the screen itself
+        // (not by a separate scaffold) so the
+        // editor's state (selection, profile,
+        // touch surface) is preserved while the
+        // dialog is up. The dialog is "live":
+        // every change calls `onSettingsChange`,
+        // which the caller funnels into the
+        // [com.elysium.nexus.core.settings.AppSettingsStore].
+        if (showSettings) {
+            SettingsDialog(
+                settings = settings,
+                onSettingsChange = onSettingsChange,
+                onDismiss = { showSettings = false }
+            )
+        }
     }
 }
 
@@ -385,6 +419,8 @@ private fun MainScreenPreview() {
         onNewProfile = { },
         onDeleteProfile = { },
         onShareProfile = { },
+        settings = com.elysium.nexus.core.settings.AppSettings(),
+        onSettingsChange = { },
         onTransportSelected = { },
         onNeutralize = { }
     )

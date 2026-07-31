@@ -38,4 +38,21 @@
     <string name="editor_share_profile">Compartir</string>
     <string name="share_profile_chooser_title">Compartir perfil</string>
     <string name="share_profile_failed">No se pudo compartir</string>
+    <!--
+      Phase 1.18 — Diálogo de ajustes (es).
+    -->
+    <string name="editor_settings">Ajustes</string>
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_section_sticks">Sticks</string>
+    <string name="settings_left_stick_sensitivity">Sensibilidad stick izquierdo</string>
+    <string name="settings_right_stick_sensitivity">Sensibilidad stick derecho</string>
+    <string name="settings_section_inversion">Inversión de ejes</string>
+    <string name="settings_invert_left_x">Invertir X izquierdo</string>
+    <string name="settings_invert_left_y">Invertir Y izquierdo</string>
+    <string name="settings_invert_right_x">Invertir X derecho</string>
+    <string name="settings_invert_right_y">Invertir Y derecho</string>
+    <string name="settings_section_haptics">Hápticos</string>
+    <string name="settings_haptics_enabled">Vibración háptica</string>
+    <string name="settings_close">Cerrar</string>
+    <string name="settings_reset">Restablecer</string>
 </resources>
