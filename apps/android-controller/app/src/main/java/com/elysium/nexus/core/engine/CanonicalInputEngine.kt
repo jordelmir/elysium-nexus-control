@@ -61,8 +61,8 @@ import kotlin.math.max
  * the ones that live in the injected scope.
  */
 class CanonicalInputEngine(
-    private val leftStickConfig: StickConfig,
-    private val rightStickConfig: StickConfig,
+    leftStickConfig: StickConfig,
+    rightStickConfig: StickConfig,
     @Suppress("unused") // reserved for future engine-internal jobs (0.5+)
     private val scope: kotlinx.coroutines.CoroutineScope,
     private val clock: () -> ULong = { System.nanoTime().toULong() },
@@ -81,6 +81,19 @@ class CanonicalInputEngine(
      */
     private val latencyTracker: LatencyTracker? = null
 ) {
+    // The per-side stick configurations are
+    // *mutable* (Phase 1.23+): the activity wires the
+    // §15 settings to the engine and a settings
+    // change updates the config in place. The fields
+    // are guarded by a `ReentrantReadWriteLock`: the
+    // filter pipeline reads on every `submitStick`,
+    // and a settings change writes once. Reads are
+    // cheap; a `synchronized` block would also work
+    // but a `ReentrantReadWriteLock` is the right
+    // shape for read-heavy / write-rare access.
+    private val stickConfigLock = java.util.concurrent.locks.ReentrantReadWriteLock()
+    private var leftStickConfig: StickConfig = leftStickConfig
+    private var rightStickConfig: StickConfig = rightStickConfig
 
     private val _state: MutableStateFlow<UniversalControllerState> =
         MutableStateFlow(neutral(sequence = 0uL))
@@ -110,6 +123,51 @@ class CanonicalInputEngine(
      */
     private var lastTimestampNs: ULong = 0uL
 
+    /**
+     * The current §15 left-stick configuration. Hot
+     * read; cheap under [stickConfigLock]. The
+     * editor's settings dialog is the only caller
+     * of [updateStickConfig]; the filter pipeline
+     * is the only reader of [leftStickConfig].
+     */
+    fun currentStickConfig(side: StickSide): StickConfig {
+        val readLock = stickConfigLock.readLock()
+        readLock.lock()
+        try {
+            return if (side == StickSide.Left) leftStickConfig else rightStickConfig
+        } finally {
+            readLock.unlock()
+        }
+    }
+
+    /**
+     * Update the §15 stick configuration for [side].
+     * The new configuration is used by the next
+     * [submitStick] call. The function is total:
+     * the [StickConfig]'s `init` block validates
+     * the bounds; an out-of-range config throws
+     * [IllegalArgumentException] before the
+     * assignment.
+     */
+    fun updateStickConfig(side: StickSide, config: StickConfig) {
+        // The `StickConfig` constructor validates
+        // the input (the data class's `init`
+        // block). If the config is invalid, the
+        // throw happens before the lock; the
+        // engine's state is unchanged.
+        val writeLock = stickConfigLock.writeLock()
+        writeLock.lock()
+        try {
+            if (side == StickSide.Left) {
+                leftStickConfig = config
+            } else {
+                rightStickConfig = config
+            }
+        } finally {
+            writeLock.unlock()
+        }
+    }
+
     // -- Stick and trigger submission --------------------------------
 
     /**
@@ -131,7 +189,7 @@ class CanonicalInputEngine(
         }
         val filtered = StickFilters.apply(
             raw = raw,
-            config = if (side == StickSide.Left) leftStickConfig else rightStickConfig
+            config = currentStickConfig(side)
         )
         val current = _state.value
         val candidate = when (side) {

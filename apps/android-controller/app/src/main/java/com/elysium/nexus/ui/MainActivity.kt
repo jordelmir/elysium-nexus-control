@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import com.elysium.nexus.R
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
+import com.elysium.nexus.core.engine.StickSide
 import com.elysium.nexus.core.engine.TransportBinding
 import com.elysium.nexus.core.filter.StickConfig
 import com.elysium.nexus.core.haptics.AndroidHaptics
@@ -371,6 +372,42 @@ class MainActivity : ComponentActivity() {
                     onSettingsChange = { updated ->
                         settingsStore?.update(updated)
                         settingsFlow.value = updated
+                        // Phase 1.23: forward the
+                        // sensitivity / inversion to
+                        // the engine. The engine
+                        // honours the new config on
+                        // the next [submitStick] call.
+                        // We rebuild a fresh
+                        // [StickConfig] for each side:
+                        // sensitivity is the only knob
+                        // the user dials in the §15
+                        // settings; the other 9 knobs
+                        // (deadzone, response curve,
+                        // …) are out of scope for
+                        // the settings dialog and keep
+                        // their defaults. Axis
+                        // inversion is a per-axis
+                        // boolean on the same config.
+                        val left = com.elysium.nexus.core.filter.StickConfig(
+                            innerDeadzone = 0.10f,
+                            outerThreshold = 0.95f,
+                            sensitivity = updated.leftStickSensitivity,
+                            invertX = updated.invertLeftX,
+                            invertY = updated.invertLeftY
+                        )
+                        val right = com.elysium.nexus.core.filter.StickConfig(
+                            innerDeadzone = 0.10f,
+                            outerThreshold = 0.95f,
+                            sensitivity = updated.rightStickSensitivity,
+                            invertX = updated.invertRightX,
+                            invertY = updated.invertRightY
+                        )
+                        runCatching {
+                            engine.updateStickConfig(StickSide.Left, left)
+                            engine.updateStickConfig(StickSide.Right, right)
+                        }.onFailure { e ->
+                            Log.w(tag, "Engine rejected updated stick config: ${e.message}")
+                        }
                         // Phase 1.18 also: trigger a
                         // haptic on settings change so
                         // the user knows the value was
