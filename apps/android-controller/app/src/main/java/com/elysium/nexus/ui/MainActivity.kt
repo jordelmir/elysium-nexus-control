@@ -25,6 +25,8 @@ import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.profile.ProfileImportResult
+import com.elysium.nexus.core.profile.ProfileImporter
 import com.elysium.nexus.core.profile.ProfileShareBuilder
 import com.elysium.nexus.core.settings.AndroidAppSettingsStore
 import com.elysium.nexus.core.settings.AppSettings
@@ -326,6 +328,43 @@ class MainActivity : ComponentActivity() {
                             startActivity(intent)
                         } else {
                             Log.w(tag, "Share intent was null; sharing dropped.")
+                        }
+                    },
+                    onImportProfile = { json ->
+                        // Phase 1.22: the §15 import
+                        // path. The dialog passes the
+                        // JSON text; we run
+                        // [ProfileImporter.import] and
+                        // either persist the result
+                        // (assigning a fresh id) or
+                        // return the failure to the
+                        // dialog. Per §38 we never
+                        // crash the activity here: a
+                        // failure is reported to the
+                        // dialog as a [ProfileImportResult.Failure];
+                        // the dialog shows the reason
+                        // inline.
+                        val now = System.currentTimeMillis()
+                        val r = repo ?: return@PostureAwareMainScreen ProfileImportResult.Failure(
+                            reason = "Profile repository not available"
+                        )
+                        when (val result = ProfileImporter.import(json, now = now)) {
+                            is ProfileImportResult.Success -> {
+                                scope?.launch {
+                                    val newId = r.nextId()
+                                    val toInsert = result.profile.copy(id = newId)
+                                    r.upsert(toInsert)
+                                    profileFlow.value = toInsert
+                                    allProfilesFlow.value = r.all()
+                                    haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
+                                    Log.i(tag, "Imported profile id=$newId (${toInsert.controls.size} controls)")
+                                }
+                                result
+                            }
+                            is ProfileImportResult.Failure -> {
+                                Log.w(tag, "Profile import failed: ${result.reason}")
+                                result
+                            }
                         }
                     },
                     settings = settings,

@@ -26,6 +26,7 @@ import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.profile.ProfileImportResult
 import com.elysium.nexus.core.settings.AppSettings
 import com.elysium.nexus.ui.editor.ControlKind
 import com.elysium.nexus.ui.editor.EditorActions
@@ -90,6 +91,7 @@ fun PostureAwareMainScreen(
     onNewProfile: () -> Unit,
     onDeleteProfile: () -> Unit,
     onShareProfile: () -> Unit,
+    onImportProfile: (String) -> ProfileImportResult,
     settings: AppSettings,
     onSettingsChange: (AppSettings) -> Unit,
     onNeutralize: () -> Unit,
@@ -109,6 +111,7 @@ fun PostureAwareMainScreen(
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
                 onShareProfile = onShareProfile,
+                onImportProfile = onImportProfile,
                 settings = settings,
                 onSettingsChange = onSettingsChange,
                 onNeutralize = onNeutralize,
@@ -254,6 +257,7 @@ private fun TabletopMainScreen(
                     onNewProfile = onNewProfile,
                     onDeleteProfile = onDeleteProfile,
                     onShare = onShareProfile,
+                    onImport = { /* import dialog is hosted by MainScreen, not Tabletop */ },
                     onSettings = { /* settings dialog is hosted by MainScreen, not Tabletop */ },
                     onOpacityChange = { newOpacity ->
                         selectedId?.let { id -> onProfileUpdated(

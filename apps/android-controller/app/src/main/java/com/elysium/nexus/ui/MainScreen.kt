@@ -30,6 +30,7 @@ import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.profile.NormalizedRect
 import com.elysium.nexus.core.profile.Profile
+import com.elysium.nexus.core.profile.ProfileImportResult
 import com.elysium.nexus.core.settings.AppSettings
 import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.ui.editor.AlignmentAction
@@ -37,6 +38,7 @@ import com.elysium.nexus.ui.editor.ControlKind
 import com.elysium.nexus.ui.editor.EditorActions
 import com.elysium.nexus.ui.editor.EditorCanvas
 import com.elysium.nexus.ui.editor.EditorToolbar
+import com.elysium.nexus.ui.editor.ProfileImportDialog
 import com.elysium.nexus.ui.editor.ProfileSelector
 import com.elysium.nexus.ui.editor.TouchSurfaceViewHost
 import com.elysium.nexus.ui.editor.TransportSelector
@@ -85,6 +87,7 @@ fun MainScreen(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShareProfile: () -> Unit = { },
+    onImportProfile: (String) -> ProfileImportResult = { ProfileImportResult.Failure("Not wired") },
     settings: AppSettings,
     onSettingsChange: (AppSettings) -> Unit = { },
     onNeutralize: () -> Unit,
@@ -170,6 +173,7 @@ fun MainScreen(
         onNewProfile = onNewProfile,
         onDeleteProfile = onDeleteProfile,
         onShareProfile = onShareProfile,
+        onImportProfile = onImportProfile,
         settings = settings,
         onSettingsChange = onSettingsChange,
         onNeutralize = onNeutralize,
@@ -203,6 +207,7 @@ private fun MainScreenContent(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShareProfile: () -> Unit = { },
+    onImportProfile: (String) -> ProfileImportResult = { ProfileImportResult.Failure("Not wired") },
     settings: AppSettings,
     onSettingsChange: (AppSettings) -> Unit = { },
     onNeutralize: () -> Unit,
@@ -223,6 +228,14 @@ private fun MainScreenContent(
     // the dialog's body (the default Compose
     // `onDismissRequest` behaviour).
     var showSettings by remember { mutableStateOf(false) }
+    // Phase 1.22: the import dialog visibility is
+    // *local* state. The dialog is dismissed by
+    // tapping "Close" or any tap outside the
+    // dialog's body. The result of the import is
+    // reported by the caller via [onImportProfile];
+    // a failure stays on the dialog with the
+    // reason inline.
+    var showImport by remember { mutableStateOf(false) }
     // The selected control's current opacity; null
     // when no control is selected. The toolbar's
     // opacity slider uses this to show the current
@@ -275,6 +288,7 @@ private fun MainScreenContent(
                 onNewProfile = onNewProfile,
                 onDeleteProfile = onDeleteProfile,
                 onShare = onShareProfile,
+                onImport = { showImport = true },
                 onSettings = { showSettings = true },
                 onAlign = { action ->
                     val now = System.currentTimeMillis()
@@ -382,6 +396,21 @@ private fun MainScreenContent(
                 onDismiss = { showSettings = false }
             )
         }
+        // Phase 1.22: the import dialog. The
+        // dialog is hosted by the screen
+        // itself. The result of the import is
+        // returned by [onImportProfile]; on
+        // success the caller (the activity)
+        // persists the profile and the dialog
+        // dismisses; on failure the dialog
+        // shows the reason inline and stays
+        // open.
+        if (showImport) {
+            ProfileImportDialog(
+                onImport = onImportProfile,
+                onDismiss = { showImport = false }
+            )
+        }
     }
 }
 
@@ -419,6 +448,7 @@ private fun MainScreenPreview() {
         onNewProfile = { },
         onDeleteProfile = { },
         onShareProfile = { },
+        onImportProfile = { ProfileImportResult.Failure("Preview") },
         settings = com.elysium.nexus.core.settings.AppSettings(),
         onSettingsChange = { },
         onTransportSelected = { },

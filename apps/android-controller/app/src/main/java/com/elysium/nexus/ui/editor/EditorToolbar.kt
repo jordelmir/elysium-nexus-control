@@ -66,6 +66,7 @@ fun EditorToolbar(
     onNewProfile: () -> Unit = { },
     onDeleteProfile: () -> Unit = { },
     onShare: () -> Unit = { },
+    onImport: () -> Unit = { },
     onSettings: () -> Unit = { },
     onAlign: (AlignmentAction) -> Unit = { },
     onOpacityChange: (Float) -> Unit = { },
@@ -152,6 +153,21 @@ fun EditorToolbar(
             AssistChip(
                 onClick = onShare,
                 label = { Text(stringResource(R.string.editor_share_profile)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFF1A1A1F),
+                    labelColor = Color(0xFFF2F2F4)
+                )
+            )
+            // Phase 1.22: the §15 import chip.
+            // Tapping it opens the import dialog
+            // (see [com.elysium.nexus.ui.editor.ProfileImportDialog]).
+            // The dialog accepts a JSON payload
+            // (e.g. one received from a share
+            // intent) and calls
+            // [com.elysium.nexus.core.profile.ProfileImporter.import].
+            AssistChip(
+                onClick = onImport,
+                label = { Text(stringResource(R.string.editor_import_profile)) },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color(0xFF1A1A1F),
                     labelColor = Color(0xFFF2F2F4)
