@@ -91,3 +91,18 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+// Phase 0.9 — the hid-descriptor-validator tool. A
+// JavaExec task that runs the JVM-only validator
+// without going through the Android install path.
+// The validator asserts the descriptor is structurally
+// well-formed; CI runs it on every build.
+tasks.register<JavaExec>("runValidator") {
+    group = "elysium"
+    description = "Run the BASIC_GAMEPAD_V1 HID descriptor validator"
+    mainClass.set("com.elysium.nexus.core.hid.HidDescriptorValidatorKt")
+    dependsOn("compileDebugKotlin")
+    classpath = files(tasks.named("compileDebugKotlin").get().outputs.files) +
+        files(tasks.named("compileDebugJavaWithJavac").get().outputs.files) +
+        configurations.getByName("debugRuntimeClasspath")
+}
