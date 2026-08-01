@@ -108,6 +108,24 @@ object ProfileJson {
         obj.put("createdAt", profile.createdAt)
         obj.put("updatedAt", profile.updatedAt)
         obj.put("controls", controls)
+        // The signature is optional. A profile
+        // that has been signed by the author
+        // carries a `signature` field (HMAC-SHA256
+        // of the canonical serialisation, keyed
+        // by the author's secret). The signature
+        // is **not** included in the serialised
+        // payload it signs: the signer signs the
+        // JSON without the signature field, then
+        // appends the signature. The verifier
+        // re-computes the signature on the
+        // serialisation **without** the signature
+        // field and compares. A round-trip
+        // (sign + verify) succeeds.
+        // The signature is intentionally **not**
+        // stored in the profile data class; it is
+        // a transport-layer field. The
+        // [ProfileImportResult] carries the
+        // signature alongside the parsed profile.
         // `JSONObject.toString()` returns null on
         // `JSONException` in the Android stub. The
         // exception is silently caught; we use `!!`
@@ -117,6 +135,135 @@ object ProfileJson {
         // suite, so the !! is safe in practice.
         return obj.toString() ?: throw IllegalStateException(
             "ProfileJson.toJson produced null for profile ${profile.id}"
+        )
+    }
+
+    /**
+     * The shape of the `signature` field in a
+     * signed profile JSON. The shape is
+     * `{ "algorithm": "HmacSHA256", "value":
+     * "<64-char hex>" }` — an explicit
+     * algorithm tag (per §15 forward compat)
+     * and the hex-encoded signature.
+     *
+     * The signer signs the JSON **without**
+     * the signature field (the canonical
+     * serialisation); the verifier re-
+     * computes the signature on the same
+     * canonical serialisation and compares
+     * with `signature.value`.
+     */
+    const val SIGNATURE_ALGORITHM: String = "HmacSHA256"
+
+    /**
+     * The optional signature field, when
+     * present in a signed profile JSON. The
+     * `value` is the 64-char lowercase hex
+     * of the HMAC-SHA256 over the canonical
+     * serialisation (the JSON without the
+     * `signature` field itself).
+     */
+    data class SignatureField(
+        val algorithm: String,
+        val value: String
+    ) {
+        init {
+            require(algorithm == SIGNATURE_ALGORITHM) {
+                "SignatureField.algorithm must be '$SIGNATURE_ALGORITHM' " +
+                    "(got '$algorithm')."
+            }
+            require(value.length == 64) {
+                "SignatureField.value must be 64 hex chars (got ${value.length})."
+            }
+            require(value.all { it in "0123456789abcdef" }) {
+                "SignatureField.value must be lowercase hex."
+            }
+        }
+    }
+
+    /**
+     * The result of parsing a profile JSON
+     * with the optional signature. The
+     * [Profile] is the parsed document; the
+     * [SignatureField] is the embedded
+     * signature, or `null` when the JSON
+     * is unsigned.
+     */
+    data class ParsedProfile(
+        val profile: Profile,
+        val signature: SignatureField? = null
+    )
+
+    /**
+     * Parse a profile JSON with the
+     * optional signature. The function is
+     * total: every input produces a result.
+     * The result carries the [Profile] +
+     * the [SignatureField] (or null). The
+     * [com.elysium.nexus.core.profile.ProfileImporter]
+     * is the production caller; the importer
+     * verifies the signature (when present)
+     * using the author's secret.
+     */
+    fun parseWithSignature(json: String): ParsedProfile {
+        val obj = JSONObject(json)
+        val schemaVersion = obj.optInt("schemaVersion", 0)
+        require(schemaVersion == SCHEMA_VERSION) {
+            "Unsupported profile schemaVersion $schemaVersion (expected $SCHEMA_VERSION)."
+        }
+        val profile = parseProfileFields(obj)
+        // The signature is optional. When
+        // present, it must validate; the
+        // [ProfileImporter] is responsible
+        // for the cryptographic check. The
+        // parser just extracts the field.
+        val signature = parseSignatureField(obj)
+        return ParsedProfile(profile = profile, signature = signature)
+    }
+
+    /**
+     * Parse the inner profile fields
+     * (everything except the optional
+     * signature). Used by [fromJson] (the
+     * legacy entry point that returns just
+     * the [Profile]) and by [parseWithSignature].
+     */
+    private fun parseProfileFields(obj: JSONObject): Profile {
+        val id = obj.getInt("id")
+        val name = obj.getString("name")
+        val author = obj.getString("author")
+        val version = obj.getInt("version")
+        val createdAt = obj.getLong("createdAt")
+        val updatedAt = obj.getLong("updatedAt")
+        val controlsArray = obj.getJSONArray("controls")
+        val controls = (0 until controlsArray.length()).map { i ->
+            controlFromJson(controlsArray.getJSONObject(i))
+        }
+        return Profile(
+            id = id,
+            name = name,
+            author = author,
+            controls = controls,
+            version = version,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    /**
+     * Parse the optional `signature` field.
+     * Returns `null` when the field is
+     * absent. Throws when the field is
+     * present but malformed (an
+     * [IllegalArgumentException] via the
+     * [SignatureField.init]).
+     */
+    private fun parseSignatureField(obj: JSONObject): SignatureField? {
+        if (!obj.has("signature")) return null
+        val sig = obj.getJSONObject("signature")
+        return SignatureField(
+            algorithm = sig.getString("algorithm"),
+            value = sig.getString("value")
         )
     }
 

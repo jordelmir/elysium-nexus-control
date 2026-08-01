@@ -85,7 +85,20 @@ class AndroidIrTransmitter(context: Context) {
      */
     fun carrierRange(): IntRange? {
         val m = manager ?: return null
-        val ranges = m.carrierFrequencies ?: return null
+        // `getCarrierFrequencies` can throw
+        // `SecurityException` if the app lacks
+        // `TRANSMIT_IR`. We catch it here (and at
+        // every other call site) so the app never
+        // crashes (Bug #ULT-3-001).
+        val ranges = try {
+            m.carrierFrequencies
+        } catch (e: SecurityException) {
+            Log.w(tag, "getCarrierFrequencies denied; returning null.", e)
+            return null
+        } catch (e: Throwable) {
+            Log.w(tag, "getCarrierFrequencies failed; returning null.", e)
+            return null
+        } ?: return null
         if (ranges.isEmpty()) return null
         val min = ranges.minOf { it.minFrequency }
         val max = ranges.maxOf { it.maxFrequency }
@@ -113,8 +126,22 @@ class AndroidIrTransmitter(context: Context) {
     fun transmit(waveform: IrWaveform): Boolean {
         val m = manager ?: return false
         if (!hasEmitter) return false
-        // Carrier validation.
-        val range = carrierRange()
+        // Carrier validation. Wrapped in try/catch
+        // because `getCarrierFrequencies()` throws
+        // `SecurityException` if the
+        // `TRANSMIT_IR` permission was not granted
+        // (Bug #ULT-3-001: app crashed on first
+        // IR transmit). Per §38 the transmitter
+        // never crashes the activity.
+        val range: IntRange? = try {
+            carrierRange()
+        } catch (e: SecurityException) {
+            Log.w(tag, "Carrier range access denied; transmitting blindly.", e)
+            null
+        } catch (e: Throwable) {
+            Log.w(tag, "Carrier range probe failed; transmitting blindly.", e)
+            null
+        }
         if (range != null && waveform.carrierHz !in range) {
             Log.w(
                 tag,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Round variant of the adaptive icon. Android
+  applies a circular mask to the foreground.
+  We use the same `background` + `foreground`
+  pair as `ic_launcher.xml`; the launcher
+  picks the right one based on the device's
+  icon-shape setting.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

@@ -6,7 +6,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.elysium.nexus.R
+import com.elysium.nexus.core.device.DeviceTemplate
 import com.elysium.nexus.core.engine.CanonicalInputEngine
 import com.elysium.nexus.core.engine.EngineState
 import com.elysium.nexus.core.engine.StickSide
@@ -16,13 +20,11 @@ import com.elysium.nexus.core.haptics.AndroidHaptics
 import com.elysium.nexus.core.haptics.Haptics
 import com.elysium.nexus.core.haptics.SettingsAwareHaptics
 import com.elysium.nexus.core.latency.LatencyTracker
-import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.motion.AndroidMotionSensorSource
 import com.elysium.nexus.core.motion.MotionSensorSource
 import com.elysium.nexus.core.motion.NullMotionSensorSource
 import com.elysium.nexus.core.posture.AndroidPostureObserver
 import com.elysium.nexus.core.posture.NullPostureObserver
-import com.elysium.nexus.core.posture.Posture
 import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
 import com.elysium.nexus.core.profile.Profile
@@ -33,12 +35,25 @@ import com.elysium.nexus.core.profile.ProfileShareBuilder
 import com.elysium.nexus.core.settings.AndroidAppSettingsStore
 import com.elysium.nexus.core.settings.AppSettings
 import com.elysium.nexus.core.settings.AppSettingsStore
-import com.elysium.nexus.core.transport.BluetoothHidTransport
-import com.elysium.nexus.core.transport.ControllerTransport
 import com.elysium.nexus.core.transport.LocalEchoTransport
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.databases.profile.RoomProfileRepository
+import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.ui.connect.IrConnectFlow
+import com.elysium.nexus.ui.control.TvControlScreen
+import com.elysium.nexus.ui.help.GuidedTourOverlay
+import com.elysium.nexus.ui.hub.ConsoleDeviceScreen
+import com.elysium.nexus.ui.hub.ConsoleSubcategoryScreen
+import com.elysium.nexus.ui.hub.DeviceCategoryScreen
+import com.elysium.nexus.ui.hub.HubDestination
+import com.elysium.nexus.ui.hub.HubScreen
+import com.elysium.nexus.ui.hub.TvControlsSection
+import com.elysium.nexus.ui.mac.MacControlSurfaceScreen
+import com.elysium.nexus.ui.mac.MacDiscoveryScreen
+import com.elysium.nexus.ui.mac.MacPairingScreen
+import com.elysium.nexus.ui.settings.SettingsDialog
+import com.elysium.nexus.ui.theme.ElysiumTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,69 +61,43 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlin.system.measureTimeMillis
 
 /**
  * The first `Activity`. The first end-to-end milestone.
  *
- * `MASTER_ORDER.md` §45 calls for the first deliverable to be a
- * small, measurable, *deterministic* slice: an APK on Honor
- * Magic V2 that emits generic input and neutralizes on abrupt
- * disconnect. Phase 0.7 is that slice, *minus* the transport
- * (which is Phase 2+). The activity:
+ * ## Phase ULT.3 — Hierarchical navigation
  *
- *  1. Creates the [CanonicalInputEngine].
- *  2. Drives the engine through the §32 state machine from
- *     `Idle` to `Active`, simulating the transport layer
- *     for now.
- *  3. Sets the activity's content to the Compose
- *     `MainScreen` via `setContent`. The
- *     [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
- *     is inside the Compose tree (Phase 1.3's
- *     [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
- *     pattern; the Phase 1.1+ `FrameLayout` was removed
- *     in Phase 1.3 when the touch surface moved into
- *     Compose).
- *  4. Subscribes to the engine's [CanonicalInputEngine.state]
- *     and logs every emission to logcat.
- *  5. On `onDestroy`, drives the engine to `Disconnected`,
- *     calls `engine.neutralize()` for the §38 abrupt path,
- *     and cancels the activity's scope.
+ * The activity hosts a **navigation stack** of
+ * [HubDestination]s. The user starts on the
+ * Hub (home), taps a category, picks a device,
+ * connects it via the IR flow, and ends up on
+ * the control surface. The back button pops the
+ * stack.
  *
- * The activity does **not** know about Bluetooth, USB, or the
- * transport. It is a self-contained session: when the
- * activity is up, the engine is `Active`; when the activity
- * is down, the engine is `Disconnected` and the canonical
- * state is neutral. The transport layer (Phase 2+) will
- * replace the activity's "drive the state machine" with a
- * real transport.
+ * The activity is a thin shell. The visual
+ * hierarchy is in
+ * [com.elysium.nexus.ui.hub.HubScreen],
+ * [com.elysium.nexus.ui.hub.DeviceCategoryScreen],
+ * [com.elysium.nexus.ui.connect.IrConnectFlow],
+ * and
+ * [com.elysium.nexus.ui.control.TvControlScreen].
+ * The activity wires them together and provides
+ * the shared state (the engine, the profile
+ * repository, the IR transmitter, the haptic
+ * feedback).
  *
- * ## Why `ComponentActivity`
+ * ## First-launch guided tour
  *
- * `ComponentActivity` is the modern Android base class
- * (recommended over the deprecated `AppCompatActivity` for
- * activities that do not need `AppCompat`'s back-compat
- * shims). The brand theme is `Theme.Material.Light.NoActionBar`,
- * which is a platform theme, so the agent-memory rule "if
- * the host is `ComponentActivity` themed `Theme.Material.*`
- * use platform `android.app.AlertDialog.Builder`" applies
- * the day we add a dialog.
- *
- * ## Why a custom `CoroutineScope` and not `lifecycleScope`
- *
- * The activity's scope is a `SupervisorJob() +
- * Dispatchers.Main.immediate`. We do not pull in
- * `androidx.lifecycle:lifecycle-runtime-ktx` for 0.7
- * because we do not need its extra machinery yet. When
- * the engine becomes a Hilt `@Singleton` in Phase 1+, the
- * engine's scope is owned by the Hilt graph, and the
- * activity's `viewModelScope` / `lifecycleScope` will be
- * the right place for activity-level work.
+ * The activity shows a 3-step
+ * [GuidedTourOverlay] on the very first launch
+ * (when the SharedPreferences `elysium.firstLaunch`
+ * is `true`). After the tour, the preference is
+ * set to `false` and the tour is never shown
+ * again.
  */
 class MainActivity : ComponentActivity() {
 
@@ -128,21 +117,17 @@ class MainActivity : ComponentActivity() {
     private var shareLauncher: AndroidProfileShareLauncher? = null
     private var settingsStore: AppSettingsStore? = null
     private var haptics: Haptics? = null
+    private var irTransmitter: AndroidIrTransmitter? = null
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
-    private val postureFlow: MutableStateFlow<Posture> = MutableStateFlow(Posture.UNKNOWN)
-    private val transportFlow: MutableStateFlow<ControllerTransport?> = MutableStateFlow(null)
+    private val transportFlow: MutableStateFlow<com.elysium.nexus.core.transport.ControllerTransport?> = MutableStateFlow(null)
     private val settingsFlow: MutableStateFlow<AppSettings> = MutableStateFlow(AppSettings())
+    private val connectedDeviceFlow: MutableStateFlow<DeviceTemplate?> = MutableStateFlow(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.i(tag, "MainActivity.onCreate — Phase 1.3 editor + AndroidView arbitration")
+        Log.i(tag, "MainActivity.onCreate — Phase ULT.3 hierarchical navigation")
 
-        // 1. Create the engine. The engine's own scope is
-        //    separate from the activity's scope: the engine
-        //    has no internal coroutines in 0.7 (its `scope`
-        //    parameter is reserved for future engine-internal
-        //    jobs), so we use a minimal scope here.
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val latencyTracker = LatencyTracker()
         val engine = CanonicalInputEngine(
@@ -153,27 +138,8 @@ class MainActivity : ComponentActivity() {
         )
         this.engine = engine
         this.latencyTracker = latencyTracker
-
-        // 2. Drive the engine through the §32 state machine.
-        //    Phase 2+ replaces this with a real transport;
-        //    for 0.7 the activity is the transport.
         driveEngineToActive(engine)
 
-        // 3. Phase 1.2: the profile repository. The
-        //    Room-backed implementation persists the
-        //    profile across process death. The default
-        //    profile is loaded on first launch
-        //    (when the database is empty) and exposed
-        //    as a StateFlow so the Compose UI can
-        //    observe it. When the user drags a control
-        //    in the editor, the activity updates the
-        //    repository and pushes the new value into
-        //    the flow; the editor recomposes.
-        //
-        // Phase 1.3: also expose the *list* of every
-        // profile in the DB so the editor's
-        // [com.elysium.nexus.ui.editor.ProfileSelector]
-        // can render the user's library.
         val profileRepo: ProfileRepository = RoomProfileRepository(
             ProfileDatabase.getInstance(this).profileDao()
         )
@@ -188,16 +154,6 @@ class MainActivity : ComponentActivity() {
             allProfilesFlow.value = profileRepo.all()
         }
 
-        // 4. Phase 1.18 — the §15 settings store. The
-        //    store is the source of truth for the
-        //    user-tunable knobs (stick sensitivity,
-        //    axis inversion, haptics on/off). The
-        //    store is backed by SharedPreferences;
-        //    the in-memory [MutableStateFlow] is the
-        //    Compose-friendly view. The haptics is
-        //    wrapped in [SettingsAwareHaptics] so a
-        //    settings change immediately gates the
-        //    next [HapticEvent].
         val settingsStore: AppSettingsStore = AndroidAppSettingsStore(this)
         this.settingsStore = settingsStore
         settingsFlow.value = settingsStore.current
@@ -207,14 +163,6 @@ class MainActivity : ComponentActivity() {
         )
         this.haptics = haptics
 
-        // 5. Phase 1.16 — the default transport must
-        //    be in scope *before* the setContent block
-        //    so the composable lambda can reference
-        //    it (the §17 multiplexer). We create the
-        //    [LocalEchoTransport], start and connect
-        //    it (the test-friendly transport, 0 ms
-        //    latency), and stash it in the activity
-        //    field for the onDestroy §38 path.
         val defaultTransport = LocalEchoTransport()
         runBlocking {
             defaultTransport.start()
@@ -222,323 +170,29 @@ class MainActivity : ComponentActivity() {
         }
         transportFlow.value = defaultTransport
 
-        // 5. Phase 1.3: set the activity's content
-        //    directly to the Compose `MainScreen`. The
-        //    [com.elysium.nexus.ui.editor.TouchSurfaceViewHost]
-        //    is hosted *inside* the Compose tree via
-        //    `AndroidView`. The activity no longer
-        //    needs a `FrameLayout`; the Compose tree
-        //    is the only content view. This is the
-        //    Phase 1.3 fix for Bug #18: the touch
-        //    surface is no longer dead.
-        setContent {
-            val profile by profileFlow.collectAsState()
-            val allProfiles by allProfilesFlow.collectAsState()
-            val posture by postureFlow.collectAsState()
-            val currentTransport by transportFlow.collectAsState()
-            val settings by settingsFlow.collectAsState()
-            val scope = activityScope
-            val repo = profileRepository
-            profile?.let { current ->
-                PostureAwareMainScreen(
-                    engine = engine,
-                    profile = current,
-                    allProfiles = allProfiles,
-                    transports = listOfNotNull(currentTransport),
-                    currentTransport = currentTransport ?: defaultTransport,
-                    onTransportSelected = { t ->
-                        transportBinding?.setTransport(t)
-                        transportFlow.value = t
-                    },
-                    posture = posture,
-                    onProfileSelected = { id ->
-                        scope?.launch {
-                            val next = repo?.byId(id) ?: return@launch
-                            profileFlow.value = next
-                        }
-                    },
-                    onProfileUpdated = { updated ->
-                        scope?.launch {
-                            repo?.upsert(updated)
-                            profileFlow.value = updated
-                            allProfilesFlow.value = repo?.all() ?: emptyList()
-                        }
-                    },
-                    onNewProfile = {
-                        scope?.launch {
-                            val newId = repo?.nextId() ?: return@launch
-                            val now = System.currentTimeMillis()
-                            val newProfile = Profile(
-                                id = newId,
-                                name = "Profile $newId",
-                                author = "user",
-                                controls = emptyList(),
-                                createdAt = now,
-                                updatedAt = now
-                            )
-                            repo.upsert(newProfile)
-                            profileFlow.value = newProfile
-                            allProfilesFlow.value = repo.all()
-                        }
-                    },
-                    onDeleteProfile = {
-                        scope?.launch {
-                            val current = profileFlow.value ?: return@launch
-                            val r = repo ?: return@launch
-                            // Phase 1.5: refuse to delete the
-                            // last profile. The "default"
-                            // profile is the user's safety
-                            // net; deleting it would leave
-                            // the activity with no profile
-                            // to render. The full rule
-                            // (configurable, with a
-                            // confirmation dialog) lands in
-                            // Phase 1.6+.
-                            if (r.count() <= 1) {
-                                Log.w(tag, "Refusing to delete the last profile (id=${current.id}).")
-                                return@launch
-                            }
-                            r.delete(current.id)
-                            val next = r.firstOrNull()
-                            profileFlow.value = next
-                            allProfilesFlow.value = r.all()
-                        }
-                    },
-                    onDuplicateProfile = {
-                        // Phase 1.24: the §15 duplicate
-                        // action. We grab the current
-                        // profile, compute a fresh
-                        // duplicate (new id, fresh
-                        // timestamps, "name (copy)"
-                        // suffix), and upsert. The
-                        // duplicate is a *new* profile;
-                        // editing it does not touch the
-                        // source.
-                        scope?.launch {
-                            val current = profileFlow.value ?: return@launch
-                            val r = repo ?: return@launch
-                            val now = System.currentTimeMillis()
-                            val newId = r.nextId()
-                            val duplicate = ProfileActions.duplicate(
-                                source = current,
-                                newId = newId,
-                                now = now
-                            )
-                            r.upsert(duplicate)
-                            profileFlow.value = duplicate
-                            allProfilesFlow.value = r.all()
-                            haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
-                            Log.i(tag, "Duplicated profile: ${current.name} → id=$newId")
-                        }
-                    },
-                    onRenameProfile = { newName ->
-                        // Phase 1.24: the §15 rename
-                        // action. The dialog returns
-                        // the new name; we run
-                        // [ProfileActions.rename] and
-                        // upsert. A blank name is
-                        // rejected by [Profile.init].
-                        val current = profileFlow.value ?: return@PostureAwareMainScreen
-                        val now = System.currentTimeMillis()
-                        val renamed = try {
-                            ProfileActions.rename(
-                                source = current,
-                                newName = newName,
-                                now = now
-                            )
-                        } catch (e: IllegalArgumentException) {
-                            Log.w(tag, "Rename failed: ${e.message}")
-                            return@PostureAwareMainScreen
-                        }
-                        scope?.launch {
-                            repo?.upsert(renamed)
-                            profileFlow.value = renamed
-                            allProfilesFlow.value = repo?.all() ?: emptyList()
-                            haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
-                            Log.i(tag, "Renamed profile id=${current.id} → '${newName}'")
-                        }
-                    },
-                    onShareProfile = {
-                        // Phase 1.17: the §15 share
-                        // intent. We build a
-                        // [com.elysium.nexus.core.profile.ProfileShare]
-                        // artifact from the current
-                        // profile and hand it to the
-                        // [AndroidProfileShareLauncher].
-                        // The launcher writes the JSON
-                        // to the cache and returns a
-                        // chooser Intent; we surface it
-                        // via `startActivity`. Per §38
-                        // we never crash the activity
-                        // here: a null intent (I/O
-                        // failure, missing FileProvider)
-                        // is logged and dropped.
-                        val current = profileFlow.value ?: return@PostureAwareMainScreen
-                        val launcher = shareLauncher ?: return@PostureAwareMainScreen
-                        val share = ProfileShareBuilder.build(current)
-                        val intent = launcher.launch(
-                            share = share,
-                            chooserTitle = getString(R.string.share_profile_chooser_title)
-                        )
-                        if (intent != null) {
-                            startActivity(intent)
-                        } else {
-                            Log.w(tag, "Share intent was null; sharing dropped.")
-                        }
-                    },
-                    onImportProfile = { json ->
-                        // Phase 1.22: the §15 import
-                        // path. The dialog passes the
-                        // JSON text; we run
-                        // [ProfileImporter.import] and
-                        // either persist the result
-                        // (assigning a fresh id) or
-                        // return the failure to the
-                        // dialog. Per §38 we never
-                        // crash the activity here: a
-                        // failure is reported to the
-                        // dialog as a [ProfileImportResult.Failure];
-                        // the dialog shows the reason
-                        // inline.
-                        val now = System.currentTimeMillis()
-                        val r = repo ?: return@PostureAwareMainScreen ProfileImportResult.Failure(
-                            reason = "Profile repository not available"
-                        )
-                        when (val result = ProfileImporter.import(json, now = now)) {
-                            is ProfileImportResult.Success -> {
-                                scope?.launch {
-                                    val newId = r.nextId()
-                                    val toInsert = result.profile.copy(id = newId)
-                                    r.upsert(toInsert)
-                                    profileFlow.value = toInsert
-                                    allProfilesFlow.value = r.all()
-                                    haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
-                                    Log.i(tag, "Imported profile id=$newId (${toInsert.controls.size} controls)")
-                                }
-                                result
-                            }
-                            is ProfileImportResult.Failure -> {
-                                Log.w(tag, "Profile import failed: ${result.reason}")
-                                result
-                            }
-                        }
-                    },
-                    settings = settings,
-                    onSettingsChange = { updated ->
-                        settingsStore?.update(updated)
-                        settingsFlow.value = updated
-                        // Phase 1.23: forward the
-                        // sensitivity / inversion to
-                        // the engine. The engine
-                        // honours the new config on
-                        // the next [submitStick] call.
-                        // We rebuild a fresh
-                        // [StickConfig] for each side:
-                        // sensitivity is the only knob
-                        // the user dials in the §15
-                        // settings; the other 9 knobs
-                        // (deadzone, response curve,
-                        // …) are out of scope for
-                        // the settings dialog and keep
-                        // their defaults. Axis
-                        // inversion is a per-axis
-                        // boolean on the same config.
-                        val left = com.elysium.nexus.core.filter.StickConfig(
-                            innerDeadzone = 0.10f,
-                            outerThreshold = 0.95f,
-                            sensitivity = updated.leftStickSensitivity,
-                            invertX = updated.invertLeftX,
-                            invertY = updated.invertLeftY
-                        )
-                        val right = com.elysium.nexus.core.filter.StickConfig(
-                            innerDeadzone = 0.10f,
-                            outerThreshold = 0.95f,
-                            sensitivity = updated.rightStickSensitivity,
-                            invertX = updated.invertRightX,
-                            invertY = updated.invertRightY
-                        )
-                        runCatching {
-                            engine.updateStickConfig(StickSide.Left, left)
-                            engine.updateStickConfig(StickSide.Right, right)
-                        }.onFailure { e ->
-                            Log.w(tag, "Engine rejected updated stick config: ${e.message}")
-                        }
-                        // Phase 1.18 also: trigger a
-                        // haptic on settings change so
-                        // the user knows the value was
-                        // committed. The haptics
-                        // respects the §15 toggle
-                        // (hapticsEnabled); a change
-                        // with hapticsEnabled=false
-                        // is a no-op except for the
-                        // value persistence.
-                        haptics?.fire(com.elysium.nexus.core.haptics.HapticEvent.ProfileChanged)
-                    },
-                    onNeutralize = { engine.neutralize() }
-                )
-            }
-        }
-
-        // 5. Create the activity's scope and observe the
-        //    engine's state. Every emission is logged to
-        //    logcat with the latency from the previous
-        //    emission, which is the cheapest first cut of
-        //    the §30 latency budget. The real measurement
-        //    harness (T0..T8 instrumentation) lands in 0.8.
         val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         this.activityScope = activityScope
 
-        // Phase 1.13 — the §17 transport binding.
-        //    The activity wires a default
-        //    [LocalEchoTransport] (the test-friendly
-        //    transport that records every frame). The
-        //    engine's `state` flow is forwarded to the
-        //    transport via [TransportBinding]. The
-        //    activity's [TransportSelector] lets the
-        //    user pick a different transport at runtime
-        //    (Phase 1.14). The transport is the
-        //    destination of the engine's `submit*`
-        //    calls; the [LocalEchoTransport] is the
-        //    test surface for the engine→transport
-        //    pipeline.
-        //
-        // Note: `defaultTransport` is declared in step
-        // 4 (above `setContent`) so the Compose
-        // lambda can reference it. We only build the
-        // [TransportBinding] here, after the activity's
-        // own scope exists.
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
-        // Forward every engine state to the
-        // transport. The [LocalEchoTransport] just
-        // records; the real transports send over
-        // BT / USB / Wi-Fi.
         transportJob = engine.state
             .onEach { state -> transportBinding.forwardRealtime(state) }
             .launchIn(activityScope)
 
-        // Phase 1.17: the §15 profile share
-        // launcher. The launcher is a thin Android
-        // adapter around
-        // [com.elysium.nexus.core.profile.ProfileShareBuilder]
-        // — it writes the JSON to the cache and
-        // returns a chooser Intent. The activity
-        // owns the launcher for its lifetime; the
-        // launcher has no per-call state of its
-        // own, so `onDestroy` only needs to null
-        // the field.
         shareLauncher = AndroidProfileShareLauncher(this)
+
+        // IR transmitter — the FAB equivalent for
+        // the TV connection flow. The transmitter
+        // is a no-op if the phone has no IR
+        // blaster.
+        val ir = AndroidIrTransmitter(this)
+        this.irTransmitter = ir
 
         driverJob = engine.state
             .onEach { state -> logState(state) }
             .launchIn(activityScope)
 
-        // 6. The §30 latency budget reporter. Every second
-        //    we log the current p50 / p95 of the touch
-        //    processing path. The full T0..T8 harness
-        //    (transport + receiver) lands in Phase 2+ /
-        //    Phase 4.
-        driverJob = activityScope.launch {
+        latencyJob = activityScope.launch {
             while (true) {
                 delay(1000L)
                 val snapshot = latencyTracker.snapshot()
@@ -555,24 +209,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 7. Phase 1.4 — the §14 motion / IMU source.
-        //    The activity owns the source for the
-        //    activity's lifetime. The source's
-        //    `samples()` flow is collected on the
-        //    activity's scope; each sample is
-        //    forwarded to the engine via
-        //    `engine.submitMotion`. On the emulator
-        //    (no real IMU), the source returns an
-        //    empty flow and no samples are forwarded
-        //    — the engine's `motion` field stays
-        //    `null` (the canonical neutral for motion).
         val motionSource: MotionSensorSource = try {
             AndroidMotionSensorSource(this)
         } catch (e: Throwable) {
-            // The source may fail on devices without
-            // a SensorManager (rare; the emulator
-            // does have one). Fall back to the no-op
-            // source so the activity still launches.
             Log.w(tag, "AndroidMotionSensorSource failed; using NullMotionSensorSource.", e)
             NullMotionSensorSource()
         }
@@ -587,22 +226,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 8. Phase 1.5 / 1.8 — the §16 foldable
-        //    posture observer. The activity owns
-        //    the source for the activity's lifetime.
-        //    The source's `postures()` flow is
-        //    collected on the activity's scope; each
-        //    new posture updates the `postureFlow`,
-        //    which the `PostureAwareMainScreen`
-        //    observes. On a non-foldable device, the
-        //    observer returns `UNKNOWN` for the
-        //    lifetime of the activity.
         val postureSource: PostureObserver = try {
             AndroidPostureObserver(this, activityScope)
         } catch (e: Throwable) {
-            // The source may fail on devices without
-            // a `WindowInfoTracker` (rare). Fall back
-            // to the no-op source.
             Log.w(tag, "AndroidPostureObserver failed; using NullPostureObserver.", e)
             NullPostureObserver()
         }
@@ -610,38 +236,264 @@ class MainActivity : ComponentActivity() {
         postureJob = activityScope.launch {
             try {
                 postureSource.postures().collect { posture ->
-                    postureFlow.value = posture
+                    // Posture is observed but not used in the new
+                    // hierarchical UI; the responsive layout
+                    // detects the screen size directly.
                 }
             } catch (e: Throwable) {
                 Log.w(tag, "Posture observation failed; posture is dormant.", e)
             }
         }
+
+        // === Compose UI ===========================================
+        setContent {
+            ElysiumTheme {
+                val connectedDevice by connectedDeviceFlow.collectAsState()
+                val settings by settingsFlow.collectAsState()
+                val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
+                val settingsVisible = remember { mutableStateOf(false) }
+                val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
+                val current = navStack.value.last()
+
+                if (tourVisible.value) {
+                    GuidedTourOverlay(
+                        onComplete = {
+                            markLaunched()
+                            tourVisible.value = false
+                        }
+                    )
+                    return@ElysiumTheme
+                }
+
+                when (current) {
+                    is HubDestination.Hub -> HubScreen(
+                        onCategorySelected = { cat ->
+                            // Consoles go through the
+                            // sub-category picker; TVs and
+                            // other categories go through
+                            // the brand picker.
+                            when (cat) {
+                                com.elysium.nexus.core.device.DeviceCategory.PLAYSTATION,
+                                com.elysium.nexus.core.device.DeviceCategory.XBOX,
+                                com.elysium.nexus.core.device.DeviceCategory.NINTENDO -> {
+                                    // Consoles: open the
+                                    // sub-category screen
+                                    // (PS5 / PS4, etc.).
+                                    // We use the Category
+                                    // destination as a
+                                    // marker; the actual
+                                    // sub-category screen
+                                    // is reached via
+                                    // ConsolePicker.
+                                    navStack.value = navStack.value + HubDestination.Category(cat)
+                                }
+                                else -> {
+                                    navStack.value = navStack.value + HubDestination.Category(cat)
+                                }
+                            }
+                        },
+                        onTvControlsSelected = {
+                            navStack.value = navStack.value + HubDestination.TvControls
+                        },
+                        onMacSelected = {
+                            navStack.value = navStack.value + HubDestination.MacDiscovery
+                        },
+                        onSettings = { settingsVisible.value = true },
+                        onShowHelp = { tourVisible.value = true },
+                        firstDeviceLabel = connectedDevice?.let { "${it.brand} ${it.model}" }
+                    )
+                    is HubDestination.TvControls -> TvControlsSection(
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onDeviceSelected = { template ->
+                            navStack.value = navStack.value.dropLast(1) + HubDestination.Connect(template)
+                        }
+                    )
+                    is HubDestination.Category -> {
+                        val cat = current.category
+                        if (cat == com.elysium.nexus.core.device.DeviceCategory.PLAYSTATION ||
+                            cat == com.elysium.nexus.core.device.DeviceCategory.XBOX ||
+                            cat == com.elysium.nexus.core.device.DeviceCategory.NINTENDO
+                        ) {
+                            // For consoles, show the
+                            // sub-category picker (PS5,
+                            // PS4, etc.) instead of the
+                            // brand list. Pick the first
+                            // sub-category as a default;
+                            // the picker will let the
+                            // user pick a different one.
+                            val subs = when (cat) {
+                                com.elysium.nexus.core.device.DeviceCategory.PLAYSTATION -> com.elysium.nexus.core.device.DeviceCategory.playstationSubcategories
+                                com.elysium.nexus.core.device.DeviceCategory.XBOX -> com.elysium.nexus.core.device.DeviceCategory.xboxSubcategories
+                                else -> com.elysium.nexus.core.device.DeviceCategory.nintendoSubcategories
+                            }
+                            // Push the ConsolePicker with
+                            // the first sub-category as a
+                            // default; the screen will let
+                            // the user navigate.
+                            navStack.value = navStack.value.dropLast(1) +
+                                HubDestination.ConsolePicker(cat, subs.first())
+                        } else {
+                            DeviceCategoryScreen(
+                                category = cat,
+                                onBack = { navStack.value = navStack.value.dropLast(1) },
+                                onDeviceSelected = { template ->
+                                    navStack.value = navStack.value.dropLast(1) + HubDestination.Connect(template)
+                                }
+                            )
+                        }
+                    }
+                    is HubDestination.ConsolePicker -> ConsoleSubcategoryScreen(
+                        category = current.category,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onSubcategorySelected = { sub ->
+                            // Find the first device
+                            // template for the chosen
+                            // sub-category. The
+                            // subcategory id is a
+                            // prefix (e.g. "ps5" matches
+                            // "ps5-generic", "ps5-digital").
+                            val template = com.elysium.nexus.core.device.DeviceCatalog.all.firstOrNull {
+                                it.category == current.category &&
+                                it.id.startsWith(sub.id)
+                            } ?: com.elysium.nexus.core.device.DeviceCatalog.byId("${sub.id}-generic")
+                            if (template != null) {
+                                navStack.value = navStack.value.dropLast(1) +
+                                    HubDestination.ConsoleDevice(template)
+                            }
+                        }
+                    )
+                    is HubDestination.ConsoleDevice -> ConsoleDeviceScreen(
+                        templateId = current.template.id,
+                        onBack = { navStack.value = navStack.value.dropLast(1) }
+                    )
+                    is HubDestination.Connect -> {
+                        val ir = irTransmitter
+                        if (ir != null) {
+                            IrConnectFlow(
+                                template = current.template,
+                                onBack = { navStack.value = navStack.value.dropLast(1) },
+                                onConnected = { template ->
+                                    connectedDeviceFlow.value = template
+                                    navStack.value = navStack.value.dropLast(1) + HubDestination.Control(template)
+                                },
+                                onTryOther = { navStack.value = navStack.value.dropLast(1) },
+                                irTransmitter = ir,
+                                hasIrBlaster = ir.hasEmitter()
+                            )
+                        }
+                    }
+                    is HubDestination.Control -> {
+                        val ir = irTransmitter
+                        if (ir != null) {
+                            TvControlScreen(
+                                template = current.template,
+                                onBack = { navStack.value = navStack.value.dropLast(1) },
+                                irTransmitter = ir,
+                                hasEmitter = ir.hasEmitter()
+                            )
+                        }
+                    }
+                    is HubDestination.MacDiscovery -> MacDiscoveryScreen(
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onHostSelected = { host ->
+                            navStack.value = navStack.value.dropLast(1) +
+                                HubDestination.MacPairing(host)
+                        },
+                        onManualAdd = {
+                            // For now, manual add
+                            // routes to the same
+                            // pairing flow with a
+                            // synthetic host. The
+                            // real flow will let
+                            // the user enter IP /
+                            // hostname first.
+                            navStack.value = navStack.value + HubDestination.MacPairing(
+                                com.elysium.nexus.ui.mac.DiscoveredHost(
+                                    id = "manual",
+                                    name = "Host manual",
+                                    type = com.elysium.nexus.ui.mac.HostType.MAC_DESKTOP,
+                                    signalStrength = 3,
+                                    isOnline = true
+                                )
+                            )
+                        }
+                    )
+                    is HubDestination.MacPairing -> MacPairingScreen(
+                        host = current.host,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onPaired = {
+                            navStack.value = navStack.value.dropLast(1) +
+                                HubDestination.MacControl(current.host)
+                        }
+                    )
+                    is HubDestination.MacControl -> MacControlSurfaceScreen(
+                        host = current.host,
+                        onBack = { navStack.value = navStack.value.dropLast(1) }
+                    )
+                }
+
+                if (settingsVisible.value) {
+                    SettingsDialog(
+                        settings = settings,
+                        onSettingsChange = { updated ->
+                            settingsStore.update(updated)
+                            settingsFlow.value = updated
+                            val left = StickConfig(
+                                innerDeadzone = 0.10f,
+                                outerThreshold = 0.95f,
+                                sensitivity = updated.leftStickSensitivity,
+                                invertX = updated.invertLeftX,
+                                invertY = updated.invertLeftY
+                            )
+                            val right = StickConfig(
+                                innerDeadzone = 0.10f,
+                                outerThreshold = 0.95f,
+                                sensitivity = updated.rightStickSensitivity,
+                                invertX = updated.invertRightX,
+                                invertY = updated.invertRightY
+                            )
+                            runCatching {
+                                engine.updateStickConfig(StickSide.Left, left)
+                                engine.updateStickConfig(StickSide.Right, right)
+                            }
+                        },
+                        onDismiss = { settingsVisible.value = false }
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * The first-launch flag is stored in
+     * SharedPreferences. The key is
+     * `elysium.firstLaunch`; the value is `true`
+     * on the very first launch and `false`
+     * afterwards.
+     */
+    private fun isFirstLaunch(): Boolean {
+        val prefs = getSharedPreferences("elysium", MODE_PRIVATE)
+        return prefs.getBoolean("firstLaunch", true)
+    }
+
+    private fun markLaunched() {
+        getSharedPreferences("elysium", MODE_PRIVATE)
+            .edit()
+            .putBoolean("firstLaunch", false)
+            .apply()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Log.i(tag, "MainActivity.onDestroy — §38 disconnect path")
         val engine = this.engine ?: return
-        // Per §38: the engine neutralizes on every state-
-        // machine transition out of `Active`. We drive the
-        // state machine through Suspended → Reconnecting →
-        // Disconnected, then call `neutralize()` for the
-        // abrupt path. The host never sees a non-neutral
-        // state during teardown.
         runCatching { engine.transitionTo(EngineState.Suspended) }
         runCatching { engine.transitionTo(EngineState.Reconnecting) }
         runCatching { engine.transitionTo(EngineState.Disconnected) }
         engine.neutralize()
-        // §38: forward the neutralization to the
-        // transport as a `releaseAll` event.
-        // The [LocalEchoTransport] records the
-        // event; the real transports emit a
-        // "release all" report to the host.
         runBlocking { transportBinding?.transport?.value?.releaseAll() }
-        // Cancel the activity's scope. The engine's own
-        // scope is cancelled too — it has no internal jobs
-        // today, but the cancel is the safe default.
         driverJob?.cancel()
+        latencyJob?.cancel()
         motionJob?.cancel()
         motionSource?.close()
         postureJob?.cancel()
@@ -653,6 +505,7 @@ class MainActivity : ComponentActivity() {
         this.latencyTracker = null
         this.activityScope = null
         this.driverJob = null
+        this.latencyJob = null
         this.motionJob = null
         this.motionSource = null
         this.postureJob = null
@@ -662,14 +515,9 @@ class MainActivity : ComponentActivity() {
         this.shareLauncher = null
         this.settingsStore = null
         this.haptics = null
+        this.irTransmitter = null
     }
 
-    /**
-     * Drive the engine from `Idle` to `Active` through the
-     * §32 legal forward path. In Phase 2+ this is the
-     * transport's job; for 0.7 the activity is the
-     * transport.
-     */
     private fun driveEngineToActive(engine: CanonicalInputEngine) {
         engine.transitionTo(EngineState.Discovering)
         engine.transitionTo(EngineState.Pairing)
@@ -679,15 +527,9 @@ class MainActivity : ComponentActivity() {
         engine.transitionTo(EngineState.Active)
     }
 
-    /**
-     * Log a state emission to logcat with the wall-clock
-     * latency from the previous emission. The latency is
-     * an early indicator of pipeline health; the formal
-     * §30 latency budget lands in 0.8.
-     */
     private var lastLogMs: Long = System.currentTimeMillis()
 
-    private fun logState(state: UniversalControllerState) {
+    private fun logState(state: com.elysium.nexus.core.model.UniversalControllerState) {
         val now = System.currentTimeMillis()
         val deltaMs = now - lastLogMs
         lastLogMs = now
@@ -705,13 +547,4 @@ class MainActivity : ComponentActivity() {
                 "motion=${state.motion != null}"
         )
     }
-
-    // Suppress an unused-warning: `measureTimeMillis` is
-    // imported in anticipation of the §30 latency harness
-    // in 0.8, where the real per-event timing lands. For
-    // 0.7 the delta is computed from `System.currentTimeMillis()`
-    // because the engine's emissions are paced by user
-    // input, not by a hot loop.
-    @Suppress("unused")
-    private fun touchProbe(): Long = measureTimeMillis { /* reserved for 0.8 */ }
 }

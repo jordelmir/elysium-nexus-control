@@ -62,4 +62,16 @@
     <string name="settings_haptics_enabled">Vibración háptica</string>
     <string name="settings_close">Cerrar</string>
     <string name="settings_reset">Restablecer</string>
+    <!--
+      Phase ULT.2 — Rediseño visual (es).
+    -->
+    <string name="hero_eyebrow">Elysium Nexus</string>
+    <string name="hero_subtitle_default">%1$d controles · perfil %2$d · motor %3$d</string>
+    <string name="section_profiles">Perfiles</string>
+    <string name="section_transport">Transporte</string>
+    <string name="section_controls">Controles</string>
+    <string name="empty_state_title">Aún no hay controles</string>
+    <string name="empty_state_body">Toca + para añadir tu primer botón, stick o trigger.</string>
+    <string name="empty_state_cta">Añadir control</string>
+    <string name="fab_add_content_description">Añadir control</string>
 </resources>

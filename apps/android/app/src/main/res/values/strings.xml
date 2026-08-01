@@ -76,4 +76,17 @@
     <string name="settings_haptics_enabled">Haptic feedback</string>
     <string name="settings_close">Close</string>
     <string name="settings_reset">Reset</string>
+    <!--
+      Phase ULT.2 — Visual overhaul. New
+      hero / section labels.
+    -->
+    <string name="hero_eyebrow">Elysium Nexus</string>
+    <string name="hero_subtitle_default">%1$d controls · profile %2$d · engine %3$d</string>
+    <string name="section_profiles">Profiles</string>
+    <string name="section_transport">Transport</string>
+    <string name="section_controls">Controls</string>
+    <string name="empty_state_title">No controls yet</string>
+    <string name="empty_state_body">Tap + to add your first button, stick, or trigger.</string>
+    <string name="empty_state_cta">Add control</string>
+    <string name="fab_add_content_description">Add control</string>
 </resources>

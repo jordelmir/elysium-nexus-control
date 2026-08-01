@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dp
 import com.elysium.nexus.core.engine.StickSide
 import com.elysium.nexus.core.profile.CanonicalBinding
@@ -95,17 +97,33 @@ fun EditorCanvas(
     // The parent size, used to convert the control's
     // normalized bounds to pixel positions.
     val parentSize = remember { mutableStateOf(IntSize.Zero) }
+    // Read the State at the TOP of the composable
+    // so the EditorCanvas itself is invalidated
+    // when the size changes. Without this, the
+    // dependency is only inside the Box's content
+    // lambda, which doesn't trigger a re-execution
+    // of the forEach.
+    val currentSize = parentSize.value
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0F0F12)) // brand_ink
-            .onSizeChanged { parentSize.value = it }
+            .onSizeChanged {
+                parentSize.value = it
+            }
     ) {
+        // The forEach must read `parentSize.value` (not
+        // just the captured `currentSize`) so the Box's
+        // content lambda is invalidated when the size
+        // changes. Without the State read inside the
+        // lambda, the Box is not recomposed on size
+        // change and the forEach is not re-executed.
+        val sizeForControls = parentSize.value
         profile.controls.sortedBy { it.zIndex }.forEach { control ->
             ControlView(
                 control = control,
-                parentSize = parentSize.value,
+                parentSize = sizeForControls,
                 isSelected = selectedId == control.id,
                 onMoved = onMoved,
                 onScaled = onScaled,

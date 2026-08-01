@@ -66,6 +66,21 @@ sealed class ProfileImportResult {
  * the local clock of the moment the
  * receiver added the profile.
  *
+ * ## Signature verification
+ *
+ * A signed JSON carries a `signature` field
+ * (per `ProfileJson.SignatureField`). When
+ * the importer sees the field, it verifies
+ * the signature against the parsed
+ * [Profile] using the supplied [secret]. A
+ * signature mismatch is a [Failure] — the
+ * profile is rejected. The §15 "import
+ * verifies signature" milestone is now
+ * complete: signed profiles are accepted
+ * only when the signature matches; unsigned
+ * profiles are accepted (back-compat with
+ * Phase 1.17).
+ *
  * ## Why a result envelope and not a `try` / `catch`
  *
  * The [ProfileJson.fromJson] function throws on
@@ -84,6 +99,11 @@ object ProfileImporter {
 
     /**
      * Import a [Profile] from a JSON document.
+     * The function does **not** verify a
+     * signature; use [importSigned] for the
+     * signature-verifying path. The unsigned
+     * path is back-compat with the Phase 1.17
+     * share format.
      *
      * The function is total: every input
      * produces a [ProfileImportResult]. The
@@ -92,37 +112,85 @@ object ProfileImporter {
      * `System.currentTimeMillis()`.
      */
     fun import(json: String, now: Long = System.currentTimeMillis()): ProfileImportResult {
-        val parsed: Profile = try {
-            ProfileJson.fromJson(json)
+        val parsed: ProfileJson.ParsedProfile
+        try {
+            parsed = ProfileJson.parseWithSignature(json)
         } catch (e: IllegalArgumentException) {
-            // ProfileJson throws IllegalArgumentException
-            // for schema mismatches and for
-            // unrecognised `ControlType` /
-            // `CanonicalBinding` variants.
             return ProfileImportResult.Failure(
                 reason = e.message ?: "Invalid profile JSON",
                 cause = e
             )
         } catch (e: Throwable) {
-            // org.json throws JSONException for
-            // malformed JSON. The Android stub
-            // sometimes returns default values
-            // instead of throwing; the JVM test
-            // uses the real `org.json:json`
-            // reference impl.
             return ProfileImportResult.Failure(
                 reason = "Malformed profile JSON: ${e.message ?: e::class.simpleName}",
                 cause = e
             )
         }
-        // The parsed profile is validated by
-        // `Profile.init` (name, author, version,
-        // timestamps). The JSON's id is the
-        // source's local id; the caller (the
-        // activity + repository) decides whether
-        // to overwrite with a fresh id.
+        // The profile is validated by
+        // [ProfileJson.parseProfileFields] +
+        // [Profile.init] (name, author,
+        // version, timestamps).
         return try {
-            val imported = parsed.copy(
+            val imported = parsed.profile.copy(
+                createdAt = now,
+                updatedAt = now
+            )
+            ProfileImportResult.Success(imported)
+        } catch (e: IllegalArgumentException) {
+            ProfileImportResult.Failure(
+                reason = e.message ?: "Imported profile failed validation",
+                cause = e
+            )
+        }
+    }
+
+    /**
+     * Import a [Profile] from a **signed** JSON
+     * document. The signature is verified
+     * against the parsed [Profile] using
+     * [secret]. A signature mismatch is a
+     * [ProfileImportResult.Failure] with the
+     * reason "signature mismatch".
+     *
+     * The function is total: every input
+     * produces a result. An unsigned JSON
+     * returns a [ProfileImportResult.Failure]
+     * with the reason "profile is not signed";
+     * a signed JSON with a wrong signature
+     * returns [ProfileImportResult.Failure]
+     * with the reason "signature mismatch".
+     */
+    fun importSigned(
+        json: String,
+        secret: ByteArray,
+        now: Long = System.currentTimeMillis()
+    ): ProfileImportResult {
+        val parsed: ProfileJson.ParsedProfile
+        try {
+            parsed = ProfileJson.parseWithSignature(json)
+        } catch (e: IllegalArgumentException) {
+            return ProfileImportResult.Failure(
+                reason = e.message ?: "Invalid profile JSON",
+                cause = e
+            )
+        } catch (e: Throwable) {
+            return ProfileImportResult.Failure(
+                reason = "Malformed profile JSON: ${e.message ?: e::class.simpleName}",
+                cause = e
+            )
+        }
+        val signature = parsed.signature
+            ?: return ProfileImportResult.Failure(
+                reason = "Profile is not signed; use import() for unsigned profiles."
+            )
+        if (!ProfileSignature.verify(parsed.profile, signature.value, secret)) {
+            return ProfileImportResult.Failure(
+                reason = "Signature mismatch: the profile was tampered with " +
+                    "or the secret is wrong."
+            )
+        }
+        return try {
+            val imported = parsed.profile.copy(
                 createdAt = now,
                 updatedAt = now
             )

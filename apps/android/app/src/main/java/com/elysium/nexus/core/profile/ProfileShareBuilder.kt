@@ -34,13 +34,19 @@ import java.util.Locale
  * inside the JSON document; the filename is
  * presentation only.
  *
- * ## Why we do not sign here
+ * ## Why we now sign here
  *
- * The §15 signature is a JSON field, computed by
- * the caller (the [ProfileSignature] family in
- * Phase 1.6+). The builder does not sign because
- * signing needs a key (Keystore) or a secret
- * (HMAC); the builder is a pure function.
+ * The §15 signature is a JSON field. The
+ * builder is the natural seam: the share
+ * payload is the JSON; the signature is
+ * the HMAC-SHA256 of the JSON. The
+ * builder takes the author's secret as
+ * a parameter and embeds the signature
+ * in the payload. An unsigned share is
+ * still possible (the legacy
+ * [build] overload) for the dev / test
+ * paths; the production code calls the
+ * signing overload.
  */
 object ProfileShareBuilder {
 
@@ -48,12 +54,14 @@ object ProfileShareBuilder {
     const val MIME_TYPE: String = "application/vnd.elysium.profile+json"
 
     /**
-     * Build a [ProfileShare] for the given [profile].
+     * Build an **unsigned** [ProfileShare].
+     * The function is total; the [Profile]'s
+     * `init` block has already validated the
+     * bounds, rotation, and opacity.
      *
-     * The function is total over the [Profile]
-     * domain; the [Profile]'s `init` block has
-     * already validated the bounds, rotation, and
-     * opacity.
+     * The unsigned path is the legacy entry
+     * point; new code should call [buildSigned]
+     * (the production entry point).
      */
     fun build(profile: Profile): ProfileShare {
         val json = ProfileJson.toJson(profile)
@@ -63,6 +71,67 @@ object ProfileShareBuilder {
             mimeType = MIME_TYPE,
             content = json
         )
+    }
+
+    /**
+     * Build a **signed** [ProfileShare]. The
+     * signature is an HMAC-SHA256 of the JSON
+     * payload, keyed by [secret]. The signature
+     * is embedded in the JSON as a
+     * [ProfileJson.SignatureField].
+     *
+     * The [secret] is the author's per-user
+     * secret (the production key is in the
+     * Android Keystore; the test path uses
+     * a hand-rolled byte array). The secret
+     * is never serialised; the JSON only
+     * carries the *signature*, not the
+     * secret.
+     */
+    fun buildSigned(profile: Profile, secret: ByteArray): ProfileShare {
+        val baseJson = ProfileJson.toJson(profile)
+        val signature = ProfileSignature.sign(profile, secret)
+        val signedJson = embedSignature(baseJson, signature)
+        val filename = filenameFor(profile)
+        return ProfileShare(
+            filename = filename,
+            mimeType = MIME_TYPE,
+            content = signedJson
+        )
+    }
+
+    /**
+     * Embed the [signature] into [baseJson] as
+     * a `signature` field. The base JSON is the
+     * canonical serialisation (the signature
+     * is computed on the base, not on the
+     * signed). The signature is added at the
+     * **end** of the JSON object so the
+     * canonical serialisation is unchanged.
+     *
+     * The function is hand-rolled because
+     * `org.json.JSONObject.put` on an existing
+     * object reorders keys, and the §15
+     * `parseWithSignature` is order-insensitive
+     * but the §15 round-trip test asserts the
+     * *absence* of `signature` in the canonical
+     * serialisation.
+     */
+    private fun embedSignature(baseJson: String, signature: String): String {
+        require(!baseJson.contains("\"signature\"")) {
+            "embedSignature: base JSON must not already contain a signature field."
+        }
+        // The base JSON is `{ "schemaVersion": 1, ... }`.
+        // We insert the signature as the last
+        // key (a single string append of
+        // `, "signature": {...}` before the
+        // closing `}`).
+        val closingBrace = baseJson.lastIndexOf('}')
+        require(closingBrace > 0) {
+            "embedSignature: base JSON is malformed (no closing brace)."
+        }
+        val sigField = ",\"signature\":{\"algorithm\":\"HmacSHA256\",\"value\":\"$signature\"}"
+        return baseJson.substring(0, closingBrace) + sigField + baseJson.substring(closingBrace)
     }
 
     /**

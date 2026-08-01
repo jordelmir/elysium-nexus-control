@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon for Elysium Nexus Universal Controller.
+  Android 8 (Oreo, API 26+) uses this for the
+  launcher icon. The launcher applies the
+  device's mask (circle, squircle, teardrop,
+  etc.) on top of the foreground.
+
+  - `background` is a solid dark-violet with a
+    subtle radial glow (drawn into
+    `ic_launcher_background.png`).
+  - `foreground` is the logo (the neon "E"
+    hexagon) with safe-zone padding so the
+    device's mask does not crop the visible
+    part of the icon.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

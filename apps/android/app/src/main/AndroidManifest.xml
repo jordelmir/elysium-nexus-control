@@ -17,9 +17,35 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Phase ULT.3 — IR control permissions.
+      `TRANSMIT_IR` is the §15 permission to send
+      infrared signals via the device's IR blaster.
+      The permission is `normal` (granted at install
+      time, no runtime prompt) on devices that
+      support IR; on devices that do not, the
+      `ConsumerIrManager` system service returns
+      `null` and the `AndroidIrTransmitter` becomes
+      a no-op.
+    -->
+    <uses-permission android:name="android.permission.TRANSMIT_IR" />
+    <!--
+      `consumer_ir` is the *feature* (hardware) flag.
+      We do NOT mark it as `required="true"` because
+      most modern phones do not have an IR blaster.
+      The `PackageManager` will return `false` for
+      `hasSystemFeature(FEATURE_CONSUMER_IR)` on
+      those phones, and the UI will show the "no
+      IR" state.
+    -->
+    <uses-feature
+        android:name="android.hardware.consumer_ir"
+        android:required="false" />
+
     <application
         android:label="@string/app_name"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.ElysiumNexus"
         android:allowBackup="false"
         android:fullBackupContent="false"
@@ -29,6 +55,8 @@
             android:name="com.elysium.nexus.ui.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
             android:theme="@style/Theme.ElysiumNexus"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <intent-filter>

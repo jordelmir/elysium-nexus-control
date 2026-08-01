@@ -4,6 +4,7 @@ import com.elysium.nexus.core.engine.StickSide
 import com.elysium.nexus.core.model.CanonicalButton
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -229,5 +230,141 @@ class ProfileImporterTest {
         // Timestamps are local to the importer call.
         assertEquals(100L, imported.createdAt)
         assertEquals(100L, imported.updatedAt)
+    }
+
+    @Test
+    fun `signed share round-trips through importSigned with the same secret`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val secret = ByteArray(32) { it.toByte() }
+        val share = ProfileShareBuilder.buildSigned(original, secret)
+        // The content carries a signature field.
+        assertTrue(share.content.contains("\"signature\""))
+        val result = ProfileImporter.importSigned(share.content, secret)
+        assertTrue(
+            "Expected Success, got $result",
+            result is ProfileImportResult.Success
+        )
+    }
+
+    @Test
+    fun `importSigned rejects a tampered profile`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val secret = ByteArray(32) { it.toByte() }
+        val share = ProfileShareBuilder.buildSigned(original, secret)
+        // Tamper with the profile name in
+        // the signed JSON.
+        val tampered = share.content.replace(
+            "\"name\":\"Elysium Nexus Default\"",
+            "\"name\":\"Tampered Name\""
+        )
+        val result = ProfileImporter.importSigned(tampered, secret)
+        assertTrue("Expected Failure, got $result", result is ProfileImportResult.Failure)
+        val reason = (result as ProfileImportResult.Failure).reason
+        assertTrue(
+            "Expected reason to mention signature; got '$reason'",
+            reason.contains("ignature")
+        )
+    }
+
+    @Test
+    fun `importSigned rejects an unsigned profile`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val share = ProfileShareBuilder.build(original) // unsigned
+        val secret = ByteArray(32) { it.toByte() }
+        val result = ProfileImporter.importSigned(share.content, secret)
+        assertTrue("Expected Failure, got $result", result is ProfileImportResult.Failure)
+        val reason = (result as ProfileImportResult.Failure).reason
+        assertTrue(
+            "Expected reason to mention not signed; got '$reason'",
+            reason.contains("not signed") || reason.contains("unsigned")
+        )
+    }
+
+    @Test
+    fun `importSigned rejects a wrong secret`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val signSecret = ByteArray(32) { it.toByte() }
+        val verifySecret = ByteArray(32) { (it + 1).toByte() }
+        val share = ProfileShareBuilder.buildSigned(original, signSecret)
+        val result = ProfileImporter.importSigned(share.content, verifySecret)
+        assertTrue("Expected Failure, got $result", result is ProfileImportResult.Failure)
+    }
+
+    @Test
+    fun `ProfileJson SignatureField rejects an unknown algorithm`() {
+        try {
+            ProfileJson.SignatureField(algorithm = "HmacSHA512", value = "0".repeat(64))
+            throw AssertionError("Expected IllegalArgumentException for unknown algorithm.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `ProfileJson SignatureField rejects a non-64-char value`() {
+        try {
+            ProfileJson.SignatureField(algorithm = "HmacSHA256", value = "0".repeat(63))
+            throw AssertionError("Expected IllegalArgumentException for short value.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `ProfileJson SignatureField rejects non-hex chars`() {
+        try {
+            ProfileJson.SignatureField(algorithm = "HmacSHA256", value = "z".repeat(64))
+            throw AssertionError("Expected IllegalArgumentException for non-hex chars.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `parseWithSignature returns the signature for a signed profile`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val secret = ByteArray(32) { it.toByte() }
+        val share = ProfileShareBuilder.buildSigned(original, secret)
+        val parsed = ProfileJson.parseWithSignature(share.content)
+        assertNotNull(parsed.signature)
+        assertEquals(ProfileJson.SIGNATURE_ALGORITHM, parsed.signature!!.algorithm)
+        assertEquals(64, parsed.signature.value.length)
+    }
+
+    @Test
+    fun `parseWithSignature returns null signature for an unsigned profile`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val json = ProfileJson.toJson(original)
+        val parsed = ProfileJson.parseWithSignature(json)
+        assertNull(parsed.signature)
+    }
+
+    @Test
+    fun `parseWithSignature rejects a malformed signature field`() {
+        val original = Profile.defaultProfile(now = 0L)
+        val json = ProfileJson.toJson(original)
+        // Inject a malformed signature: wrong
+        // value length.
+        val badJson = json.replace(
+            "}",
+            ",\"signature\":{\"algorithm\":\"HmacSHA256\",\"value\":\"short\"}}"
+        )
+        try {
+            ProfileJson.parseWithSignature(badJson)
+            throw AssertionError("Expected IllegalArgumentException for short value.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `import backward-compat still accepts unsigned JSON via import`() {
+        // The legacy [import] entry point
+        // accepts unsigned JSON. The §15
+        // backward-compat path is preserved.
+        val original = Profile.defaultProfile(now = 0L)
+        val json = ProfileJson.toJson(original)
+        val result = ProfileImporter.import(json)
+        assertTrue("Expected Success, got $result", result is ProfileImportResult.Success)
     }
 }

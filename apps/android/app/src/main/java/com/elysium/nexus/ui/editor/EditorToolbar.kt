@@ -7,23 +7,44 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AlignHorizontalLeft
+import androidx.compose.material.icons.filled.AlignHorizontalRight
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.VideogameAsset
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.elysium.nexus.R
+import com.elysium.nexus.ui.theme.ElysiumColors
+import com.elysium.nexus.ui.theme.NeonChip
 
 /**
  * The kind of alignment / distribution action
@@ -45,14 +66,24 @@ enum class AlignmentAction {
 enum class ControlKind { Button, Stick, Trigger }
 
 /**
- * The top toolbar of the editor.
+ * The top toolbar of the editor — **Phase ULT.2**.
  *
- * The toolbar is three rows:
- *  - Row 1: the action chips (Add, Save, Reset,
- *    New profile, Delete).
- *  - Row 2: the alignment / distribution chips
- *    (Phase 1.12).
- *  - Row 3: the opacity slider (Phase 1.4).
+ * Three rows of [NeonChip]s (the 3D pill
+ * primitive). The toolbar's color story:
+ *
+ *  - **Row 1** is the action row. The three
+ *    "Add" chips are cyan-tinted. The "Save"
+ *    chip is purple-tinted (the "this changes
+ *    the persistent state" color). The "Reset"
+ *    chip is orange-tinted. The profile
+ *    management chips (New, Delete, Duplicate,
+ *    Rename) are cyan. The "Share" / "Import"
+ *    chips are green-tinted. The "Settings"
+ *    chip is purple-tinted.
+ *  - **Row 2** is the alignment row. All chips
+ *    are cyan.
+ *  - **Row 3** is the opacity slider. The
+ *    slider's track is cyan.
  *
  * Each row is horizontally scrollable; the
  * toolbar is wider than a 360dp screen on a
@@ -77,199 +108,138 @@ fun EditorToolbar(
 ) {
     val scrollState = rememberScrollState()
     val scrollState2 = rememberScrollState()
-    Column(modifier = modifier) {
+    Column(modifier = modifier.fillMaxWidth().background(ElysiumColors.Background)) {
         // Row 1: the primary action chips.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0F0F12))
                 .horizontalScroll(scrollState)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_add_button),
                 onClick = { onAdd(ControlKind.Button) },
-                label = { Text(stringResource(R.string.editor_add_button)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.RadioButtonChecked, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_add_stick),
                 onClick = { onAdd(ControlKind.Stick) },
-                label = { Text(stringResource(R.string.editor_add_stick)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.SportsEsports, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_add_trigger),
                 onClick = { onAdd(ControlKind.Trigger) },
-                label = { Text(stringResource(R.string.editor_add_trigger)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.VideogameAsset, contentDescription = null) }
             )
             Spacer(modifier = Modifier.width(8.dp))
-            FilterChip(
-                selected = false,
+            NeonChip(
+                label = stringResource(R.string.editor_save),
                 onClick = onSave,
-                label = { Text(stringResource(R.string.editor_save)) },
-                colors = FilterChipDefaults.filterChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4),
-                    selectedContainerColor = Color(0xFF1F6FEB),
-                    selectedLabelColor = Color.White
-                )
+                accent = ElysiumColors.NeonPurple,
+                active = true,
+                icon = { Icon(Icons.Filled.Save, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_reset),
                 onClick = onReset,
-                label = { Text(stringResource(R.string.editor_reset)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonOrange,
+                icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }
             )
-            AssistChip(
+            Spacer(modifier = Modifier.width(8.dp))
+            NeonChip(
+                label = stringResource(R.string.editor_new_profile),
                 onClick = onNewProfile,
-                label = { Text(stringResource(R.string.editor_new_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) }
             )
-            AssistChip(
-                onClick = onDeleteProfile,
-                label = { Text(stringResource(R.string.editor_delete_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFFB42318),
-                    labelColor = Color(0xFFF2F2F4)
-                )
-            )
-            // Phase 1.24: the §15 duplicate chip.
-            // Tapping it produces a fresh copy of
-            // the current profile (new id, fresh
-            // timestamps) and adds it to the
-            // library.
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_duplicate_profile),
                 onClick = onDuplicateProfile,
-                label = { Text(stringResource(R.string.editor_duplicate_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) }
             )
-            // Phase 1.24: the §15 rename chip.
-            // Tapping it opens a small dialog
-            // (see [com.elysium.nexus.ui.editor.ProfileRenameDialog])
-            // pre-filled with the current name.
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_rename_profile),
                 onClick = onRenameProfile,
-                label = { Text(stringResource(R.string.editor_rename_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.Edit, contentDescription = null) }
             )
-            // Phase 1.17: the §15 share chip. Tapping
-            // it opens the system share sheet with
-            // the current profile as a JSON document
-            // (see [com.elysium.nexus.core.profile.AndroidProfileShareLauncher]).
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_delete_profile),
+                onClick = onDeleteProfile,
+                destructive = true,
+                icon = { Icon(Icons.Filled.Delete, contentDescription = null) }
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            NeonChip(
+                label = stringResource(R.string.editor_share_profile),
                 onClick = onShare,
-                label = { Text(stringResource(R.string.editor_share_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonGreen,
+                icon = { Icon(Icons.Filled.Share, contentDescription = null) }
             )
-            // Phase 1.22: the §15 import chip.
-            // Tapping it opens the import dialog
-            // (see [com.elysium.nexus.ui.editor.ProfileImportDialog]).
-            // The dialog accepts a JSON payload
-            // (e.g. one received from a share
-            // intent) and calls
-            // [com.elysium.nexus.core.profile.ProfileImporter.import].
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_import_profile),
                 onClick = onImport,
-                label = { Text(stringResource(R.string.editor_import_profile)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonGreen,
+                icon = { Icon(Icons.Filled.FileDownload, contentDescription = null) }
             )
-            // Phase 1.18: the §15 settings chip.
-            // Tapping it opens the settings dialog
-            // (see [com.elysium.nexus.ui.settings.SettingsDialog]).
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_settings),
                 onClick = onSettings,
-                label = { Text(stringResource(R.string.editor_settings)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonPurple,
+                icon = { Icon(Icons.Filled.Settings, contentDescription = null) }
             )
         }
         // Row 2: alignment / distribution chips.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0F0F12))
                 .horizontalScroll(scrollState2)
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_align_left),
                 onClick = { onAlign(AlignmentAction.AlignLeft) },
-                label = { Text(stringResource(R.string.editor_align_left)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.AlignHorizontalLeft, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_align_right),
                 onClick = { onAlign(AlignmentAction.AlignRight) },
-                label = { Text(stringResource(R.string.editor_align_right)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.AlignHorizontalRight, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_align_top),
                 onClick = { onAlign(AlignmentAction.AlignTop) },
-                label = { Text(stringResource(R.string.editor_align_top)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.CenterFocusStrong, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_align_bottom),
                 onClick = { onAlign(AlignmentAction.AlignBottom) },
-                label = { Text(stringResource(R.string.editor_align_bottom)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.SwapVert, contentDescription = null) }
             )
             Spacer(modifier = Modifier.width(8.dp))
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_distribute_horizontally),
                 onClick = { onAlign(AlignmentAction.DistributeHorizontally) },
-                label = { Text(stringResource(R.string.editor_distribute_horizontally)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.DriveFileMove, contentDescription = null) }
             )
-            AssistChip(
+            NeonChip(
+                label = stringResource(R.string.editor_distribute_vertically),
                 onClick = { onAlign(AlignmentAction.DistributeVertically) },
-                label = { Text(stringResource(R.string.editor_distribute_vertically)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = Color(0xFF1A1A1F),
-                    labelColor = Color(0xFFF2F2F4)
-                )
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.SwapVert, contentDescription = null) }
             )
         }
         // Row 3: opacity slider.
@@ -277,23 +247,27 @@ fun EditorToolbar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0F0F12))
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(R.string.editor_opacity),
-                    color = Color(0xFFF2F2F4),
-                    modifier = Modifier.padding(end = 8.dp)
+                    text = stringResource(R.string.editor_opacity).uppercase(),
+                    style = TextStyle(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp
+                    ),
+                    color = ElysiumColors.NeonCyan,
+                    modifier = Modifier.padding(end = 12.dp)
                 )
                 Slider(
                     value = selectedOpacity,
                     onValueChange = onOpacityChange,
                     valueRange = 0f..1f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF1F6FEB),
-                        activeTrackColor = Color(0xFF1F6FEB),
-                        inactiveTrackColor = Color(0xFF1A1A1F)
+                        thumbColor = ElysiumColors.NeonCyan,
+                        activeTrackColor = ElysiumColors.NeonCyan,
+                        inactiveTrackColor = ElysiumColors.SurfaceHigh
                     ),
                     modifier = Modifier.weight(1f)
                 )
