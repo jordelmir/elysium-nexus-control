@@ -14,7 +14,10 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -59,6 +62,7 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeMute
@@ -95,6 +99,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.elysium.nexus.core.motion.AirMouseController
+import com.elysium.nexus.core.motion.AndroidMotionSensorSource
+import com.elysium.nexus.core.motion.MotionSensorSource
 import com.elysium.nexus.core.transport.hid.BluetoothHidTransport
 import com.elysium.nexus.core.transport.hid.HidConnectionState
 import com.elysium.nexus.core.transport.hid.HidDescriptors
@@ -156,6 +163,44 @@ fun UniversalControlScreen(
     val scope = rememberCoroutineScope()
     val transport = remember { BluetoothHidTransport(context) }
     val state: HidConnectionState by transport.hidState.collectAsStateLifecycleSafe()
+    // Phase ULT.7 — Air Mouse mode. The user
+    // can switch between trackpad and air
+    // mouse. The air mouse uses the phone's
+    // gyroscope to drive the cursor; the
+    // trackpad is touch-driven (the default).
+    var airMouseEnabled by remember { mutableStateOf(false) }
+    val motionSource: MotionSensorSource = remember { AndroidMotionSensorSource(context) }
+    val airMouse = remember { AirMouseController(sensitivity = 800f, invertY = true) }
+    // When air-mouse mode is enabled, drive
+    // the controller from the IMU + flush
+    // deltas to the host at 60 Hz.
+    LaunchedEffect(airMouseEnabled, state) {
+        if (!airMouseEnabled) return@LaunchedEffect
+        if (state !is HidConnectionState.Connected) return@LaunchedEffect
+        motionSource.samples().collect { sample ->
+            airMouse.submit(sample)
+        }
+    }
+    LaunchedEffect(airMouseEnabled, state) {
+        if (!airMouseEnabled) return@LaunchedEffect
+        if (state !is HidConnectionState.Connected) return@LaunchedEffect
+        while (true) {
+            val delta = airMouse.consume()
+            if (delta.dx != 0 || delta.dy != 0) {
+                transport.sendMouseReport(
+                    HidReports.mouse(0, delta.dx, delta.dy, 0)
+                )
+            }
+            delay(16) // ~60 Hz
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            transport.releaseAllKeys()
+            transport.disconnectHid()
+            motionSource.close()
+        }
+    }
     var pairedDevices by remember { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
     var showHelp by remember { mutableStateOf(false) }
     var showKeyboard by remember { mutableStateOf(false) }
@@ -191,14 +236,6 @@ fun UniversalControlScreen(
                 pairedDevices = transport.pairedHosts()
                 bluetoothOn = isBluetoothOn(context)
             }
-        }
-    }
-
-    // Release every key when leaving the screen.
-    DisposableEffect(Unit) {
-        onDispose {
-            transport.releaseAllKeys()
-            transport.disconnectHid()
         }
     }
 
@@ -316,6 +353,9 @@ fun UniversalControlScreen(
                     transport = transport,
                     showKeyboard = showKeyboard,
                     onToggleKeyboard = { showKeyboard = !showKeyboard },
+                    airMouseEnabled = airMouseEnabled,
+                    onToggleAirMouse = { airMouseEnabled = !airMouseEnabled },
+                    onRecenter = { airMouse.reset() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = info.sidePadding, vertical = 4.dp)
@@ -640,20 +680,37 @@ private fun ConnectedControls(
     transport: BluetoothHidTransport,
     showKeyboard: Boolean,
     onToggleKeyboard: () -> Unit,
+    airMouseEnabled: Boolean,
+    onToggleAirMouse: () -> Unit,
+    onRecenter: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // The trackpad.
-            val trackpadState = remember { TrackpadState() }
-            UniversalTrackpad(
-                transport = transport,
-                state = trackpadState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
+            // The trackpad OR the air-mouse surface.
+            if (airMouseEnabled) {
+                AirMouseSurface(
+                    onRecenter = onRecenter,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                )
+            } else {
+                val trackpadState = remember { TrackpadState() }
+                UniversalTrackpad(
+                    transport = transport,
+                    state = trackpadState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                )
+            }
+            // The mode toggle + modifier/action/media bar.
+            ModeBar(
+                airMouseEnabled = airMouseEnabled,
+                onToggleAirMouse = onToggleAirMouse,
+                modifier = Modifier.fillMaxWidth()
             )
-            // The modifier + action + media bar.
             UniversalBar(
                 transport = transport,
                 modifier = Modifier.fillMaxWidth()
@@ -950,6 +1007,162 @@ private fun UniversalTrackpad(
                 val now = System.currentTimeMillis()
                 state.ripples.removeAll { now - it.createdAt > 600 }
             }
+        }
+    }
+}
+
+/**
+ * The mode toggle bar. The user can switch
+ * between "Trackpad" (touch-driven) and "Air
+ * Mouse" (gyro-driven). The two modes are
+ * complementary: trackpad for precision work,
+ * air mouse for couch / TV use.
+ */
+@Composable
+private fun ModeBar(
+    airMouseEnabled: Boolean,
+    onToggleAirMouse: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        ModeButton(
+            label = "Trackpad",
+            color = ElysiumColors.NeonCyan,
+            selected = !airMouseEnabled,
+            onClick = { if (airMouseEnabled) onToggleAirMouse() },
+            modifier = Modifier.weight(1f)
+        )
+        ModeButton(
+            label = "Air Mouse",
+            color = ElysiumColors.NeonGreen,
+            selected = airMouseEnabled,
+            onClick = { if (!airMouseEnabled) onToggleAirMouse() },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun RowScope.ModeButton(
+    label: String,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) color.copy(alpha = 0.3f)
+                else ElysiumColors.SurfaceHigh
+            )
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) color else ElysiumColors.Outline,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            ),
+            color = if (selected) color else ElysiumColors.OnSurfaceMuted
+        )
+    }
+}
+
+/**
+ * The air mouse surface. A big "TILT TO MOVE"
+ * indicator with a "Recentrar" button. The
+ * actual sensor-driven deltas are sent in the
+ * background; this surface is purely visual
+ * feedback (so the user knows air mouse is
+ * active).
+ */
+@Composable
+private fun AirMouseSurface(
+    onRecenter: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(20.dp)
+    val infinite = rememberInfiniteTransition(label = "airmouse")
+    val pulse by infinite.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.0f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(durationMillis = 1500),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "airmouse_pulse"
+    )
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(ElysiumColors.SurfaceHigh, ElysiumColors.Surface)
+                )
+            )
+            .border(2.dp, ElysiumColors.NeonGreen.copy(alpha = 0.6f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .alpha(pulse)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                ElysiumColors.NeonGreen.copy(alpha = 0.4f),
+                                ElysiumColors.NeonGreen.copy(alpha = 0f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Sensors,
+                    contentDescription = null,
+                    tint = ElysiumColors.NeonGreen,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+            Text(
+                text = "AIR MOUSE",
+                style = TextStyle(
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 4.sp
+                ),
+                color = ElysiumColors.NeonGreen
+            )
+            Text(
+                text = "Inclina el teléfono para mover el cursor",
+                style = TextStyle(fontSize = 12.sp),
+                color = ElysiumColors.OnSurfaceMuted,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            NeonChip(
+                label = "Recentrar",
+                onClick = onRecenter,
+                accent = ElysiumColors.NeonOrange
+            )
         }
     }
 }
