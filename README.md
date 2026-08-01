@@ -34,7 +34,7 @@ SDK, and provisioned secrets are present.
 
 ```bash
 # Build + test
-cd apps/android-controller
+cd apps/android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
 # Install on a connected device
@@ -49,7 +49,7 @@ cd apps/android-controller
 ```
 elysium-nexus-controller/
 ├── apps/
-│   ├── android-controller/      # the APK (this is where we ship first)
+│   ├── android/                # the APK (this is where we ship first)
 │   ├── macos-agent/             # Phase 3
 │   ├── windows-agent/           # Phase 3
 │   ├── linux-agent/             # Phase 3

@@ -70,34 +70,34 @@ jobs:
           accept-android-sdk-licenses: true
 
       - name: Grant execute permission for gradlew
-        run: chmod +x apps/android-controller/gradlew
+        run: chmod +x apps/android/gradlew
 
       - name: Run JVM unit tests
         run: |
-          cd apps/android-controller
+          cd apps/android
           ./gradlew :app:testDebugUnitTest --console=plain
 
       - name: Build debug APK
         run: |
-          cd apps/android-controller
+          cd apps/android
           ./gradlew :app:assembleDebug --console=plain
 
       - name: Verify hid-descriptor-validator
         run: |
-          cd apps/android-controller
+          cd apps/android
           ./gradlew :app:runValidator --console=plain
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: apps/android-controller/app/build/outputs/apk/debug/app-debug.apk
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
 
       - name: Report test count
         if: always()
         run: |
-          cd apps/android-controller
+          cd apps/android
           total=$(find app/build/test-results -name "*.xml" -exec grep -oE 'tests="[0-9]+"' {} \; | awk -F'"' '{sum+=$2} END {print sum}')
           echo "Total tests: $total"

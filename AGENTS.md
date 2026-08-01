@@ -106,10 +106,10 @@ The loop halts only when:
 2. Hardware Jor must touch (e.g., flashing the Nexus Receiver dev board for the first time).
 3. A vendor license / SDK needs to be obtained (gate the build, write a `docs/licensing/STATUS.md`, continue with non-gated subsystems).
 
-## Build / test commands (from `apps/android-controller/`)
+## Build / test commands (from `apps/android/`)
 
 ```bash
-cd apps/android-controller
+cd apps/android
 
 ./gradlew help                              # sanity-check the wrapper
 ./gradlew :app:testDebugUnitTest            # JVM unit tests
@@ -126,7 +126,7 @@ Gradle invocation when a second module needs to be cross-built with
 the Android one (anticipated in Phase 4 when firmware and Rust
 crates join).
 
-Wrapper lives at `apps/android-controller/gradlew` (added in Phase 0.1).
+Wrapper lives at `apps/android/gradlew` (added in Phase 0.1; renamed in Phase ULT.0).
 
 ## Source of truth ordering (when files disagree)
 
