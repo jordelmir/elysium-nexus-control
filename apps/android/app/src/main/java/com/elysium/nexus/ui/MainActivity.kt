@@ -36,6 +36,7 @@ import com.elysium.nexus.core.settings.AndroidAppSettingsStore
 import com.elysium.nexus.core.settings.AppSettings
 import com.elysium.nexus.core.settings.AppSettingsStore
 import com.elysium.nexus.core.transport.LocalEchoTransport
+import com.elysium.nexus.core.transport.mac.MacTransport
 import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.databases.profile.RoomProfileRepository
@@ -52,6 +53,7 @@ import com.elysium.nexus.ui.hub.TvControlsSection
 import com.elysium.nexus.ui.mac.MacControlSurfaceScreen
 import com.elysium.nexus.ui.mac.MacDiscoveryScreen
 import com.elysium.nexus.ui.mac.MacPairingScreen
+import com.elysium.nexus.ui.mac.ManualAddHostDialog
 import com.elysium.nexus.ui.settings.SettingsDialog
 import com.elysium.nexus.ui.theme.ElysiumTheme
 import kotlinx.coroutines.CoroutineScope
@@ -253,7 +255,13 @@ class MainActivity : ComponentActivity() {
                 val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
+                val manualAddVisible = remember { mutableStateOf(false) }
                 val current = navStack.value.last()
+                // Phase ULT.4 — a single Mac transport
+                // is created when the user enters the
+                // pairing flow and lives until they
+                // leave the control surface.
+                val macTransport = remember { MacTransport() }
 
                 if (tourVisible.value) {
                     GuidedTourOverlay(
@@ -297,6 +305,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onMacSelected = {
                             navStack.value = navStack.value + HubDestination.MacDiscovery
+                        },
+                        onUniversalRemoteSelected = {
+                            navStack.value = navStack.value + HubDestination.UniversalRemote
                         },
                         onSettings = { settingsVisible.value = true },
                         onShowHelp = { tourVisible.value = true },
@@ -400,34 +411,47 @@ class MainActivity : ComponentActivity() {
                                 HubDestination.MacPairing(host)
                         },
                         onManualAdd = {
-                            // For now, manual add
-                            // routes to the same
-                            // pairing flow with a
-                            // synthetic host. The
-                            // real flow will let
-                            // the user enter IP /
-                            // hostname first.
-                            navStack.value = navStack.value + HubDestination.MacPairing(
-                                com.elysium.nexus.ui.mac.DiscoveredHost(
-                                    id = "manual",
-                                    name = "Host manual",
-                                    type = com.elysium.nexus.ui.mac.HostType.MAC_DESKTOP,
-                                    signalStrength = 3,
-                                    isOnline = true
-                                )
-                            )
+                            // Manual add: show a dialog
+                            // to enter IP + port. We
+                            // use the discovery screen
+                            // dialog state (a real IP
+                            // text field + port spinner).
+                            manualAddVisible.value = true
                         }
                     )
                     is HubDestination.MacPairing -> MacPairingScreen(
                         host = current.host,
-                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onBack = {
+                            macTransport.disconnect()
+                            navStack.value = navStack.value.dropLast(1)
+                        },
                         onPaired = {
+                            // The PIN was accepted by the
+                            // Mac. Transition to the
+                            // control surface; the
+                            // transport is already in
+                            // Ready state.
                             navStack.value = navStack.value.dropLast(1) +
                                 HubDestination.MacControl(current.host)
-                        }
+                        },
+                        transport = macTransport
                     )
-                    is HubDestination.MacControl -> MacControlSurfaceScreen(
-                        host = current.host,
+                    is HubDestination.MacControl -> {
+                        // The transport is already
+                        // connected (the PIN flow drove
+                        // it to Ready). The control
+                        // surface just renders and
+                        // dispatches gestures.
+                        MacControlSurfaceScreen(
+                            host = current.host,
+                            transport = macTransport,
+                            onBack = {
+                                macTransport.disconnect()
+                                navStack.value = navStack.value.dropLast(1)
+                            }
+                        )
+                    }
+                    is HubDestination.UniversalRemote -> com.elysium.nexus.ui.universal.UniversalControlScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) }
                     )
                 }
@@ -458,6 +482,26 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDismiss = { settingsVisible.value = false }
+                    )
+                }
+
+                if (manualAddVisible.value) {
+                    ManualAddHostDialog(
+                        onDismiss = { manualAddVisible.value = false },
+                        onConnect = { host, port ->
+                            manualAddVisible.value = false
+                            val synthetic = com.elysium.nexus.ui.mac.DiscoveredHost(
+                                id = "manual-$host-$port",
+                                name = "$host:$port",
+                                type = com.elysium.nexus.ui.mac.HostType.MAC_DESKTOP,
+                                signalStrength = 3,
+                                isOnline = true,
+                                host = host,
+                                port = port
+                            )
+                            navStack.value = navStack.value.dropLast(1) +
+                                HubDestination.MacPairing(synthetic)
+                        }
                     )
                 }
             }

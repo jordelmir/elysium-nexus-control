@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Gamepad
@@ -94,6 +95,7 @@ fun HubScreen(
     onCategorySelected: (DeviceCategory) -> Unit,
     onTvControlsSelected: () -> Unit,
     onMacSelected: () -> Unit,
+    onUniversalRemoteSelected: () -> Unit = {},
     onSettings: () -> Unit,
     onShowHelp: () -> Unit,
     firstDeviceLabel: String? = null,
@@ -254,6 +256,71 @@ fun HubScreen(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = ElysiumColors.NeonGreen,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === DEDICATED UNIVERSAL REMOTE (BT HID) =============
+            // Phase ULT.5 — the phone presents itself
+            // as a Bluetooth keyboard + mouse to ANY
+            // host. Works for Mac, Windows, Linux,
+            // Android TV, smart TVs, Raspberry Pi,
+            // set-top boxes. No software on the host.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onUniversalRemoteSelected() },
+                accent = ElysiumColors.NeonCyan,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonCyan.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Bluetooth,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonCyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "UNIVERSAL REMOTE",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonCyan
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Bluetooth · funciona con cualquier dispositivo",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonCyan,
                         modifier = Modifier.size(28.dp)
                     )
                 }

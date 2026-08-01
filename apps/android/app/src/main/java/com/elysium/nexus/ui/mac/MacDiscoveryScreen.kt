@@ -281,13 +281,25 @@ fun MacDiscoveryScreen(
 
 /**
  * A host discovered on the network.
+ *
+ * Phase ULT.4 added the transport-relevant
+ * fields (`host`, `port`, `publicKeyB64`) so the
+ * pairing screen can open a real TCP socket
+ * to the Mac agent and the connection can be
+ * end-to-end encrypted.
  */
 data class DiscoveredHost(
     val id: String,
     val name: String,
     val type: HostType,
     val signalStrength: Int,
-    val isOnline: Boolean
+    val isOnline: Boolean,
+    /** IP / hostname the Mac agent is reachable on. Phase ULT.4. */
+    val host: String = "127.0.0.1",
+    /** TCP port the agent listens on (7878 by default). Phase ULT.4. */
+    val port: Int = 7878,
+    /** Base64-encoded X25519 public key from the agent's TXT record. Phase ULT.4. */
+    val publicKeyB64: String? = null
 )
 
 enum class HostType {

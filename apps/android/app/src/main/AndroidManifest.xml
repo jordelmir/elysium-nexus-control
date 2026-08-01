@@ -42,6 +42,75 @@
         android:name="android.hardware.consumer_ir"
         android:required="false" />
 
+    <!--
+      Phase ULT.4 — Mac/PC control fabric.
+      `INTERNET` is required to open the TCP
+      socket to the Mac agent (the agent listens
+      on port 7878 over Bonjour / Wi-Fi). The
+      traffic is end-to-end encrypted (X25519 +
+      ChaCha20-Poly1305) so no plaintext ever
+      crosses the wire.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!--
+      `NEARBY_WIFI_DEVICES` is the API 33+
+      runtime permission required to do
+      `NsdManager.discoverServices` for
+      `_elysium._tcp` (Bonjour) on Android 13+.
+      On API 26..32 the legacy
+      `ACCESS_COARSE/FINE_LOCATION` is required
+      for Wi-Fi scan; we declare both so the
+      app works on every device from minSdk 26.
+    -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+      Phase ULT.5 — Universal Bluetooth HID.
+      The phone presents itself as a Bluetooth
+      keyboard + mouse + consumer control to
+      ANY host that accepts Bluetooth HID input
+      (Mac, Windows, Linux, Android TV, smart
+      TVs, Raspberry Pi, set-top boxes). The
+      host sees the phone as a generic input
+      device; no software is required on the
+      host.
+
+      Required permissions per the Android 12+
+      Bluetooth permission model:
+        - `BLUETOOTH_CONNECT` — to open RFCOMM
+          and to register the HID app
+        - `BLUETOOTH_SCAN` — to discover
+          paired / nearby hosts
+      The legacy `BLUETOOTH` and
+      `BLUETOOTH_ADMIN` are declared with
+      `maxSdkVersion="30"` for older devices.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <!--
+      Bluetooth is required for the universal
+      HID mode, but the app is still useful
+      without it (IR + Wi-Fi Mac agent still
+      work). We mark the feature as
+      `required="false"` so the Play Store does
+      not hide the app from non-Bluetooth
+      devices.
+    -->
+    <uses-feature
+        android:name="android.hardware.bluetooth"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"

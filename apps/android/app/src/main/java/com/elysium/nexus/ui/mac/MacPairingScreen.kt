@@ -23,13 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -38,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,12 +48,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.elysium.nexus.core.transport.mac.MacConnectionState
+import com.elysium.nexus.core.transport.mac.MacTransport
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -60,59 +66,114 @@ import com.elysium.nexus.ui.theme.NeonChip
 import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonStatusPill
 import kotlinx.coroutines.delay
-import kotlin.random.Random
+import kotlinx.coroutines.launch
 
 /**
  * The pairing screen.
  *
- * After the user picks a host on the discovery
- * screen, the pairing flow shows a 6-digit PIN
- * the user must enter on the host (the Mac/PC
- * shows the same PIN in a system dialog). The
- * pairing uses X25519 + a 6-digit PIN for human
- * confirmation.
+ * The flow is the real end-to-end pairing the
+ * §46 protocol specifies:
  *
- * The flow is:
+ *  1. **Connecting** — the phone opens a TCP
+ *     socket to the Mac, performs the X25519
+ *     ECDH, derives the ChaCha20 channel key.
+ *     During this state, an animated spinner
+ *     shows progress.
+ *  2. **Awaiting PIN** — the Mac has generated
+ *     a 6-digit PIN and shows it in a window.
+ *     The user must type the same PIN on the
+ *     phone to confirm physical presence. The
+ *     phone has 6 input boxes, auto-advancing
+ *     as the user types.
+ *  3. **Verifying** — the phone has sent the 6
+ *     encrypted PIN_DIGIT frames. The Mac is
+ *     comparing. The screen shows a spinner.
+ *  4. **Connected** — the Mac accepted the PIN.
+ *     The screen shows a green check and
+ *     auto-transitions to the control surface.
+ *  5. **Error** — the connection or pairing
+ *     failed. The screen shows the reason and
+ *     a "Reintentar" button.
  *
- *  1. **Pairing** — the user sees a 6-digit PIN
- *     and is asked to enter it on the host.
- *  2. **Verifying** — the app is waiting for the
- *     host to confirm the PIN. A spinner shows
- *     progress.
- *  3. **Connected** — the host confirmed. The
- *     user is transitioned to the control surface.
- *
- * The PIN is generated client-side and is
- * **time-limited** (5 minutes). The host has 5
- * minutes to enter the same PIN; after that the
- * pairing expires and a new PIN is needed.
+ * The PIN is **never stored on the device**; it
+ * lives only in the [MacTransport]'s in-memory
+ * state for the duration of the handshake. After
+ * pairing it is discarded.
  */
 @Composable
 fun MacPairingScreen(
     host: DiscoveredHost,
     onBack: () -> Unit,
     onPaired: () -> Unit,
+    transport: MacTransport,
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
-    var state by remember { mutableStateOf(PairingState.SHOWING_PIN) }
-    // Generate a random 6-digit PIN. The real
-    // implementation uses a 6-digit numeric
-    // challenge that the host verifies locally
-    // before exchanging the public key. The PIN
-    // here is just the visual representation.
-    val pin = remember {
-        String.format("%06d", Random.nextInt(0, 999_999))
-    }
-    // Simulate the host confirming the PIN after
-    // 4 seconds. The real implementation waits
-    // for the actual TCP/TLS confirmation.
+    var state by remember { mutableStateOf(PairingState.CONNECTING) }
+    var errorReason by remember { mutableStateOf<String?>(null) }
+    val pinDigits = remember { mutableStateOf(List(6) { "" }) }
+    val connectingProgress = remember { mutableStateOf(0f) }
+    val scope = rememberCoroutineScope()
+
+    // Phase ULT.4 — drive the real handshake.
     LaunchedEffect(Unit) {
-        delay(4000)
-        state = PairingState.CONNECTED
-        delay(1500)
-        onPaired()
+        transport.startHandshake(
+            host = com.elysium.nexus.core.transport.mac.DiscoveredHost(
+                name = host.name,
+                host = host.host,
+                port = host.port,
+                model = host.type.labelEs,
+                osVersion = "macOS",
+                publicKeyB64 = host.publicKeyB64
+            )
+        )
     }
+    // Observe the transport state and mirror it
+    // into the UI state.
+    LaunchedEffect(Unit) {
+        transport.state.collect { s ->
+            when (s) {
+                is MacConnectionState.Connecting -> {
+                    state = PairingState.CONNECTING
+                }
+                is MacConnectionState.AwaitingPin -> {
+                    state = PairingState.AWAITING_PIN
+                }
+                is MacConnectionState.Ready -> {
+                    state = PairingState.CONNECTED
+                    delay(1200)
+                    onPaired()
+                }
+                is MacConnectionState.Error -> {
+                    state = PairingState.ERROR
+                    errorReason = s.reason
+                }
+                else -> Unit
+            }
+        }
+    }
+    // Animated progress for the connecting state.
+    LaunchedEffect(state) {
+        if (state == PairingState.CONNECTING) {
+            while (state == PairingState.CONNECTING) {
+                connectingProgress.value = (connectingProgress.value + 0.05f) % 1f
+                delay(50)
+            }
+        }
+    }
+
+    // When the 6th digit is entered, submit
+    // automatically.
+    LaunchedEffect(pinDigits.value) {
+        if (state == PairingState.AWAITING_PIN &&
+            pinDigits.value.all { it.length == 1 }
+        ) {
+            val pin = pinDigits.value.joinToString("")
+            state = PairingState.VERIFYING
+            scope.launch { transport.sendPin(pin) }
+        }
+    }
+
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
             modifier = Modifier
@@ -129,7 +190,10 @@ fun MacPairingScreen(
             ) {
                 NeonChip(
                     label = "Atrás",
-                    onClick = onBack,
+                    onClick = {
+                        transport.disconnect()
+                        onBack()
+                    },
                     accent = ElysiumColors.NeonPurple,
                     icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
                 )
@@ -152,30 +216,60 @@ fun MacPairingScreen(
             // === HERO CARD ===
             NeonHeroCard(
                 title = host.name,
-                subtitle = "Emparejando...",
-                accent = ElysiumColors.NeonCyan,
+                subtitle = when (state) {
+                    PairingState.CONNECTING -> "Conectando…"
+                    PairingState.AWAITING_PIN -> "Esperando PIN"
+                    PairingState.VERIFYING -> "Verificando"
+                    PairingState.CONNECTED -> "Conectado"
+                    PairingState.ERROR -> "Error"
+                },
+                accent = when (state) {
+                    PairingState.CONNECTING -> ElysiumColors.NeonCyan
+                    PairingState.AWAITING_PIN -> ElysiumColors.NeonOrange
+                    PairingState.VERIFYING -> ElysiumColors.NeonCyan
+                    PairingState.CONNECTED -> ElysiumColors.NeonGreen
+                    PairingState.ERROR -> ElysiumColors.NeonMagenta
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = info.sidePadding, vertical = 4.dp),
                 statusChips = {
                     NeonStatusPill(
                         label = when (state) {
-                            PairingState.SHOWING_PIN -> "Esperando PIN"
+                            PairingState.CONNECTING -> "TCP + X25519"
+                            PairingState.AWAITING_PIN -> "Esperando PIN"
                             PairingState.VERIFYING -> "Verificando"
                             PairingState.CONNECTED -> "Conectado"
+                            PairingState.ERROR -> "Error"
                         },
                         color = when (state) {
-                            PairingState.SHOWING_PIN -> ElysiumColors.NeonOrange
+                            PairingState.CONNECTING -> ElysiumColors.NeonCyan
+                            PairingState.AWAITING_PIN -> ElysiumColors.NeonOrange
                             PairingState.VERIFYING -> ElysiumColors.NeonCyan
                             PairingState.CONNECTED -> ElysiumColors.NeonGreen
+                            PairingState.ERROR -> ElysiumColors.NeonMagenta
                         }
                     )
                 }
             )
             // === STATE-SPECIFIC CONTENT ===
             when (state) {
-                PairingState.SHOWING_PIN -> PinEntryContent(
-                    pin = pin,
+                PairingState.CONNECTING -> ConnectingContent(
+                    hostName = host.name,
+                    progress = connectingProgress.value,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = info.sidePadding, vertical = 8.dp)
+                )
+                PairingState.AWAITING_PIN -> PinInputContent(
+                    pinDigits = pinDigits.value,
+                    onDigitChange = { index, value ->
+                        if (value.length <= 1 && value.all { it.isDigit() }) {
+                            val newList = pinDigits.value.toMutableList()
+                            newList[index] = value
+                            pinDigits.value = newList
+                        }
+                    },
                     hostName = host.name,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -189,6 +283,28 @@ fun MacPairingScreen(
                 )
                 PairingState.CONNECTED -> ConnectedContent(
                     hostName = host.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = info.sidePadding, vertical = 8.dp)
+                )
+                PairingState.ERROR -> ErrorContent(
+                    reason = errorReason ?: "Error desconocido",
+                    onRetry = {
+                        errorReason = null
+                        state = PairingState.CONNECTING
+                        scope.launch {
+                            transport.startHandshake(
+                                host = com.elysium.nexus.core.transport.mac.DiscoveredHost(
+                                    name = host.name,
+                                    host = host.host,
+                                    port = host.port,
+                                    model = host.type.labelEs,
+                                    osVersion = "macOS",
+                                    publicKeyB64 = host.publicKeyB64
+                                )
+                            )
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = info.sidePadding, vertical = 8.dp)
@@ -237,31 +353,109 @@ fun MacPairingScreen(
     if (showHelp) {
         HelpCard(
             title = "Ayuda — Emparejamiento",
-            whatIsThis = "Esta pantalla te muestra un PIN de 6 dígitos. " +
-                "Tu Mac o PC también mostrará el mismo PIN en una ventana. " +
-                "Si los dos coinciden, la conexión es segura.",
+            whatIsThis = "Esta pantalla te pide el PIN de 6 dígitos que tu Mac o PC " +
+                "está mostrando en una ventana. Es la confirmación final de que " +
+                "estás hablando con el dispositivo correcto.",
             howToUse = listOf(
-                "Mira el PIN que aparece en esta pantalla.",
-                "En tu Mac/PC, una ventana emergente mostrará el mismo PIN.",
-                "Si coinciden, toca 'Aceptar' en la Mac.",
-                "La conexión se establece automáticamente."
+                "Abre la app Elysium Nexus en tu Mac o PC.",
+                "Mira la ventana que aparece con un PIN de 6 dígitos.",
+                "Toca las casillas de esta pantalla y escribe el mismo PIN.",
+                "La conexión se establece automáticamente cuando los 6 dígitos coincidan."
             ),
-            tip = "Si los PINs no coinciden, NO aceptes. Puede ser un atacante " +
-                "en tu misma red Wi-Fi.",
+            tip = "Si los PINs no coinciden, NO los confirmes. Puede ser un " +
+                "atacante en tu misma red Wi-Fi.",
             onDismiss = { showHelp = false }
         )
     }
 }
 
-private enum class PairingState { SHOWING_PIN, VERIFYING, CONNECTED }
+private enum class PairingState { CONNECTING, AWAITING_PIN, VERIFYING, CONNECTED, ERROR }
 
 /**
- * The PIN entry content. Shows a big 6-digit PIN
- * the user must verify on the host.
+ * The connecting content. Shows an animated
+ * progress bar while the TCP socket opens and
+ * the X25519 handshake runs.
  */
 @Composable
-private fun PinEntryContent(
-    pin: String,
+private fun ConnectingContent(
+    hostName: String,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    val infinite = rememberInfiniteTransition(label = "connecting")
+    val rotation by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "conn_rotation"
+    )
+    NeonCard(
+        modifier = modifier,
+        accent = ElysiumColors.NeonCyan,
+        cornerRadius = 20.dp
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier.size(80.dp)
+            ) {
+                val strokeWidth = 6.dp.toPx()
+                val r = (size.minDimension - strokeWidth) / 2f
+                drawArc(
+                    color = ElysiumColors.NeonCyan.copy(alpha = 0.2f),
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
+                    size = Size(r * 2, r * 2),
+                    style = Stroke(width = strokeWidth)
+                )
+                rotate(rotation) {
+                    drawArc(
+                        color = ElysiumColors.NeonCyan,
+                        startAngle = 0f,
+                        sweepAngle = 90f,
+                        useCenter = false,
+                        topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
+                        size = Size(r * 2, r * 2),
+                        style = Stroke(width = strokeWidth)
+                    )
+                }
+            }
+            Text(
+                text = "Conectando a $hostName...",
+                style = TextStyle(
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = ElysiumColors.NeonCyan,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Text(
+                text = "Intercambiando claves X25519 y derivando el secreto compartido.",
+                style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
+                color = ElysiumColors.OnSurfaceMuted,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+    }
+}
+
+/**
+ * The PIN input content. 6 boxes, one per
+ * digit. The user types and the boxes auto-
+ * advance. When all 6 are filled, the screen
+ * automatically submits.
+ */
+@Composable
+private fun PinInputContent(
+    pinDigits: List<String>,
+    onDigitChange: (Int, String) -> Unit,
     hostName: String,
     modifier: Modifier = Modifier
 ) {
@@ -275,13 +469,13 @@ private fun PinEntryContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Icon(
-                Icons.Filled.QrCode2,
+                Icons.Filled.Lock,
                 contentDescription = null,
                 tint = ElysiumColors.NeonCyan,
                 modifier = Modifier.size(48.dp)
             )
             Text(
-                text = "Ingresa este PIN en tu $hostName",
+                text = "Escribe el PIN que muestra tu $hostName",
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -289,14 +483,24 @@ private fun PinEntryContent(
                 color = ElysiumColors.OnSurface,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
-            // The 6-digit PIN. Each digit is a big
-            // box. The user reads the digits and
-            // types them on the Mac.
+            // The 6-digit input row.
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                pin.forEach { digit ->
-                    Box(
+                pinDigits.forEachIndexed { index, digit ->
+                    BasicTextField(
+                        value = digit,
+                        onValueChange = { onDigitChange(index, it) },
+                        textStyle = TextStyle(
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ElysiumColors.NeonCyan,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        ),
+                        cursorBrush = SolidColor(ElysiumColors.NeonCyan),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword
+                        ),
                         modifier = Modifier
                             .size(width = 48.dp, height = 64.dp)
                             .clip(RoundedCornerShape(10.dp))
@@ -313,35 +517,32 @@ private fun PinEntryContent(
                                 color = ElysiumColors.NeonCyan,
                                 shape = RoundedCornerShape(10.dp)
                             ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = digit.toString(),
-                            style = TextStyle(
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            ),
-                            color = ElysiumColors.NeonCyan
-                        )
-                    }
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (digit.isEmpty()) {
+                                    Text(
+                                        text = "•",
+                                        style = TextStyle(
+                                            fontSize = 24.sp,
+                                            color = ElysiumColors.OnSurfaceMuted
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
                 }
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = null,
-                    tint = ElysiumColors.NeonGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "El PIN expira en 5 minutos",
-                    style = TextStyle(fontSize = 12.sp),
-                    color = ElysiumColors.OnSurfaceMuted
-                )
-            }
+            Text(
+                text = "Toca cada casilla. Se envía automáticamente al llenar las 6.",
+                style = TextStyle(fontSize = 11.sp),
+                color = ElysiumColors.OnSurfaceMuted,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
     }
 }
@@ -460,6 +661,44 @@ private fun ConnectedContent(
                 text = "Abriendo el control remoto...",
                 style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                 color = ElysiumColors.OnSurfaceMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorContent(
+    reason: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    NeonCard(
+        modifier = modifier,
+        accent = ElysiumColors.NeonMagenta,
+        cornerRadius = 20.dp
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Error de emparejamiento",
+                style = TextStyle(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = ElysiumColors.NeonMagenta
+            )
+            Text(
+                text = reason,
+                style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+                color = ElysiumColors.OnSurface,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            NeonChip(
+                label = "Reintentar",
+                onClick = onRetry,
+                accent = ElysiumColors.NeonCyan
             )
         }
     }

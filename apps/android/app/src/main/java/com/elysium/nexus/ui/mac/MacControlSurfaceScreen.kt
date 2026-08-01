@@ -83,6 +83,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.elysium.nexus.core.transport.mac.MacProtocol
+import com.elysium.nexus.core.transport.mac.MacTransport
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -186,6 +188,7 @@ import kotlin.math.roundToInt
 fun MacControlSurfaceScreen(
     host: DiscoveredHost,
     onBack: () -> Unit,
+    transport: MacTransport? = null,
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
@@ -316,6 +319,7 @@ fun MacControlSurfaceScreen(
                         type = EventType.MOUSE_MOVE,
                         shortLabel = "Mover (${(dx).roundToInt()}, ${(dy).roundToInt()})"
                     )
+                    transport?.sendMouseMove(dx, dy)
                 },
                 onLeftClick = { x, y ->
                     cursorX = x
@@ -330,6 +334,14 @@ fun MacControlSurfaceScreen(
                     lastEvent = MacInputEvent(
                         type = EventType.CLICK_LEFT,
                         shortLabel = "Click izq"
+                    )
+                    transport?.sendMouseButton(
+                        MacProtocol.MouseButton.LEFT,
+                        MacProtocol.ButtonState.DOWN
+                    )
+                    transport?.sendMouseButton(
+                        MacProtocol.MouseButton.LEFT,
+                        MacProtocol.ButtonState.UP
                     )
                 },
                 onRightClick = { x, y ->
@@ -346,29 +358,61 @@ fun MacControlSurfaceScreen(
                         type = EventType.CLICK_RIGHT,
                         shortLabel = "Click der"
                     )
+                    transport?.sendMouseButton(
+                        MacProtocol.MouseButton.RIGHT,
+                        MacProtocol.ButtonState.DOWN
+                    )
+                    transport?.sendMouseButton(
+                        MacProtocol.MouseButton.RIGHT,
+                        MacProtocol.ButtonState.UP
+                    )
                 },
                 onScroll = { dx, dy ->
                     lastEvent = MacInputEvent(
                         type = EventType.SCROLL,
                         shortLabel = "Scroll (${dx.roundToInt()}, ${dy.roundToInt()})"
                     )
+                    transport?.sendScroll(dx, dy)
                 },
                 onZoom = { factor ->
                     lastEvent = MacInputEvent(
                         type = EventType.ZOOM,
                         shortLabel = if (factor > 1f) "Zoom +" else "Zoom -"
                     )
+                    transport?.sendPinch(factor)
                 },
                 onMissionControl = {
                     lastEvent = MacInputEvent(
                         type = EventType.MISSION_CONTROL,
                         shortLabel = "Mission Control"
                     )
+                    // Mission Control = ⌃↑ (Ctrl + Up arrow)
+                    transport?.sendKey(
+                        MacProtocol.KeyAction.DOWN,
+                        0x52, // HID Up Arrow
+                        MacProtocol.Modifiers.CONTROL
+                    )
+                    transport?.sendKey(
+                        MacProtocol.KeyAction.UP,
+                        0x52,
+                        MacProtocol.Modifiers.CONTROL
+                    )
                 },
                 onAppExpose = {
                     lastEvent = MacInputEvent(
                         type = EventType.APP_EXPOSE,
                         shortLabel = "App Exposé"
+                    )
+                    // App Exposé = ⌃↓ (Ctrl + Down arrow)
+                    transport?.sendKey(
+                        MacProtocol.KeyAction.DOWN,
+                        0x51, // HID Down Arrow
+                        MacProtocol.Modifiers.CONTROL
+                    )
+                    transport?.sendKey(
+                        MacProtocol.KeyAction.UP,
+                        0x51,
+                        MacProtocol.Modifiers.CONTROL
                     )
                 },
                 modifier = Modifier
@@ -390,12 +434,52 @@ fun MacControlSurfaceScreen(
                         shortLabel = "${mod.symbol} ${if (mod in activeModifiers) "on" else "off"}"
                     )
                 },
-                onClearModifiers = { activeModifiers = emptySet() },
+                onClearModifiers = {
+                    activeModifiers = emptySet()
+                    transport?.disconnect()
+                },
                 onAction = { action ->
                     lastEvent = MacInputEvent(
                         type = EventType.KEY,
                         shortLabel = action
                     )
+                    // Send the action as a key event
+                    // with the current modifiers.
+                    val mods = modifiersToBits(activeModifiers)
+                    when (action) {
+                        "Tab" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x2B, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x2B, mods)
+                        }
+                        "Esc" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x29, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x29, mods)
+                        }
+                        "↑" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x52, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x52, mods)
+                        }
+                        "↓" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x51, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x51, mods)
+                        }
+                        "←" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x50, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x50, mods)
+                        }
+                        "→" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x4F, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x4F, mods)
+                        }
+                        "⌫" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x2A, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x2A, mods)
+                        }
+                        "⏎" -> {
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x28, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, 0x28, mods)
+                        }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -439,6 +523,19 @@ fun MacControlSurfaceScreen(
                             type = EventType.KEY,
                             shortLabel = "Tipear: $newChars"
                         )
+                        // Send each new char as a key
+                        // event to the host. The
+                        // modifier bar at the bottom
+                        // of the keyboard panel lets
+                        // the user hold ⌘ / ⌥ / ⌃ / ⇧
+                        // so shortcuts work.
+                        newChars.forEach { c ->
+                            val (hid, needsShift) = asciiToHidUsage(c)
+                            val mods = modifiersToBits(activeModifiers) or
+                                if (needsShift) MacProtocol.Modifiers.SHIFT else 0
+                            transport?.sendKey(MacProtocol.KeyAction.DOWN, hid, mods)
+                            transport?.sendKey(MacProtocol.KeyAction.UP, hid, mods)
+                        }
                     }
                     textInput = it
                 },
@@ -449,6 +546,8 @@ fun MacControlSurfaceScreen(
                             type = EventType.KEY,
                             shortLabel = "⌫"
                         )
+                        transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x2A, 0)
+                        transport?.sendKey(MacProtocol.KeyAction.UP, 0x2A, 0)
                     }
                 },
                 onSpace = {
@@ -457,6 +556,8 @@ fun MacControlSurfaceScreen(
                         type = EventType.KEY,
                         shortLabel = "Espacio"
                     )
+                    transport?.sendKey(MacProtocol.KeyAction.DOWN, 0x2C, 0)
+                    transport?.sendKey(MacProtocol.KeyAction.UP, 0x2C, 0)
                 },
                 onModifier = { mod ->
                     activeModifiers = if (mod in activeModifiers) {
@@ -715,8 +816,18 @@ private fun Trackpad(
                     // a tap (short + no movement)
                     // or a drag.
                     var isTap = true
-                    // Initial pointer count.
-                    var initialPointerCount = currentEvent.changes.size
+                    // Phase ULT.4 bug fix — track the
+                    // *peak* pointer count, not the
+                    // count at first down. A user
+                    // who starts with 1 finger and
+                    // adds a 2nd is performing a
+                    // 2-finger gesture, not a 1-finger
+                    // one. The previous implementation
+                    // captured `initialPointerCount`
+                    // before the 2nd finger arrived
+                    // and therefore treated 2-finger
+                    // right-click as 1-finger left-click.
+                    var peakPointerCount = currentEvent.changes.size
                     initialPositions[firstDown.id] = firstDown.position
                     var totalDrag = Offset.Zero
                     var lastPositions = initialPositions.toMutableMap()
@@ -727,6 +838,10 @@ private fun Trackpad(
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
                         val currentChanges = event.changes
+                        // Update the peak pointer count.
+                        if (currentChanges.size > peakPointerCount) {
+                            peakPointerCount = currentChanges.size
+                        }
                         // Detect if this is a
                         // "release" event (all
                         // pointers up).
@@ -736,19 +851,22 @@ private fun Trackpad(
                             // If short and no
                             // movement, treat as
                             // a tap. Use the
-                            // current pointer
-                            // count to decide left
-                            // vs right click.
+                            // PEAK pointer count
+                            // to decide left vs
+                            // right click.
                             if (isTap && duration < 200 && totalDrag.getDistance() < 10f) {
                                 val tapPos = firstDown.position
                                 val nx = (tapPos.x / size.width).coerceIn(0f, 1f)
                                 val ny = (tapPos.y / size.height).coerceIn(0f, 1f)
-                                if (initialPointerCount == 1) {
-                                    onLeftClick(nx, ny)
-                                } else if (initialPointerCount == 2) {
-                                    onRightClick(nx, ny)
+                                when (peakPointerCount) {
+                                    1 -> onLeftClick(nx, ny)
+                                    2 -> onRightClick(nx, ny)
+                                    // 3+ finger tap is
+                                    // unusual; treat as
+                                    // left click.
+                                    else -> onLeftClick(nx, ny)
                                 }
-                            } else if (initialPointerCount == 3) {
+                            } else if (peakPointerCount >= 3) {
                                 // 3-finger gesture:
                                 // detect swipe
                                 // direction. The
@@ -1367,5 +1485,84 @@ private fun Modifier.androidScale(scale: Float): Modifier {
     return this.graphicsLayer {
         scaleX = s
         scaleY = s
+    }
+}
+
+/**
+ * Convert the UI-level [Set]<[MacModifier]> to
+ * the wire-level [MacProtocol.Modifiers] bitmask.
+ * `ESC` is not a modifier (it's a key), so it's
+ * ignored here.
+ */
+private fun modifiersToBits(mods: Set<MacModifier>): Int {
+    var bits = 0
+    if (MacModifier.CMD in mods) bits = bits or MacProtocol.Modifiers.COMMAND
+    if (MacModifier.OPT in mods) bits = bits or MacProtocol.Modifiers.OPTION
+    if (MacModifier.CTRL in mods) bits = bits or MacProtocol.Modifiers.CONTROL
+    if (MacModifier.SHIFT in mods) bits = bits or MacProtocol.Modifiers.SHIFT
+    return bits
+}
+
+/**
+ * Map an ASCII character to its USB HID usage
+ * code. Returns the HID usage and a boolean
+ * indicating whether Shift must be held to type
+ * the character.
+ *
+ * Covers the printable ASCII range. Non-ASCII
+ * characters fall back to a no-op (the user
+ * sees the typed character in the text input,
+ * but no event is sent to the host — emoji /
+ * accented chars require a richer IM model
+ * that Phase ULT.5 will add).
+ */
+private fun asciiToHidUsage(c: Char): Pair<Int, Boolean> {
+    if (c in 'a'..'z') {
+        return Pair(0x04 + (c - 'a'), false)
+    }
+    if (c in 'A'..'Z') {
+        return Pair(0x04 + (c - 'A'), true)
+    }
+    if (c in '1'..'9') {
+        return Pair(0x1E + (c - '1'), false)
+    }
+    return when (c) {
+        '0' -> Pair(0x27, false)
+        ' ' -> Pair(0x2C, false)
+        '\n' -> Pair(0x28, false)
+        '\t' -> Pair(0x2B, false)
+        '-' -> Pair(0x2D, false)
+        '=' -> Pair(0x2E, false)
+        '[' -> Pair(0x2F, false)
+        ']' -> Pair(0x30, false)
+        '\\' -> Pair(0x31, false)
+        ';' -> Pair(0x33, false)
+        '\'' -> Pair(0x34, false)
+        '`' -> Pair(0x35, false)
+        ',' -> Pair(0x36, false)
+        '.' -> Pair(0x37, false)
+        '/' -> Pair(0x38, false)
+        '!' -> Pair(0x1E, true) // 1
+        '@' -> Pair(0x1F, true) // 2
+        '#' -> Pair(0x20, true) // 3
+        '$' -> Pair(0x21, true) // 4
+        '%' -> Pair(0x22, true) // 5
+        '^' -> Pair(0x23, true) // 6
+        '&' -> Pair(0x24, true) // 7
+        '*' -> Pair(0x25, true) // 8
+        '(' -> Pair(0x26, true) // 9
+        ')' -> Pair(0x27, true) // 0
+        '_' -> Pair(0x2D, true) // -
+        '+' -> Pair(0x2E, true) // =
+        '{' -> Pair(0x2F, true) // [
+        '}' -> Pair(0x30, true) // ]
+        '|' -> Pair(0x31, true) // backslash
+        ':' -> Pair(0x33, true) // ;
+        '"' -> Pair(0x34, true) // '
+        '~' -> Pair(0x35, true) // `
+        '<' -> Pair(0x36, true) // ,
+        '>' -> Pair(0x37, true) // .
+        '?' -> Pair(0x38, true) // /
+        else -> Pair(0x2C, false) // space fallback
     }
 }

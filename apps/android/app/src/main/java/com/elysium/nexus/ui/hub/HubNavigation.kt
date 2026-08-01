@@ -67,6 +67,17 @@ sealed class HubDestination {
 
     /** The Mac/PC control surface (trackpad + keyboard). */
     data class MacControl(val host: com.elysium.nexus.ui.mac.DiscoveredHost) : HubDestination()
+
+    /**
+     * Phase ULT.5 — the Universal Remote
+     * surface. Uses Bluetooth HID to present
+     * the phone as a generic keyboard + mouse
+     * to any host that accepts Bluetooth HID
+     * input (Mac, Windows, Linux, Android TV,
+     * smart TVs, Raspberry Pi, set-top boxes).
+     * No software is required on the host.
+     */
+    object UniversalRemote : HubDestination()
 }
 
 /**
