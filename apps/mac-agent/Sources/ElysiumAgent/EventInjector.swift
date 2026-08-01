@@ -162,6 +162,56 @@ final class EventInjector {
         ev.post(tap: .cghidEventTap)
     }
 
+    // MARK: - Media keys (Phase ULT.7)
+
+    /// Send a media key to the system. Used for
+    /// volume + play/pause + next/previous from
+    /// the phone's media bar.
+    ///
+    /// The macOS media key API is the
+    /// system-defined event with subtype 8
+    /// (kEventSubtypeScreenChanged / media keys).
+    /// The trick is well-known: the low 16 bits of
+    /// `data1` carry the key code (0 = volume up,
+    /// 1 = volume down, 7 = mute, 16 = play,
+    /// 17 = previous, 18 = next). `data2` is
+    /// `-1` for key-down, `0` for key-up. We send
+    /// two events per key (down + up) so the OS
+    /// sees a complete press.
+    func media(_ type: MediaKey) {
+        let keyCode: Int = type.rawValue
+        // Key down
+        postMediaEvent(keyCode: keyCode, keyDown: true)
+        // Key up (small delay to mimic a real
+        // button press)
+        usleep(20_000) // 20 ms
+        postMediaEvent(keyCode: keyCode, keyDown: false)
+    }
+
+    private func postMediaEvent(keyCode: Int, keyDown: Bool) {
+        let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: NSEvent.ModifierFlags(rawValue: 0),
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8, // kEventSubtypeScreenChanged
+            data1: Int32(keyCode << 16) | (keyDown ? 0x100 : 0x00),
+            data2: Int32(keyDown ? -1 : 0)
+        )
+        event?.cgEvent?.post(tap: .cghidEventTap)
+    }
+
+    enum MediaKey: Int {
+        case volumeUp = 0
+        case volumeDown = 1
+        case mute = 7
+        case play = 16
+        case previous = 17
+        case next = 18
+    }
+
     // MARK: - HID usage → keycode
 
     private func hidUsageToKeycode(hidUsage: UInt32) -> UInt16 {

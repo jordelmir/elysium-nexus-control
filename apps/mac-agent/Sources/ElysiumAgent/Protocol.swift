@@ -62,6 +62,11 @@ enum FrameType: UInt8 {
     case pinch       = 0x09
     case heartbeat   = 0x0A
     case goodbye     = 0x0B
+    // Phase ULT.7 — media key (volume /
+    // play / pause / next / previous). The
+    // 1-byte payload is the macOS media key
+    // code (0, 1, 7, 16, 17, 18).
+    case media       = 0x0C
 }
 
 enum MouseButton: UInt8 {

@@ -236,6 +236,12 @@ final class ConnectionHandler {
             if let payload = decodePinch(frame.payload, key: key, counter: counter) {
                 EventInjector.shared.pinch(factor: payload)
             }
+        case (.ready(let key, let counter), .media):
+            if let keyCode = decodeMedia(frame.payload, key: key, counter: counter) {
+                if let media = EventInjector.MediaKey(rawValue: Int(keyCode)) {
+                    EventInjector.shared.media(media)
+                }
+            }
         case (.ready, .heartbeat), (.ready, .goodbye):
             break // No-op
         default:
@@ -292,6 +298,11 @@ final class ConnectionHandler {
         guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
         guard plain.count == 4 else { return nil }
         return plain.withUnsafeBytes { $0.load(as: Float32.self) }
+    }
+    private func decodeMedia(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> UInt32? {
+        guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
+        guard plain.count == 1 else { return nil }
+        return UInt32(plain[0])
     }
 
     // MARK: - State (encryption-related, kept outside

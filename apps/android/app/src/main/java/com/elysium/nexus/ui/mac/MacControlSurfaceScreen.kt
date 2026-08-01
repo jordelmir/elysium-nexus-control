@@ -489,6 +489,17 @@ fun MacControlSurfaceScreen(
             // BOTTOM SPACER for FAB
             Spacer(modifier = Modifier.height(8.dp))
         }
+        // === MEDIA BAR (Phase ULT.7) ===
+        // Volume up/down/mute + play/pause +
+        // next/previous. The user controls
+        // macOS media playback from the phone.
+        MediaBar(
+            transport = transport,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         // === KEYBOARD FAB ===
         NeonFab(
             icon = {
@@ -1025,6 +1036,74 @@ private fun TrackpadDots() {
                 )
             }
         }
+    }
+}
+
+/**
+ * The media bar (Phase ULT.7). A row of
+ * equal-width chips for the system media
+ * keys: volume down / up / mute + previous /
+ * play-pause / next. The chips send the
+ * `MEDIA` frame to the Mac agent, which
+ * dispatches the corresponding `NSEvent` to
+ * macOS.
+ */
+@Composable
+private fun MediaBar(
+    transport: MacTransport?,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        MediaButton("🔉", "Vol-", ElysiumColors.NeonOrange, { transport?.sendMedia(1) }, Modifier.weight(1f))
+        MediaButton("🔇", "Mute", ElysiumColors.NeonOrange, { transport?.sendMedia(7) }, Modifier.weight(1f))
+        MediaButton("🔊", "Vol+", ElysiumColors.NeonOrange, { transport?.sendMedia(0) }, Modifier.weight(1f))
+        MediaButton("⏮", "Prev", ElysiumColors.NeonPurple, { transport?.sendMedia(17) }, Modifier.weight(1f))
+        MediaButton("⏯", "Play", ElysiumColors.NeonGreen, { transport?.sendMedia(16) }, Modifier.weight(1f))
+        MediaButton("⏭", "Next", ElysiumColors.NeonPurple, { transport?.sendMedia(18) }, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun RowScope.MediaButton(
+    label: String,
+    contentDescription: String,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.9f else 1f,
+        animationSpec = tween(durationMillis = 80),
+        label = "media_btn_scale"
+    )
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .androidScale(scale)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(color.copy(alpha = 0.18f), ElysiumColors.Surface)
+                )
+            )
+            .border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .clickable(
+                onClick = {
+                    pressed = true
+                    onClick()
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+            color = color
+        )
     }
 }
 

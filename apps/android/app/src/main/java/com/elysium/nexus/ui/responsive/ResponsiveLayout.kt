@@ -1,14 +1,12 @@
 package com.elysium.nexus.ui.responsive
 
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.elysium.nexus.core.posture.Posture
 
 /**
  * The screen-size buckets the §15 hierarchy adapts to.
@@ -62,23 +60,6 @@ enum class ScreenSize {
 }
 
 /**
- * The foldable posture the device is in.
- *
- * Per `MASTER_ORDER.md` §16, the editor shall adapt
- * to the foldable posture. The hub / picker use
- * the posture to choose between single-pane and
- * two-pane layouts.
- */
-enum class Posture {
-    /** Phone-style, not folded. */
-    FLAT,
-    /** Foldable, half-opened (tabletop / book mode). */
-    HALF_OPENED,
-    /** Foldable, fully closed (cover screen). */
-    CLOSED;
-}
-
-/**
  * `BoxWithConstraints`-driven layout primitive that
  * gives you a [ScreenSize] and an [ScreenInfo]
  * based on the current window size. The caller
@@ -90,10 +71,17 @@ enum class Posture {
  * way to read the available size. We use it to
  * decide the column count, the side padding, the
  * title size, etc.
+ *
+ * The optional [posture] parameter lets the caller
+ * pass the current foldable posture. The
+ * [ScreenInfo] exposes it so the layout can adapt
+ * (e.g. switch to a two-pane layout in
+ * HALF_OPENED).
  */
 @Composable
 fun ResponsiveContainer(
     modifier: Modifier = Modifier,
+    posture: Posture = Posture.UNKNOWN,
     content: @Composable (ScreenInfo) -> Unit
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -101,7 +89,8 @@ fun ResponsiveContainer(
             size = ScreenSize.fromWidth(maxWidth),
             widthDp = maxWidth,
             heightDp = maxHeight,
-            columns = ScreenSize.columnCount(ScreenSize.fromWidth(maxWidth))
+            columns = ScreenSize.columnCount(ScreenSize.fromWidth(maxWidth)),
+            posture = posture
         )
         content(info)
     }
@@ -117,7 +106,8 @@ data class ScreenInfo(
     val size: ScreenSize,
     val widthDp: Dp,
     val heightDp: Dp,
-    val columns: Int
+    val columns: Int,
+    val posture: Posture = Posture.UNKNOWN
 ) {
     /**
      * The side padding the hub / picker use.
@@ -143,4 +133,13 @@ data class ScreenInfo(
         ScreenSize.Expanded -> 16.dp
         ScreenSize.Large -> 20.dp
     }
+
+    /**
+     * Whether the screen is in a narrow posture
+     * (e.g. cover screen, half-opened tabletop).
+     * The hub uses this to choose between a
+     * single-column hero + scrollable list and
+     * a side-by-side two-pane layout.
+     */
+    val isNarrow: Boolean = widthDp < 480.dp
 }

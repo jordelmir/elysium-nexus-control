@@ -73,7 +73,8 @@ object MacProtocol {
         KEY(0x08),
         PINCH(0x09),
         HEARTBEAT(0x0A),
-        GOODBYE(0x0B);
+        GOODBYE(0x0B),
+        MEDIA(0x0C);
 
         companion object {
             private val BY_INDEX = entries.associateBy { it.byte }

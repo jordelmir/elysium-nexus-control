@@ -346,6 +346,18 @@ class MacTransport {
         sendEncrypted(MacProtocol.FrameType.PINCH, payload)
     }
 
+    /**
+     * Send a media key (volume up / down / mute,
+     * play / pause, next / previous). The
+     * `keyCode` is the standard macOS media key
+     * constant: 0 = volume up, 1 = volume down,
+     * 7 = mute, 16 = play, 17 = previous,
+     * 18 = next.
+     */
+    fun sendMedia(keyCode: Int) {
+        sendEncrypted(MacProtocol.FrameType.MEDIA, byteArrayOf(keyCode.toByte()))
+    }
+
     fun sendHeartbeat() {
         // Heartbeat is unencrypted (per protocol).
         try {
