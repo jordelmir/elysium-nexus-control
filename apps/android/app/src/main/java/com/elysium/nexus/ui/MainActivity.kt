@@ -125,6 +125,8 @@ class MainActivity : ComponentActivity() {
     private val transportFlow: MutableStateFlow<com.elysium.nexus.core.transport.ControllerTransport?> = MutableStateFlow(null)
     private val settingsFlow: MutableStateFlow<AppSettings> = MutableStateFlow(AppSettings())
     private val connectedDeviceFlow: MutableStateFlow<DeviceTemplate?> = MutableStateFlow(null)
+    private val postureFlow: MutableStateFlow<com.elysium.nexus.core.posture.Posture> =
+        MutableStateFlow(com.elysium.nexus.core.posture.Posture.UNKNOWN)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -238,9 +240,12 @@ class MainActivity : ComponentActivity() {
         postureJob = activityScope.launch {
             try {
                 postureSource.postures().collect { posture ->
-                    // Posture is observed but not used in the new
-                    // hierarchical UI; the responsive layout
-                    // detects the screen size directly.
+                    // Phase ULT.6 — foldable posture drives the
+                    // control surface layout. In HALF_OPENED
+                    // mode the screen is split along the
+                    // hinge; in CLOSED mode the cover-screen
+                    // view is shown.
+                    postureFlow.value = posture
                 }
             } catch (e: Throwable) {
                 Log.w(tag, "Posture observation failed; posture is dormant.", e)
@@ -252,6 +257,7 @@ class MainActivity : ComponentActivity() {
             ElysiumTheme {
                 val connectedDevice by connectedDeviceFlow.collectAsState()
                 val settings by settingsFlow.collectAsState()
+                val posture by postureFlow.collectAsState()
                 val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }

@@ -189,6 +189,7 @@ fun MacControlSurfaceScreen(
     host: DiscoveredHost,
     onBack: () -> Unit,
     transport: MacTransport? = null,
+    posture: com.elysium.nexus.core.posture.Posture = com.elysium.nexus.core.posture.Posture.UNKNOWN,
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }

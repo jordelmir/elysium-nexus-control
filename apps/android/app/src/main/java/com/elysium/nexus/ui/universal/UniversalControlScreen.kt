@@ -157,6 +157,7 @@ import kotlin.math.roundToInt
 @Composable
 fun UniversalControlScreen(
     onBack: () -> Unit,
+    posture: com.elysium.nexus.core.posture.Posture = com.elysium.nexus.core.posture.Posture.UNKNOWN,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
