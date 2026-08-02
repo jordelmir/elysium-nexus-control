@@ -1,17 +1,25 @@
-# Module placeholder
+# infrared
 
-This directory is reserved for the **<MODULE>** module
-per `docs/architecture/MASTER_ORDER.md` §44.
+**Protocol:** IR (Direct/Hub)
+**Status:** STUB
+**Maturity:** STUB (interface defined, implementation pending)
 
-**Purpose:** <TODO — one-line role>
-**Public API:** <TODO — entry points>
-**Owner:** <TODO>
-**Allowed dependencies:** <TODO>
-**Tests:** <TODO>
-**Threat model:** <TODO>
-**Maturity:** SCAFFOLD (Phase 0 — investigation)
+## Purpose
 
-This file exists because §6 forbids empty modules.
-The actual module lands in its first phase (per
-`docs/changelogs/`); the placeholder is replaced,
-not appended to.
+Transmits IR commands via phone IR blaster or Nexus Hub IR transmitter. Uses existing IrLearner for learning, IR database for playback.
+
+## Implementation
+
+Kotlin adapter lives in:
+`apps/android/app/src/main/java/com/elysium/nexus/fabric/adapter/infrared/`
+
+Implements `DeviceAdapter` interface from `fabric/adapter/DeviceAdapter.kt`.
+
+## Dependencies
+
+- Core: `fabric.canonical.*` (DeviceTwin, Capability, Protocol)
+- Interface: `fabric.adapter.DeviceAdapter`
+
+## Tests
+
+`DeviceAdapterContractTest` verifies lifecycle and capability contract.

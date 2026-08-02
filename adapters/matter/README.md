@@ -1,17 +1,25 @@
-# Module placeholder
+# matter
 
-This directory is reserved for the **<MODULE>** module
-per `docs/architecture/MASTER_ORDER.md` §44.
+**Protocol:** Matter (Thread/Wi-Fi)
+**Status:** STUB
+**Maturity:** STUB (interface defined, implementation pending)
 
-**Purpose:** <TODO — one-line role>
-**Public API:** <TODO — entry points>
-**Owner:** <TODO>
-**Allowed dependencies:** <TODO>
-**Tests:** <TODO>
-**Threat model:** <TODO>
-**Maturity:** SCAFFOLD (Phase 0 — investigation)
+## Purpose
 
-This file exists because §6 forbids empty modules.
-The actual module lands in its first phase (per
-`docs/changelogs/`); the placeholder is replaced,
-not appended to.
+Discovers and controls Matter-compliant smart home devices via the Android CHIP library or Nexus Hub's Matter controller. Supports OnOff, Level, Color, Temperature, Lock, Position, Scene capabilities.
+
+## Implementation
+
+Kotlin adapter lives in:
+`apps/android/app/src/main/java/com/elysium/nexus/fabric/adapter/matter/`
+
+Implements `DeviceAdapter` interface from `fabric/adapter/DeviceAdapter.kt`.
+
+## Dependencies
+
+- Core: `fabric.canonical.*` (DeviceTwin, Capability, Protocol)
+- Interface: `fabric.adapter.DeviceAdapter`
+
+## Tests
+
+`DeviceAdapterContractTest` verifies lifecycle and capability contract.
