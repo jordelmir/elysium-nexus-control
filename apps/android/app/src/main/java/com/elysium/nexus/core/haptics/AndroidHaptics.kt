@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.annotation.RequiresPermission
 
 /**
  * The Android implementation of [Haptics].
@@ -48,6 +49,7 @@ class AndroidHaptics(
         }
     }
 
+    @RequiresPermission(android.Manifest.permission.VIBRATE)
     override fun fire(event: HapticEvent) {
         val v = vibrator ?: return
         if (!v.hasVibrator()) return

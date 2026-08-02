@@ -339,6 +339,7 @@ class BluetoothHidTransport(
         return DisconnectResult.Ok
     }
 
+    @SuppressLint("MissingPermission")
     override suspend fun stop(): TransportResult {
         try {
             hidDevice?.unregisterApp()

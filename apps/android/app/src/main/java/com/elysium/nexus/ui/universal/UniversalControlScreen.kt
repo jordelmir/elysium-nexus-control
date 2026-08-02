@@ -154,6 +154,7 @@ import kotlin.math.roundToInt
  * The keyboard is the system IME — same
  * pattern as the Mac control surface.
  */
+@SuppressLint("MissingPermission")
 @Composable
 fun UniversalControlScreen(
     onBack: () -> Unit,
@@ -1575,5 +1576,7 @@ private fun requestBluetoothPermissions(
  * import.
  */
 @Composable
-private fun <T> StateFlow<T>.collectAsStateLifecycleSafe(): androidx.compose.runtime.State<T> =
-    collectAsState(initial = this.value)
+private fun <T> StateFlow<T>.collectAsStateLifecycleSafe(): androidx.compose.runtime.State<T> {
+    val initialValue = remember { this.value }
+    return collectAsState(initial = initialValue)
+}

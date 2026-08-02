@@ -28,6 +28,7 @@
       `null` and the `AndroidIrTransmitter` becomes
       a no-op.
     -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.TRANSMIT_IR" />
     <!--
       `consumer_ir` is the *feature* (hardware) flag.
@@ -123,9 +124,6 @@
         <activity
             android:name="com.elysium.nexus.ui.MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
-            android:icon="@mipmap/ic_launcher"
-            android:roundIcon="@mipmap/ic_launcher_round"
             android:theme="@style/Theme.ElysiumNexus"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <intent-filter>
