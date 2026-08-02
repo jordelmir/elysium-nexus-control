@@ -99,6 +99,9 @@ fun HubScreen(
     onSettings: () -> Unit,
     onShowHelp: () -> Unit,
     firstDeviceLabel: String? = null,
+    quickConnect: com.elysium.nexus.core.profile.LastDevice? = null,
+    onQuickConnect: () -> Unit = {},
+    onForgetQuickConnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
@@ -129,6 +132,24 @@ fun HubScreen(
                     onClick = onSettings,
                     accent = ElysiumColors.NeonPurple,
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) }
+                )
+            }
+
+            // === QUICK CONNECT (Phase ULT.8) =====================
+            // The last device the user connected
+            // to. One tap reconnects. Shown only
+            // when there is a remembered device.
+            if (quickConnect != null) {
+                QuickConnectCard(
+                    device = quickConnect,
+                    onConnect = onQuickConnect,
+                    onForget = onForgetQuickConnect,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = info.sidePadding,
+                            vertical = 4.dp
+                        )
                 )
             }
 

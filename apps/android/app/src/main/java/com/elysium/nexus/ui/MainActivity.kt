@@ -27,6 +27,8 @@ import com.elysium.nexus.core.posture.AndroidPostureObserver
 import com.elysium.nexus.core.posture.NullPostureObserver
 import com.elysium.nexus.core.posture.PostureObserver
 import com.elysium.nexus.core.profile.AndroidProfileShareLauncher
+import com.elysium.nexus.core.profile.LastDevice
+import com.elysium.nexus.core.profile.LastDeviceMemory
 import com.elysium.nexus.core.profile.Profile
 import com.elysium.nexus.core.profile.ProfileActions
 import com.elysium.nexus.core.profile.ProfileImportResult
@@ -127,10 +129,20 @@ class MainActivity : ComponentActivity() {
     private val connectedDeviceFlow: MutableStateFlow<DeviceTemplate?> = MutableStateFlow(null)
     private val postureFlow: MutableStateFlow<com.elysium.nexus.core.posture.Posture> =
         MutableStateFlow(com.elysium.nexus.core.posture.Posture.UNKNOWN)
+    private val lastDeviceFlow: MutableStateFlow<com.elysium.nexus.core.profile.LastDevice?> =
+        MutableStateFlow(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.i(tag, "MainActivity.onCreate — Phase ULT.3 hierarchical navigation")
+        // Phase ULT.8 — load the last connected
+        // device (Mac/PC or BT) so the Hub can
+        // show a Quick Connect card.
+        try {
+            lastDeviceFlow.value = LastDeviceMemory(this).get()
+        } catch (e: Throwable) {
+            Log.w(tag, "LastDeviceMemory load failed: ${e.message}")
+        }
 
         val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val latencyTracker = LatencyTracker()
@@ -258,6 +270,7 @@ class MainActivity : ComponentActivity() {
                 val connectedDevice by connectedDeviceFlow.collectAsState()
                 val settings by settingsFlow.collectAsState()
                 val posture by postureFlow.collectAsState()
+                val lastDevice by lastDeviceFlow.collectAsState()
                 val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
@@ -317,7 +330,48 @@ class MainActivity : ComponentActivity() {
                         },
                         onSettings = { settingsVisible.value = true },
                         onShowHelp = { tourVisible.value = true },
-                        firstDeviceLabel = connectedDevice?.let { "${it.brand} ${it.model}" }
+                        firstDeviceLabel = connectedDevice?.let { "${it.brand} ${it.model}" },
+                        quickConnect = lastDevice,
+                        onQuickConnect = {
+                            when (val d = lastDevice) {
+                                is com.elysium.nexus.core.profile.LastDevice.Mac -> {
+                                    // Build a synthetic
+                                    // DiscoveredHost from
+                                    // the remembered IP +
+                                    // port and jump to
+                                    // the pairing screen.
+                                    val synthetic = com.elysium.nexus.ui.mac.DiscoveredHost(
+                                        id = "quick-${d.host}-${d.port}",
+                                        name = d.name,
+                                        type = com.elysium.nexus.ui.mac.HostType.MAC_DESKTOP,
+                                        signalStrength = 3,
+                                        isOnline = true,
+                                        host = d.host,
+                                        port = d.port
+                                    )
+                                    navStack.value = navStack.value + HubDestination.MacPairing(synthetic)
+                                }
+                                is com.elysium.nexus.core.profile.LastDevice.Bluetooth -> {
+                                    // The BT connect is
+                                    // interactive (user
+                                    // has to confirm the
+                                    // pairing on the host).
+                                    // Jump to the
+                                    // Universal Remote
+                                    // screen; the user
+                                    // taps Conectar on the
+                                    // remembered device.
+                                    navStack.value = navStack.value + HubDestination.UniversalRemote
+                                }
+                                null -> Unit
+                            }
+                        },
+                        onForgetQuickConnect = {
+                            try {
+                                LastDeviceMemory(this@MainActivity).clear()
+                            } catch (_: Throwable) {}
+                            lastDeviceFlow.value = null
+                        }
                     )
                     is HubDestination.TvControls -> TvControlsSection(
                         onBack = { navStack.value = navStack.value.dropLast(1) },
@@ -432,11 +486,25 @@ class MainActivity : ComponentActivity() {
                             navStack.value = navStack.value.dropLast(1)
                         },
                         onPaired = {
-                            // The PIN was accepted by the
-                            // Mac. Transition to the
-                            // control surface; the
-                            // transport is already in
-                            // Ready state.
+                            // Phase ULT.8 — remember this
+                            // host so the Hub can offer
+                            // Quick Connect next time.
+                            try {
+                                val memory = LastDeviceMemory(this@MainActivity)
+                                memory.set(
+                                    LastDevice.Mac(
+                                        name = current.host.name,
+                                        host = current.host.host,
+                                        port = current.host.port
+                                    )
+                                )
+                                lastDeviceFlow.value = memory.get()
+                            } catch (e: Throwable) {
+                                Log.w(tag, "LastDeviceMemory save failed: ${e.message}")
+                            }
+                            // Transition to the control
+                            // surface; the transport is
+                            // already in Ready state.
                             navStack.value = navStack.value.dropLast(1) +
                                 HubDestination.MacControl(current.host)
                         },
