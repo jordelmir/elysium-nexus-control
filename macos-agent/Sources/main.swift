@@ -1,7 +1,5 @@
 import Foundation
 import CoreGraphics
-import IOKit
-import IOKit.usb
 
 // MARK: - Wire format tags (must match UsbHidTransport.kt)
 let TAG_MOUSE_MOVE: UInt8     = 0x01
@@ -15,25 +13,30 @@ let TAG_GAMEPAD_STATE: UInt8  = 0x10
 let TAG_PING: UInt8           = 0xFE
 let TAG_RELEASE_ALL: UInt8    = 0xFF
 
-// MARK: - HID usage codes for common keys
-enum HIDKey: UInt8 {
-    case a = 0x04, b, c, d, e, f, g, h, i, j, k, l, m
-    case n, o, p, q, r, s, t, u, v, w, x, y, z
-    case k1 = 0x1E, k2, k3, k4, k5, k6, k7, k8, k9, k0
-    case enter = 0x28, escape, backspace, tab, space
-    case minus = 0x2D, equal, lBracket, rBracket, backslash
-    case semicolon = 0x33, quote, grave, comma, period, slash
-    case capsLock = 0x39
-    case f1 = 0x3A, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
-    case printScreen = 0x46, scrollLock, pause
-    case insert = 0x49, home, pageUp, deleteKey, end, pageDown
-    case right = 0x4F, left, down, up
-    case lCtrl = 0xE0, lShift, lAlt, lGui
-    case rCtrl = 0xE4, rShift, rAlt, rGui
+// MARK: - Event injection
+
+func postMouseEvent(type: CGEventType, point: CGPoint, button: CGMouseButton = .left) {
+    let event = CGEvent(
+        mouseEventSource: nil,
+        mouseType: type,
+        mouseCursorPosition: point,
+        mouseButton: button
+    )
+    event?.post(tap: CGEventTapLocation.cghidEventTap)
 }
 
-/// Maps HID usage code to macOS virtual keycode.
-/// Returns nil for unmapped keys.
+func postKeyEvent(keyCode: CGKeyCode, keyDown: Bool) {
+    let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: keyDown)
+    event?.post(tap: CGEventTapLocation.cghidEventTap)
+}
+
+func postScrollEvent(dy: Int32) {
+    let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0)
+    event?.post(tap: CGEventTapLocation.cghidEventTap)
+}
+
+// MARK: - HID usage code → macOS virtual keycode
+
 func hidToMacKeyCode(_ hid: UInt8) -> CGKeyCode? {
     let map: [UInt8: CGKeyCode] = [
         0x04: 0,    // a
@@ -117,34 +120,9 @@ func hidToMacKeyCode(_ hid: UInt8) -> CGKeyCode? {
     return map[hid]
 }
 
-// MARK: - Event injection
-
-func postMouseEvent(type: CGEventType, point: CGEventPoint, button: CGMouseButton = .left) {
-    let event = CGEvent(
-        mouseEventSource: nil,
-        mouseType: type,
-        mouseCursorPosition: point,
-        mouseButton: button
-    )
-    event?.post(tap: .cghidEventTap)
-}
-
-func postKeyEvent(keyCode: CGKeyCode, keyDown: Bool) {
-    let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: keyDown)
-    event?.post(tap: .cghidEventTap)
-}
-
-func postScrollEvent(dy: Int32) {
-    let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0)
-    event?.post(tap: .cghidEventTap)
-}
-
 // MARK: - USB serial reading (CDC ACM)
 
-/// Read from a serial device (USB CDC ACM) and process HID reports.
-/// The Android phone presents as /dev/tty.usbmodem* when connected via USB.
 func findAndOpenAndroidUSB() -> Int32 {
-    // Scan for USB serial devices.
     let candidates = [
         "/dev/tty.usbmodem1101",
         "/dev/tty.usbmodem1103",
@@ -159,7 +137,6 @@ func findAndOpenAndroidUSB() -> Int32 {
             return fd
         }
     }
-    // Fallback: scan /dev for any tty.usbmodem*
     if let files = try? FileManager.default.contentsOfDirectory(atPath: "/dev") {
         for file in files.sorted() {
             if file.hasPrefix("tty.usbmodem") {
@@ -178,8 +155,7 @@ func findAndOpenAndroidUSB() -> Int32 {
 func configureSerial(_ fd: Int32) {
     var tty = termios()
     tcgetattr(fd, &tty)
-    // 115200 baud, 8N1, no flow control.
-    cfsetspeed(&tty, B115200)
+    cfsetspeed(&tty, speed_t(B115200))
     tty.c_cflag = UInt(CS8 | CREAD | CLOCAL)
     tty.c_iflag = 0
     tty.c_oflag = 0
@@ -190,7 +166,7 @@ func configureSerial(_ fd: Int32) {
     tcsetattr(fd, TCSANOW, &tty)
 }
 
-// MARK: - Main loop
+// MARK: - Frame processing
 
 var mouseLocation = CGPoint(x: 960, y: 540)
 
@@ -203,19 +179,29 @@ func processFrame(_ data: [UInt8]) {
         let dy = Int16(bitPattern: UInt16(data[3]) | UInt16(data[4]) << 8)
         mouseLocation.x += CGFloat(dx)
         mouseLocation.y += CGFloat(dy)
-        mouseLocation.x = max(0, min(mouseLocation.x, CGFloat(CGDisplayPixelsWide(CGMainDisplayID()))))
-        mouseLocation.y = max(0, min(mouseLocation.y, CGFloat(CGDisplayPixelsHigh(CGMainDisplayID()))))
-        postMouseEvent(type: .mouseMoved, point: mouseLocation)
+        let screenW = CGDisplayPixelsWide(CGMainDisplayID())
+        let screenH = CGDisplayPixelsHigh(CGMainDisplayID())
+        mouseLocation.x = max(0, min(mouseLocation.x, CGFloat(screenW)))
+        mouseLocation.y = max(0, min(mouseLocation.y, CGFloat(screenH)))
+        postMouseEvent(type: CGEventType.mouseMoved, point: mouseLocation)
 
     case TAG_MOUSE_BUTTON:
         guard data.count >= 3 else { return }
-        let button: CGMouseButton = data[1] == 0 ? .left : data[1] == 1 ? .right : .center
         let pressed = data[2] != 0
-        let type: CGEventType = pressed ? .leftMouseDown : .leftMouseUp
-        postMouseEvent(type: pressed ?
-            (data[1] == 0 ? .leftMouseDown : data[1] == 1 ? .rightMouseDown : .otherMouseDown) :
-            (data[1] == 0 ? .leftMouseUp : data[1] == 1 ? .rightMouseUp : .otherMouseUp),
-            point: mouseLocation, button: button)
+        let type: CGEventType
+        let button: CGMouseButton
+        switch data[1] {
+        case 0:
+            type = pressed ? CGEventType.leftMouseDown : CGEventType.leftMouseUp
+            button = CGMouseButton.left
+        case 1:
+            type = pressed ? CGEventType.rightMouseDown : CGEventType.rightMouseUp
+            button = CGMouseButton.right
+        default:
+            type = pressed ? CGEventType.otherMouseDown : CGEventType.otherMouseUp
+            button = CGMouseButton.center
+        }
+        postMouseEvent(type: type, point: mouseLocation, button: button)
 
     case TAG_MOUSE_SCROLL:
         guard data.count >= 3 else { return }
@@ -236,7 +222,7 @@ func processFrame(_ data: [UInt8]) {
         let y = Int16(bitPattern: UInt16(data[3]) | UInt16(data[4]) << 8)
         mouseLocation.x = CGFloat(x)
         mouseLocation.y = CGFloat(y)
-        postMouseEvent(type: .mouseMoved, point: mouseLocation)
+        postMouseEvent(type: CGEventType.mouseMoved, point: mouseLocation)
 
     case TAG_TOUCHPAD_SCROLL:
         guard data.count >= 3 else { return }
@@ -244,22 +230,20 @@ func processFrame(_ data: [UInt8]) {
         postScrollEvent(dy: Int32(dy))
 
     case TAG_GAMEPAD_STATE:
-        // Gamepad → keyboard mapping (Phase 3+).
         break
 
     case TAG_PING:
         print("[agent] Ping received — connection alive")
 
     case TAG_RELEASE_ALL:
-        // Release all keys and mouse buttons.
         for key: UInt8 in 0x04...0xE7 {
             if let macKey = hidToMacKeyCode(key) {
                 postKeyEvent(keyCode: macKey, keyDown: false)
             }
         }
-        postMouseEvent(type: .leftMouseUp, point: mouseLocation, button: .left)
-        postMouseEvent(type: .rightMouseUp, point: mouseLocation, button: .right)
-        postMouseEvent(type: .otherMouseUp, point: mouseLocation, button: .center)
+        postMouseEvent(type: CGEventType.leftMouseUp, point: mouseLocation, button: CGMouseButton.left)
+        postMouseEvent(type: CGEventType.rightMouseUp, point: mouseLocation, button: CGMouseButton.right)
+        postMouseEvent(type: CGEventType.otherMouseUp, point: mouseLocation, button: CGMouseButton.center)
         print("[agent] All inputs released")
 
     default:
@@ -291,35 +275,41 @@ while true {
 
     while true {
         var readfds = fd_set()
-        FD_ZERO(&readfds)
-        FD_SET(fd, &readfds)
-        var timeout = timeval(tv_sec: 0, tv_usec: 100_000) // 100ms timeout
-        let ready = select(fd + 1, &readfds, nil, nil, &timeout)
+        withUnsafeMutablePointer(to: &readfds) { ptr in
+            ptr.withMemoryRebound(to: Int32.self, capacity: Int(FD_SETSIZE)) { raw in
+                for i in 0..<Int(FD_SETSIZE) { raw[i] = 0 }
+            }
+        }
+        let fdInt = Int32(fd)
+        withUnsafeMutablePointer(to: &readfds) { ptr in
+            ptr.withMemoryRebound(to: Int32.self, capacity: Int(FD_SETSIZE)) { raw in
+                raw[Int(fd / 32)] |= 1 << (fd % 32)
+            }
+        }
+        var timeout = timeval(tv_sec: 0, tv_usec: 100_000)
+        let ready = select(fdInt + 1, &readfds, nil, nil, &timeout)
         if ready < 0 {
             print("[agent] Select error, reconnecting...")
-            close(fd)
+            close(fdInt)
             break
         }
-        if ready == 0 { continue } // timeout, retry
+        if ready == 0 { continue }
 
-        let n = read(fd, &buffer, 64)
+        let n = read(fdInt, &buffer, 64)
         if n <= 0 {
             print("[agent] Device disconnected, waiting for reconnection...")
-            close(fd)
+            close(fdInt)
             break
         }
 
-        // Simple framing: collect bytes until we have a complete frame.
         for i in 0..<n {
             let byte = buffer[i]
-            if byte >= 0x01 && byte <= 0x10 || byte >= 0xFE {
-                // Start of a new frame.
+            if (byte >= 0x01 && byte <= 0x10) || byte >= 0xFE {
                 if !frameBuffer.isEmpty && frameLen > 0 {
                     processFrame(Array(frameBuffer.prefix(frameLen)))
                 }
                 frameBuffer = [byte]
                 frameLen = 1
-                // Determine expected frame length.
                 let expectedLen: Int
                 switch byte {
                 case TAG_MOUSE_MOVE: expectedLen = 5
