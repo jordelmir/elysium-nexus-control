@@ -30,6 +30,10 @@ vendor-keys/
 .kotlin/
 .cargo/
 
+# APK outputs (binary, not checked in)
+*.apk
+app-debug.apk
+
 # Coverage
 coverage/
 *.exec
