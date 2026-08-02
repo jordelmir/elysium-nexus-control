@@ -132,6 +132,13 @@ object ElysiumColors {
     val NeonOrangeDim: Color = Color(0xFFB84B00)
     val NeonOrangeGlow: Color = Color(0x66FF6B00)
 
+    // The speed. Electric yellow — the color of a
+    // high-voltage warning. Used for the USB-C
+    // wired transport (zero-latency, direct line).
+    val NeonYellow: Color = Color(0xFFFFD600)
+    val NeonYellowDim: Color = Color(0xFFB89A00)
+    val NeonYellowGlow: Color = Color(0x66FFD600)
+
     // === SURFACE PALETTE — base + ladder ===
 
     val Background: Color = Color(0xFF050008)

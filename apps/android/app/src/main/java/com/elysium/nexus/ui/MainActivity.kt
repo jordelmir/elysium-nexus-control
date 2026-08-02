@@ -325,6 +325,9 @@ class MainActivity : ComponentActivity() {
                         onMacSelected = {
                             navStack.value = navStack.value + HubDestination.MacDiscovery
                         },
+                        onUsbCSelected = {
+                            navStack.value = navStack.value + HubDestination.UsbC
+                        },
                         onUniversalRemoteSelected = {
                             navStack.value = navStack.value + HubDestination.UniversalRemote
                         },
@@ -526,6 +529,9 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     is HubDestination.UniversalRemote -> com.elysium.nexus.ui.universal.UniversalControlScreen(
+                        onBack = { navStack.value = navStack.value.dropLast(1) }
+                    )
+                    is HubDestination.UsbC -> com.elysium.nexus.ui.usb.UsbCConnectionScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) }
                     )
                 }

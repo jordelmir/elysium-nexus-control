@@ -78,6 +78,13 @@ sealed class HubDestination {
      * No software is required on the host.
      */
     object UniversalRemote : HubDestination()
+
+    /**
+     * Phase ULT.9 — USB-C wired transport screen.
+     * Shows connection status, detected device,
+     * and the zero-latency control surface.
+     */
+    object UsbC : HubDestination()
 }
 
 /**

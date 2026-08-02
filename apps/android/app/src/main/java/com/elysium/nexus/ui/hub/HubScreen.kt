@@ -95,6 +95,7 @@ fun HubScreen(
     onCategorySelected: (DeviceCategory) -> Unit,
     onTvControlsSelected: () -> Unit,
     onMacSelected: () -> Unit,
+    onUsbCSelected: () -> Unit = {},
     onUniversalRemoteSelected: () -> Unit = {},
     onSettings: () -> Unit,
     onShowHelp: () -> Unit,
@@ -277,6 +278,72 @@ fun HubScreen(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = ElysiumColors.NeonGreen,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === USB-C WIRED TRANSPORT ==============================
+            // Phase ULT.9 — USB HID transport for
+            // near-zero latency (< 2ms). The phone
+            // sends raw HID reports over the USB-C
+            // bulk endpoint. A lightweight daemon
+            // on the Mac/PC receives and injects
+            // them as native events.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onUsbCSelected() },
+                accent = ElysiumColors.NeonYellow,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonYellow.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Bolt,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonYellow,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "USB-C CABLADO",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonYellow
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Latencia cero · conexión directa",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonYellow,
                         modifier = Modifier.size(28.dp)
                     )
                 }
