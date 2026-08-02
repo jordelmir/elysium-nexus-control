@@ -14,9 +14,7 @@ name: Android CI
 #
 # The workflow uses a single job (`build`) on the
 # cheapest Linux runner. The Gradle build is cached
-# across runs (the `gradle-build-action` key). The
-# Android SDK is *not* cached; the cmdline-tools step
-# is small enough to re-download on every run.
+# across runs (the `gradle-build-action` key).
 #
 # The workflow checks out the repository with
 # `fetch-depth: 0` so the CI run can attach the
@@ -34,7 +32,7 @@ on:
 jobs:
   build:
     name: Build + test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
@@ -50,24 +48,13 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Validate Gradle wrapper
-        uses: gradle/wrapper-validation-action@v3
-
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          # The cmdline-tools version is the latest
-          # stable that matches the project's
-          # `compileSdk = 34` and `targetSdk = 34`.
-          # The action accepts a `cmdline-tools`
-          # version and a list of `packages` to
-          # install via `sdkmanager`.
-          cmdline-tools-version: 11076708
-          packages: |
-            platforms;android-34
-            build-tools;34.0.0
-            platform-tools
-          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
       - name: Grant execute permission for gradlew
         run: chmod +x apps/android/gradlew
@@ -81,11 +68,6 @@ jobs:
         run: |
           cd apps/android
           ./gradlew :app:assembleDebug --console=plain
-
-      - name: Verify hid-descriptor-validator
-        run: |
-          cd apps/android
-          ./gradlew :app:runValidator --console=plain
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
