@@ -123,6 +123,8 @@ class MainActivity : ComponentActivity() {
     private var haptics: Haptics? = null
     private var irTransmitter: AndroidIrTransmitter? = null
     private var acStateStore: com.elysium.nexus.core.settings.AcStateStore? = null
+    private var irRepository: com.elysium.nexus.databases.ir.IrRepository? = null
+    private var automationDefinitionStore: com.elysium.nexus.fabric.automation.AutomationDefinitionStore? = null
     private var automationStore: List<com.elysium.nexus.fabric.automation.Automation> = emptyList()
     private val inMemoryAutomationStore = com.elysium.nexus.fabric.automation.DefaultAutomationStore()
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
@@ -207,6 +209,19 @@ class MainActivity : ComponentActivity() {
         val ir = AndroidIrTransmitter(this)
         this.irTransmitter = ir
         this.acStateStore = com.elysium.nexus.core.settings.AcStateStore(this)
+
+        // IR command database — persists learned
+        // IR signals from the IR Learner screen.
+        val irDb = com.elysium.nexus.databases.ir.IrCommandDatabase.getInstance(this)
+        this.irRepository = com.elysium.nexus.databases.ir.RoomIrRepository(
+            irDb.learnedIrCommandDao()
+        )
+
+        // Automation definition store — persists
+        // user-created automations across sessions.
+        val autoStore = com.elysium.nexus.fabric.automation.AutomationDefinitionStore(this)
+        this.automationDefinitionStore = autoStore
+        this.automationStore = autoStore.loadAll()
 
         driverJob = engine.state
             .onEach { state -> logState(state) }
@@ -561,7 +576,34 @@ class MainActivity : ComponentActivity() {
                         learnResult = current.learnResult,
                         onBack = { navStack.value = navStack.value.dropLast(1) },
                         onRetry = { navStack.value = navStack.value.dropLast(1) },
-                        onSave = { navStack.value = navStack.value.dropLast(1) }
+                        onSave = { result ->
+                            // Persist the learned IR command to the Room database.
+                            val repo = irRepository
+                            val cmd = result.command
+                            if (repo != null && cmd != null) {
+                                activityScope?.launch {
+                                    val patternStr = result.rawWaveform.pattern.joinToString(",")
+                                    val extrasStr = cmd.extras.entries.joinToString("|") {
+                                        "${it.key}=${it.value}"
+                                    }
+                                    repo.save(
+                                        com.elysium.nexus.databases.ir.LearnedIrCommandEntity(
+                                            label = "${cmd.protocol.name} ${cmd.address}#${cmd.command}",
+                                            templateId = "learned",
+                                            protocolName = cmd.protocol.name,
+                                            address = cmd.address,
+                                            command = cmd.command,
+                                            carrierHz = result.carrierHz,
+                                            rawPattern = patternStr,
+                                            confidence = result.confidence,
+                                            capturedAtMs = System.currentTimeMillis(),
+                                            extras = extrasStr
+                                        )
+                                    )
+                                }
+                            }
+                            navStack.value = navStack.value.dropLast(1)
+                        }
                     )
                     is HubDestination.AutomationList -> com.elysium.nexus.ui.automation.AutomationListScreen(
                         automations = automationStore,
@@ -574,6 +616,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onDeleteAutomation = { auto ->
                             automationStore = automationStore.filter { it.id != auto.id }
+                            automationDefinitionStore?.delete(auto.id)
                         },
                         onRunAutomation = { auto ->
                             // Execute the automation with the in-memory store + no-op dispatcher
@@ -598,8 +641,10 @@ class MainActivity : ComponentActivity() {
                                 automationStore = automationStore.map {
                                     if (it.id == saved.id) saved else it
                                 }
+                                automationDefinitionStore?.update(saved)
                             } else {
                                 automationStore = automationStore + saved
+                                automationDefinitionStore?.add(saved)
                             }
                             navStack.value = navStack.value.dropLast(1)
                         }
@@ -711,6 +756,8 @@ class MainActivity : ComponentActivity() {
         this.haptics = null
         this.irTransmitter = null
         this.acStateStore = null
+        this.irRepository = null
+        this.automationDefinitionStore = null
     }
 
     private fun driveEngineToActive(engine: CanonicalInputEngine) {
