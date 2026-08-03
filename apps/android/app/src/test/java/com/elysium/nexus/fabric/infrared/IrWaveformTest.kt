@@ -217,4 +217,408 @@ class IrWaveformTest {
         val b = IrWaveform.encodeNec(address = 0x02, command = 0x01)
         assertNotEquals(a.pattern.toList(), b.pattern.toList())
     }
+
+    // === SIRC ENCODE TESTS ================================
+
+    @Test
+    fun `SIRC encode produces 24 entries for 12-bit (7 cmd + 5 addr)`() {
+        val w = IrWaveform.encodeSonySirc(address = 0x05, command = 0x0A)
+        // Header (2) + 7 cmd bits (14) + 5 addr bits (10) = 26
+        assertEquals(26, w.pattern.size)
+        assertEquals(IrProtocol.SonySirc.carrierHz, w.carrierHz)
+    }
+
+    @Test
+    fun `SIRC encode extended produces 42 entries for 20-bit address`() {
+        val w = IrWaveform.encodeSonySirc(address = 0x123, command = 0x0A, extended = true)
+        // Header (2) + 7 cmd bits (14) + 5 addr bits (10) + 8 ext addr bits (16) = 42
+        assertEquals(42, w.pattern.size)
+        assertEquals(IrProtocol.SonySirc.carrierHz, w.carrierHz)
+    }
+
+    @Test
+    fun `SIRC encode rejects address above 511`() {
+        try {
+            IrWaveform.encodeSonySirc(address = 0x200, command = 0x01)
+            fail("Expected IllegalArgumentException for address > 511.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `SIRC encode rejects command above 127`() {
+        try {
+            IrWaveform.encodeSonySirc(address = 0x01, command = 0x80)
+            fail("Expected IllegalArgumentException for command > 127.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `SIRC header is 2400 mark, 600 space`() {
+        val w = IrWaveform.encodeSonySirc(address = 0x01, command = 0x01)
+        assertEquals(2400, w.pattern[0])
+        assertEquals(600, w.pattern[1])
+    }
+
+    @Test
+    fun `SIRC bit encoding uses pulse-width (600 or 1200 mark, 600 space)`() {
+        val w = IrWaveform.encodeSonySirc(address = 0x00, command = 0x7F)
+        // All command bits are 1 (1200 mark, 600 space)
+        for (i in 2 until 16 step 2) {
+            assertEquals(1200, w.pattern[i])
+            assertEquals(600, w.pattern[i + 1])
+        }
+    }
+
+    // === SAMSUNG ENCODE TESTS ==============================
+
+    @Test
+    fun `Samsung encode produces 68 entries (header + 32 bits + trailing)`() {
+        val w = IrWaveform.encodeSamsung(address = 0x07, command = 0x02)
+        // Header (2) + 8 addr (16) + 8 ~addr (16) + 8 cmd (16) + 8 ~cmd (16) + trailing (2) = 68
+        assertEquals(68, w.pattern.size)
+        assertEquals(IrProtocol.Samsung.carrierHz, w.carrierHz)
+    }
+
+    @Test
+    fun `Samsung encode rejects address above 255`() {
+        try {
+            IrWaveform.encodeSamsung(address = 0x100, command = 0x01)
+            fail("Expected IllegalArgumentException for address > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Samsung encode rejects command above 255`() {
+        try {
+            IrWaveform.encodeSamsung(address = 0x01, command = 0x100)
+            fail("Expected IllegalArgumentException for command > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Samsung header is 4500 mark, 4500 space`() {
+        val w = IrWaveform.encodeSamsung(address = 0x01, command = 0x01)
+        assertEquals(4500, w.pattern[0])
+        assertEquals(4500, w.pattern[1])
+    }
+
+    @Test
+    fun `Samsung encode produces different waveforms for different commands`() {
+        val a = IrWaveform.encodeSamsung(address = 0x07, command = 0x01)
+        val b = IrWaveform.encodeSamsung(address = 0x07, command = 0x02)
+        assertNotEquals(a.pattern.toList(), b.pattern.toList())
+    }
+
+    // === DAIKIN ENCODE TESTS ==============================
+
+    @Test
+    fun `Daikin encode produces a waveform at 38 kHz`() {
+        val w = IrWaveform.encodeDaikin(
+            address = 0x12, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 2
+        )
+        assertEquals(38_000, w.carrierHz)
+        // Header (2) + 6 bytes encoded (6 × 16 = 96) + trailing (2) = 100
+        assertEquals(100, w.pattern.size)
+    }
+
+    @Test
+    fun `Daikin encode rejects address above 255`() {
+        try {
+            IrWaveform.encodeDaikin(
+                address = 0x100, powerOn = true,
+                temperatureCelsius = 24, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for address > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Daikin encode rejects temperature outside 16 to 32`() {
+        try {
+            IrWaveform.encodeDaikin(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 15, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature < 16.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+        try {
+            IrWaveform.encodeDaikin(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 33, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature > 32.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Daikin encode rejects mode outside 0 to 4`() {
+        try {
+            IrWaveform.encodeDaikin(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 24, mode = 5, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for mode > 4.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Daikin encode rejects fanSpeed outside 0 to 3`() {
+        try {
+            IrWaveform.encodeDaikin(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 24, mode = 1, fanSpeed = 4
+            )
+            fail("Expected IllegalArgumentException for fanSpeed > 3.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Daikin encode different temperatures produce different waveforms`() {
+        val a = IrWaveform.encodeDaikin(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 20, mode = 1, fanSpeed = 0
+        )
+        val b = IrWaveform.encodeDaikin(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 25, mode = 1, fanSpeed = 0
+        )
+        assertNotEquals(a.pattern.toList(), b.pattern.toList())
+    }
+
+    // === GREE ENCODE TESTS ================================
+
+    @Test
+    fun `Gree encode produces a waveform at 38 kHz`() {
+        val w = IrWaveform.encodeGree(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 2
+        )
+        assertEquals(38_000, w.carrierHz)
+        // Header (2) + 24 payload bits (48) + 8 CRC bits (16) + trailing (2) = 68
+        assertEquals(68, w.pattern.size)
+    }
+
+    @Test
+    fun `Gree encode rejects address above 15`() {
+        try {
+            IrWaveform.encodeGree(
+                address = 0x10, powerOn = true,
+                temperatureCelsius = 24, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for address > 15.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Gree encode rejects temperature outside 16 to 30`() {
+        try {
+            IrWaveform.encodeGree(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 15, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature < 16.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+        try {
+            IrWaveform.encodeGree(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 31, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature > 30.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Gree encode different modes produce different waveforms`() {
+        val a = IrWaveform.encodeGree(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        val b = IrWaveform.encodeGree(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 4, fanSpeed = 0
+        )
+        assertNotEquals(a.pattern.toList(), b.pattern.toList())
+    }
+
+    // === MIDEA ENCODE TESTS ==============================
+
+    @Test
+    fun `Midea encode produces a waveform at 38 kHz`() {
+        val w = IrWaveform.encodeMidea(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 2
+        )
+        assertEquals(38_000, w.carrierHz)
+        // Header (2) + 24 payload bits (48) + 24 inverted payload bits (48) + trailing (2) = 100
+        assertEquals(100, w.pattern.size)
+    }
+
+    @Test
+    fun `Midea encode rejects temperature outside 17 to 30`() {
+        try {
+            IrWaveform.encodeMidea(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 16, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature < 17.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+        try {
+            IrWaveform.encodeMidea(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 31, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature > 30.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Midea encode rejects mode outside 0 to 4`() {
+        try {
+            IrWaveform.encodeMidea(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 24, mode = 5, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for mode > 4.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    // === MITSUBISHI ENCODE TESTS ==========================
+
+    @Test
+    fun `Mitsubishi encode produces a waveform at 38 kHz`() {
+        val w = IrWaveform.encodeMitsubishi(
+            address = 0x12, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 2
+        )
+        assertEquals(38_000, w.carrierHz)
+        // Header (2) + 4 bytes (64) + trailing (2) = 68
+        assertEquals(68, w.pattern.size)
+    }
+
+    @Test
+    fun `Mitsubishi encode rejects address above 255`() {
+        try {
+            IrWaveform.encodeMitsubishi(
+                address = 0x100, powerOn = true,
+                temperatureCelsius = 24, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for address > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Mitsubishi encode rejects temperature outside 16 to 31`() {
+        try {
+            IrWaveform.encodeMitsubishi(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 15, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature < 16.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+        try {
+            IrWaveform.encodeMitsubishi(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 32, mode = 1, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for temperature > 31.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Mitsubishi encode rejects mode outside 0 to 4`() {
+        try {
+            IrWaveform.encodeMitsubishi(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 24, mode = 5, fanSpeed = 0
+            )
+            fail("Expected IllegalArgumentException for mode > 4.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Mitsubishi encode rejects fanSpeed outside 0 to 4`() {
+        try {
+            IrWaveform.encodeMitsubishi(
+                address = 0x01, powerOn = true,
+                temperatureCelsius = 24, mode = 1, fanSpeed = 5
+            )
+            fail("Expected IllegalArgumentException for fanSpeed > 4.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Mitsubishi header is 3400 mark, 1700 space`() {
+        val w = IrWaveform.encodeMitsubishi(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        assertEquals(3400, w.pattern[0])
+        assertEquals(1700, w.pattern[1])
+    }
+
+    @Test
+    fun `all AC encoders produce different waveforms`() {
+        val daikin = IrWaveform.encodeDaikin(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        val gree = IrWaveform.encodeGree(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        val midea = IrWaveform.encodeMidea(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        val mitsubishi = IrWaveform.encodeMitsubishi(
+            address = 0x01, powerOn = true,
+            temperatureCelsius = 24, mode = 1, fanSpeed = 0
+        )
+        // All four are different protocols
+        assertNotEquals(daikin.pattern.toList(), gree.pattern.toList())
+        assertNotEquals(gree.pattern.toList(), midea.pattern.toList())
+        assertNotEquals(midea.pattern.toList(), mitsubishi.pattern.toList())
+        assertNotEquals(daikin.pattern.toList(), mitsubishi.pattern.toList())
+    }
 }

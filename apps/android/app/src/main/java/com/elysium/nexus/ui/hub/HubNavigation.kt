@@ -85,6 +85,14 @@ sealed class HubDestination {
      * and the zero-latency control surface.
      */
     object UsbC : HubDestination()
+
+    /** Phase ULT.11 — AC/HVAC control surface. */
+    data class AcControl(val template: DeviceTemplate) : HubDestination()
+
+    /** Phase ULT.11 — IR Learner capture result screen. */
+    data class IrLearner(
+        val learnResult: com.elysium.nexus.fabric.infrared.IrLearner.LearnResult?
+    ) : HubDestination()
 }
 
 /**

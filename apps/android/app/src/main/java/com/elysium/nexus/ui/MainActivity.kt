@@ -295,11 +295,15 @@ class MainActivity : ComponentActivity() {
                 when (current) {
                     is HubDestination.Hub -> HubScreen(
                         onCategorySelected = { cat ->
-                            // Consoles go through the
-                            // sub-category picker; TVs and
-                            // other categories go through
-                            // the brand picker.
                             when (cat) {
+                                com.elysium.nexus.core.device.DeviceCategory.AIR_CONDITIONER -> {
+                                    // AC goes directly to the
+                                    // specialized AcControl screen.
+                                    val acTemplate = com.elysium.nexus.core.device.DeviceCatalog.all
+                                        .firstOrNull { it.category == cat }
+                                        ?: return@HubScreen
+                                    navStack.value = navStack.value + HubDestination.AcControl(acTemplate)
+                                }
                                 com.elysium.nexus.core.device.DeviceCategory.PLAYSTATION,
                                 com.elysium.nexus.core.device.DeviceCategory.XBOX,
                                 com.elysium.nexus.core.device.DeviceCategory.NINTENDO -> {
@@ -533,6 +537,23 @@ class MainActivity : ComponentActivity() {
                     )
                     is HubDestination.UsbC -> com.elysium.nexus.ui.usb.UsbCConnectionScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) }
+                    )
+                    is HubDestination.AcControl -> {
+                        val ir = irTransmitter
+                        if (ir != null) {
+                            com.elysium.nexus.ui.control.AcControlScreen(
+                                template = current.template,
+                                onBack = { navStack.value = navStack.value.dropLast(1) },
+                                irTransmitter = ir,
+                                hasEmitter = ir.hasEmitter()
+                            )
+                        }
+                    }
+                    is HubDestination.IrLearner -> com.elysium.nexus.ui.control.IrLearnerScreen(
+                        learnResult = current.learnResult,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onRetry = { navStack.value = navStack.value.dropLast(1) },
+                        onSave = { navStack.value = navStack.value.dropLast(1) }
                     )
                 }
 
