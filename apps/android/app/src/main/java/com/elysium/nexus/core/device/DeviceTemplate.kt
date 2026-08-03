@@ -1119,6 +1119,91 @@ object DeviceCatalog {
             blurbEn = "Control any Apple TV over Wi-Fi (DAAP).",
             blurbEs = "Controla cualquier Apple TV por Wi-Fi (DAAP)."
         ))
+        // === AC / HVAC (stateful IR) =============================
+        add(DeviceTemplate(
+            id = "ac-daikin-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Daikin",
+            model = "Generic (Inverter)",
+            protocol = IrProtocol.NecExtended,
+            deviceAddress = 0x17,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Daikin inverter AC. Temperature + mode + fan encoded in each IR frame.",
+            blurbEs = "AC Daikin inverter. Temperatura + modo + ventilador codificados en cada cuadro IR."
+        ))
+        add(DeviceTemplate(
+            id = "ac-gree-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Gree",
+            model = "Generic",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Gree AC. 48-bit frame with CRC8 at 38 kHz.",
+            blurbEs = "AC Gree. Cuadro de 48 bits con CRC8 a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-midea-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Midea",
+            model = "Generic",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0xB2,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Midea AC. 48-bit frame with inverted payload at 38 kHz.",
+            blurbEs = "AC Midea. Cuadro de 48 bits con payload invertido a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-mitsubishi-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Mitsubishi",
+            model = "Generic",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0xBF,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Mitsubishi AC. 16-bit address + 16-bit command at 38 kHz.",
+            blurbEs = "AC Mitsubishi. Dirección de 16 bits + comando de 16 bits a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-samsung-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Samsung",
+            model = "Generic WindFree",
+            protocol = IrProtocol.Samsung,
+            deviceAddress = 0xA1,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Samsung WindFree AC. Samsung IR protocol at 38 kHz.",
+            blurbEs = "AC Samsung WindFree. Protocolo Samsung IR a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-lg-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "LG",
+            model = "Generic Dual Inverter",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "LG dual inverter AC. NEC protocol at 38 kHz.",
+            blurbEs = "AC LG dual inverter. Protocolo NEC a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-carrier-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Carrier",
+            model = "Generic",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0xC3,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Carrier AC. NEC protocol at 38 kHz.",
+            blurbEs = "AC Carrier. Protocolo NEC a 38 kHz."
+        ))
         // === Consoles (Bluetooth, Phase 2+) ======================
     }
 
@@ -1245,6 +1330,35 @@ val PROJECTOR_BUTTONS: List<DeviceButton> = listOf(
     DeviceButton("zoom_down", "Zoom -", "Zoom -", "zoom_down", 0x1C),
     DeviceButton("keystone", "Keystone", "Keystone", "keystone", 0x1D),
     DeviceButton("back", "Back", "Atrás", "back", 0x1B)
+)
+
+/**
+ * The standard AC / HVAC button set.
+ *
+ * These buttons send stateful IR commands
+ * that encode temperature + mode + fan speed
+ * into a single frame. The IR waveform
+ * encoder in [IrWaveform] builds the
+ * protocol-specific payload.
+ */
+val AC_BUTTONS: List<DeviceButton> = listOf(
+    // Power row
+    DeviceButton("power", "Power", "Encender", "power", 0x02, layoutWeight = 2),
+    DeviceButton("mode_cool", "Cool", "Frío", "cool", 0x10),
+    DeviceButton("mode_heat", "Heat", "Calor", "heat", 0x11),
+    // Temperature row
+    DeviceButton("temp_down", "Temp -", "Temp -", "temp_down", 0x07),
+    DeviceButton("temp_display", "24°C", "24°C", "temp_display", 0x08, layoutWeight = 2),
+    DeviceButton("temp_up", "Temp +", "Temp +", "temp_up", 0x09),
+    // Mode row
+    DeviceButton("mode_auto", "Auto", "Auto", "auto", 0x12),
+    DeviceButton("mode_dry", "Dry", "Secar", "dry", 0x13),
+    DeviceButton("mode_fan", "Fan", "Ventilador", "fan", 0x14),
+    // Fan speed row
+    DeviceButton("fan_low", "Low", "Bajo", "fan_low", 0x15),
+    DeviceButton("fan_med", "Med", "Medio", "fan_med", 0x16),
+    DeviceButton("fan_high", "High", "Alto", "fan_high", 0x17),
+    DeviceButton("fan_auto", "Fan Auto", "Vent Auto", "fan_auto", 0x18)
 )
 
 /**

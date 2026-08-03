@@ -118,6 +118,15 @@ enum class DeviceCategory(
         blurbEn = "Projectors over IR.",
         blurbEs = "Proyectores por IR.",
         primaryTransport = PrimaryTransport.INFRARED
+    ),
+    AIR_CONDITIONER(
+        id = "air_conditioner",
+        labelEn = "Air Conditioner",
+        labelEs = "Aire Acondicionado",
+        iconHint = "ac",
+        blurbEn = "AC / HVAC with stateful IR commands (temperature + mode + fan).",
+        blurbEs = "AC / HVAC con comandos IR estado (temperatura + modo + ventilador).",
+        primaryTransport = PrimaryTransport.INFRARED
     );
 
     companion object {

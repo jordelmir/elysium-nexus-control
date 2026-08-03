@@ -445,7 +445,13 @@ private suspend fun sendButtonCommand(
             )
         }
         IrProtocol.SonySirc -> {
-            IrWaveform.encodeNec(
+            IrWaveform.encodeSonySirc(
+                address = template.deviceAddress,
+                command = button.commandCode
+            )
+        }
+        IrProtocol.Samsung -> {
+            IrWaveform.encodeSamsung(
                 address = template.deviceAddress,
                 command = button.commandCode
             )

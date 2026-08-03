@@ -595,5 +595,226 @@ data class IrWaveform(
                 require(command in 0..255) { "SamsungCommand.command out of range." }
             }
         }
+
+        /**
+         * Encode a Daikin AC command. Daikin uses
+         * a custom 48-bit payload (at 38 kHz
+         * carrier) with a fixed header.
+         *
+         * Frame layout:
+         *   Header: 5800 mark, 2000 space
+         *   0x34 (8 bits MSB)
+         *   0x63 (8 bits MSB)
+         *   Address (8 bits MSB)
+         *   ~Address (8 bits MSB)
+         *   Data0 (8 bits MSB, mode|power|temp)
+         *   Data1 (8 bits MSB, fan)
+         *
+         * Data0 encoding:
+         *   bit 7-4: mode (0=auto,1=cool,2=dry,
+         *            3=fan,4=heat)
+         *   bit 3: power (1=on, 0=off)
+         *   bit 2-0: temperature (25..32 mapped)
+         *
+         * Data1 encoding:
+         *   bit 7-4: fan speed (0=auto,1=low,
+         *            2=med,3=high)
+         */
+        fun encodeDaikin(
+            address: Int,
+            powerOn: Boolean,
+            temperatureCelsius: Int,
+            mode: Int,
+            fanSpeed: Int
+        ): IrWaveform {
+            require(address in 0..0xFF) { "Daikin address out of range." }
+            require(temperatureCelsius in 16..32) { "Daikin temperature must be 16..32." }
+            require(mode in 0..4) { "Daikin mode must be 0..4." }
+            require(fanSpeed in 0..3) { "Daikin fanSpeed must be 0..3." }
+            val data0 = ((mode and 0xF) shl 4) or
+                (if (powerOn) 0x08 else 0x00) or
+                ((temperatureCelsius - 16) and 0x07)
+            val data1 = ((fanSpeed and 0xF) shl 4)
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(5800); pattern.add(2000)
+            // 0x34, 0x63
+            emitByte(pattern, 0x34)
+            emitByte(pattern, 0x63)
+            // Address + inverted address
+            emitByte(pattern, address)
+            emitByte(pattern, address.inv() and 0xFF)
+            // Data0 + Data1
+            emitByte(pattern, data0)
+            emitByte(pattern, data1)
+            // Trailing space
+            pattern.add(560); pattern.add(30000)
+            return IrWaveform(38000, pattern.toIntArray())
+        }
+
+        /**
+         * Encode a Gree AC command. Gree uses
+         * a 48-bit payload at 38 kHz.
+         *
+         * Frame layout:
+         *   Header: 9000 mark, 4500 space
+         *   20-bit payload (MSB-first) with
+         *   CRC8 at the end.
+         *
+         * For simplicity, this encoder produces
+         * the standard Gree 48-bit frame.
+         */
+        fun encodeGree(
+            address: Int,
+            powerOn: Boolean,
+            temperatureCelsius: Int,
+            mode: Int,
+            fanSpeed: Int
+        ): IrWaveform {
+            require(address in 0..0x0F) { "Gree address must be 0..15." }
+            require(temperatureCelsius in 16..30) { "Gree temperature must be 16..30." }
+            require(mode in 0..4) { "Gree mode must be 0..4." }
+            require(fanSpeed in 0..3) { "Gree fanSpeed must be 0..3." }
+            val payload = ((temperatureCelsius - 16) shl 24) or
+                (if (powerOn) 0x080000 else 0) or
+                ((mode and 0x7) shl 21) or
+                ((fanSpeed and 0x7) shl 8)
+            val crc = greeCrc8(payload)
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(9000); pattern.add(4500)
+            // 24-bit payload MSB-first
+            for (i in 23 downTo 0) {
+                val bit = (payload shr i) and 1
+                pattern.add(600)
+                pattern.add(if (bit == 0) 600 else 1690)
+            }
+            // CRC 8-bit MSB-first
+            for (i in 7 downTo 0) {
+                val bit = (crc shr i) and 1
+                pattern.add(600)
+                pattern.add(if (bit == 0) 600 else 1690)
+            }
+            // Trailing mark
+            pattern.add(600); pattern.add(30000)
+            return IrWaveform(38000, pattern.toIntArray())
+        }
+
+        /**
+         * Encode a Midea AC command. Midea uses
+         * a 48-bit payload at 38 kHz.
+         *
+         * Frame layout:
+         *   Header: 4400 mark, 4400 space
+         *   24-bit payload MSB-first
+         *   24-bit inverted payload MSB-first
+         */
+        fun encodeMidea(
+            address: Int,
+            powerOn: Boolean,
+            temperatureCelsius: Int,
+            mode: Int,
+            fanSpeed: Int
+        ): IrWaveform {
+            require(temperatureCelsius in 17..30) { "Midea temperature must be 17..30." }
+            require(mode in 0..4) { "Midea mode must be 0..4." }
+            val payload = ((mode and 0x7) shl 20) or
+                (if (powerOn) 0x040000 else 0) or
+                ((temperatureCelsius - 17) shl 16) or
+                ((fanSpeed and 0x7) shl 8) or
+                (address and 0xFF)
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(4400); pattern.add(4400)
+            // 24-bit payload MSB-first
+            for (i in 23 downTo 0) {
+                val bit = (payload shr i) and 1
+                pattern.add(600)
+                pattern.add(if (bit == 0) 600 else 1600)
+            }
+            // 24-bit inverted payload MSB-first
+            val inv = payload.inv() and 0xFFFFFF
+            for (i in 23 downTo 0) {
+                val bit = (inv shr i) and 1
+                pattern.add(600)
+                pattern.add(if (bit == 0) 600 else 1600)
+            }
+            // Trailing mark
+            pattern.add(600); pattern.add(30000)
+            return IrWaveform(38000, pattern.toIntArray())
+        }
+
+        /**
+         * Encode a Mitsubishi AC command.
+         * Mitsubishi uses a 16-bit address +
+         * 16-bit command at 38 kHz.
+         *
+         * Frame layout:
+         *   Header: 3400 mark, 1700 space
+         *   8-bit address MSB-first
+         *   8-bit ~address MSB-first
+         *   8-bit command MSB-first
+         *   8-bit ~command MSB-first
+         */
+        fun encodeMitsubishi(
+            address: Int,
+            powerOn: Boolean,
+            temperatureCelsius: Int,
+            mode: Int,
+            fanSpeed: Int
+        ): IrWaveform {
+            require(address in 0..0xFF) { "Mitsubishi address out of range." }
+            require(temperatureCelsius in 16..31) { "Mitsubishi temperature must be 16..31." }
+            require(mode in 0..4) { "Mitsubishi mode must be 0..4." }
+            require(fanSpeed in 0..4) { "Mitsubishi fanSpeed must be 0..4." }
+            val tempBits = (temperatureCelsius - 16) and 0x1F
+            val cmd = ((mode and 0x7) shl 4) or
+                (if (powerOn) 0x08 else 0x00) or
+                (if (fanSpeed == 0) 0x00 else fanSpeed and 0x07)
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(3400); pattern.add(1700)
+            // Address + inverted
+            emitByte(pattern, address)
+            emitByte(pattern, address.inv() and 0xFF)
+            // Command + inverted
+            emitByte(pattern, cmd)
+            emitByte(pattern, cmd.inv() and 0xFF)
+            // Trailing mark
+            pattern.add(430); pattern.add(30000)
+            return IrWaveform(38000, pattern.toIntArray())
+        }
+
+        /**
+         * Emit a single byte MSB-first as
+         * mark-space pairs (pulse-distance).
+         */
+        private fun emitByte(pattern: MutableList<Int>, value: Int) {
+            for (i in 7 downTo 0) {
+                val bit = (value shr i) and 1
+                pattern.add(560)
+                pattern.add(if (bit == 0) 560 else 1690)
+            }
+        }
+
+        /**
+         * Compute Gree CRC8 (polynomial 0x31,
+         * init 0xFF).
+         */
+        private fun greeCrc8(data: Int): Int {
+            var crc = 0xFF
+            for (i in 23 downTo 0) {
+                crc = crc xor ((data shr i) and 1)
+                for (j in 0 until 8) {
+                    crc = if ((crc and 0x80) != 0) {
+                        (crc shl 1) xor 0x31
+                    } else {
+                        crc shl 1
+                    }
+                    crc = crc and 0xFF
+                }
+            }
+            return crc
+        }
     }
 }

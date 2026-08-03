@@ -690,4 +690,5 @@ private fun iconForCategory(category: DeviceCategory): ImageVector = when (categ
     DeviceCategory.STREAMING -> Icons.Filled.PlayCircle
     DeviceCategory.SOUNDBAR -> Icons.Filled.Speaker
     DeviceCategory.PROJECTOR -> Icons.Filled.Headphones
+    DeviceCategory.AIR_CONDITIONER -> Icons.Filled.Settings
 }
