@@ -121,14 +121,16 @@ object IrLearner {
                 tryDecodeNec(raw, IrProtocol.Nec.carrierHz)
             },
             MatchCandidate(IrProtocol.NecExtended) {
-                // NECx is wider (16-bit
-                // address); the heuristic
-                // is a placeholder for the
-                // full decoder.
-                decodeNecExtended(raw, IrProtocol.NecExtended.carrierHz)
+                tryDecodeNecExtended(raw, IrProtocol.NecExtended.carrierHz)
             },
             MatchCandidate(IrProtocol.Rc5) {
-                decodeRc5(raw, IrProtocol.Rc5.carrierHz)
+                tryDecodeRc5(raw, IrProtocol.Rc5.carrierHz)
+            },
+            MatchCandidate(IrProtocol.SonySirc) {
+                tryDecodeSonySirc(raw, IrProtocol.SonySirc.carrierHz)
+            },
+            MatchCandidate(IrProtocol.Samsung) {
+                tryDecodeSamsung(raw, IrProtocol.Samsung.carrierHz)
             }
         )
         for (candidate in candidates) {
@@ -235,6 +237,8 @@ object IrLearner {
             IrProtocol.Nec -> 36
             IrProtocol.NecExtended -> 68
             IrProtocol.Rc5 -> 28
+            IrProtocol.SonySirc -> 26
+            IrProtocol.Samsung -> 68
             else -> raw.size
         }
         val diff = abs(raw.size - expected)
@@ -242,48 +246,62 @@ object IrLearner {
     }
 
     /**
-     * Try the NEC extended decoder. The
-     * pure [IrWaveform] does not yet ship
-     * a NECx decoder (the format is NEC
-     * with 16-bit address + 8-bit
-     * command + 8-bit inverted command);
-     * this helper is the seam. The
-     * heuristic is: the raw waveform's
-     * 16-bit address is "wider" than 255.
+     * Try the NEC extended decoder with a
+     * specific carrier.
      */
-    private fun decodeNecExtended(raw: IntArray, carrierHz: Int): IrCommand? {
-        if (raw.size < 60) return null
-        // The function is best-effort;
-        // the full NECx decoder is a
-        // Phase 2+ follow-up. We return
-        // a placeholder command that the
-        // matcher uses to score the
-        // candidate.
-        return IrCommand(
-            protocol = IrProtocol.NecExtended,
-            address = 0x0000,
-            command = 0x00,
-            extras = mapOf("pending" to "true")
-        )
+    private fun tryDecodeNecExtended(raw: IntArray, carrierHz: Int): IrCommand? {
+        val waveform = IrWaveform(carrierHz = carrierHz, pattern = raw)
+        return IrWaveform.decodeNecExtended(waveform)?.let { necx ->
+            IrCommand(
+                protocol = IrProtocol.NecExtended,
+                address = necx.address,
+                command = necx.command
+            )
+        }
     }
 
     /**
-     * Try the RC5 decoder. The RC5 frame
-     * is 14 Manchester bits = 28 entries
-     * (each bit is two halves of 889 µs).
-     * A pure RC5 decoder is a Phase 2+
-     * follow-up; for now we return a
-     * placeholder when the waveform
-     * length matches.
+     * Try the RC5 decoder with a specific carrier.
      */
-    private fun decodeRc5(raw: IntArray, carrierHz: Int): IrCommand? {
-        if (raw.size != 28) return null
-        return IrCommand(
-            protocol = IrProtocol.Rc5,
-            address = 0x00,
-            command = 0x00,
-            extras = mapOf("pending" to "true")
-        )
+    private fun tryDecodeRc5(raw: IntArray, carrierHz: Int): IrCommand? {
+        val waveform = IrWaveform(carrierHz = carrierHz, pattern = raw)
+        return IrWaveform.decodeRc5(waveform)?.let { rc5 ->
+            IrCommand(
+                protocol = IrProtocol.Rc5,
+                address = rc5.address,
+                command = rc5.command,
+                extras = mapOf("toggle" to rc5.toggle.toString())
+            )
+        }
+    }
+
+    /**
+     * Try the Sony SIRC decoder with a specific carrier.
+     */
+    private fun tryDecodeSonySirc(raw: IntArray, carrierHz: Int): IrCommand? {
+        val waveform = IrWaveform(carrierHz = carrierHz, pattern = raw)
+        return IrWaveform.decodeSonySirc(waveform)?.let { sirc ->
+            IrCommand(
+                protocol = IrProtocol.SonySirc,
+                address = sirc.address,
+                command = sirc.command,
+                extras = if (sirc.extended) mapOf("extended" to "true") else emptyMap()
+            )
+        }
+    }
+
+    /**
+     * Try the Samsung decoder with a specific carrier.
+     */
+    private fun tryDecodeSamsung(raw: IntArray, carrierHz: Int): IrCommand? {
+        val waveform = IrWaveform(carrierHz = carrierHz, pattern = raw)
+        return IrWaveform.decodeSamsung(waveform)?.let { sam ->
+            IrCommand(
+                protocol = IrProtocol.Samsung,
+                address = sam.address,
+                command = sam.command
+            )
+        }
     }
 
     /**

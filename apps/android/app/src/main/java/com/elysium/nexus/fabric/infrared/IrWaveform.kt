@@ -215,6 +215,106 @@ data class IrWaveform(
         }
 
         /**
+         * Encode a Sony SIRC command (5-bit or
+         * 8-bit address, 7-bit command). The
+         * carrier is 40 kHz.
+         *
+         * SIRC frame shape (per §6.4):
+         *   Header: 2400 µs mark, 600 µs space
+         *   7 command bits (LSB first)
+         *   5 address bits (LSB first)
+         *   (optional 8-bit extended: 8 more address bits)
+         *
+         * Bit encoding (pulse-width):
+         *   0: 600 µs mark, 600 µs space
+         *   1: 1200 µs mark, 600 µs space
+         */
+        fun encodeSonySirc(address: Int, command: Int, extended: Boolean = false): IrWaveform {
+            require(address in 0..0x1FF) {
+                "SIRC address must be in [0, 511] (got $address)."
+            }
+            require(command in 0..0x7F) {
+                "SIRC command must be in [0, 127] (got $command)."
+            }
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(2400) // mark
+            pattern.add(600)  // space
+            // 7 command bits (LSB first)
+            for (i in 0 until 7) {
+                val bit = (command shr i) and 1
+                pattern.add(if (bit == 0) 600 else 1200)
+                pattern.add(600)
+            }
+            // 5 address bits (LSB first)
+            for (i in 0 until 5) {
+                val bit = (address shr i) and 1
+                pattern.add(if (bit == 0) 600 else 1200)
+                pattern.add(600)
+            }
+            if (extended) {
+                // 8 more address bits (bits 5-12)
+                for (i in 5 until 13) {
+                    val bit = (address shr i) and 1
+                    pattern.add(if (bit == 0) 600 else 1200)
+                    pattern.add(600)
+                }
+            }
+            return IrWaveform(IrProtocol.SonySirc.carrierHz, pattern.toIntArray())
+        }
+
+        /**
+         * Encode a Samsung IR command (8-bit
+         * address, 8-bit command). The carrier
+         * is 38 kHz.
+         *
+         * Samsung frame shape (per §6.4):
+         *   Header: 4500 µs mark, 4500 µs space
+         *   8 address bits (MSB first)
+         *   8 ~address bits (MSB first, inverted)
+         *   8 command bits (MSB first)
+         *   8 ~command bits (MSB first, inverted)
+         *
+         * Bit encoding (pulse-distance):
+         *   0: 560 µs mark, 560 µs space
+         *   1: 560 µs mark, 1690 µs space
+         */
+        fun encodeSamsung(address: Int, command: Int): IrWaveform {
+            require(address in 0..0xFF) {
+                "Samsung address must be in [0, 255] (got $address)."
+            }
+            require(command in 0..0xFF) {
+                "Samsung command must be in [0, 255] (got $command)."
+            }
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(4500)
+            pattern.add(4500)
+            // Address + inverted address
+            val addrInv = (address.inv() and 0xFF)
+            for (b in listOf(address, addrInv)) {
+                for (i in 7 downTo 0) {
+                    val bit = (b shr i) and 1
+                    pattern.add(560)
+                    pattern.add(if (bit == 0) 560 else 1690)
+                }
+            }
+            // Command + inverted command
+            val cmdInv = (command.inv() and 0xFF)
+            for (b in listOf(command, cmdInv)) {
+                for (i in 7 downTo 0) {
+                    val bit = (b shr i) and 1
+                    pattern.add(560)
+                    pattern.add(if (bit == 0) 560 else 1690)
+                }
+            }
+            // Trailing mark + 0 space
+            pattern.add(560)
+            pattern.add(0)
+            return IrWaveform(IrProtocol.Samsung.carrierHz, pattern.toIntArray())
+        }
+
+        /**
          * Decode a waveform back to the NEC
          * command it represents. Returns null if
          * the waveform does not look like NEC.
@@ -294,6 +394,206 @@ data class IrWaveform(
         private fun inRange(actual: Int, expected: Int): Boolean {
             val tolerance = expected / 4
             return actual in (expected - tolerance)..(expected + tolerance)
+        }
+
+        /**
+         * Decode a NEC-extended waveform (16-bit
+         * address, 8-bit command, 8-bit inverted
+         * command). Returns null if the waveform
+         * does not match NECx.
+         */
+        fun decodeNecExtended(waveform: IrWaveform): NecExtendedCommand? {
+            if (waveform.carrierHz !in 36_000..42_000) return null
+            val p = waveform.pattern
+            // NECx: header(2) + 64 bits (32 pairs) + trailing(2) = 68
+            if (p.size < 68) return null
+            if (!inRange(p[0], 9000)) return null
+            if (!inRange(p[1], 4500)) return null
+            var address = 0
+            var command = 0
+            var invertedCommand = 0
+            for (i in 0 until 32) {
+                val mark = p[2 + i * 2]
+                val space = p[2 + i * 2 + 1]
+                if (!inRange(mark, 560)) return null
+                val bit = if (inRange(space, 560)) 0
+                    else if (inRange(space, 1690)) 1
+                    else return null
+                when {
+                    i < 16 -> address = (address shl 1) or bit
+                    i < 24 -> command = (command shl 1) or bit
+                    else -> invertedCommand = (invertedCommand shl 1) or bit
+                }
+            }
+            if (!inRange(p[2 + 64], 560)) return null
+            // Validate inverted command
+            if (command != (invertedCommand.inv() and 0xFF)) return null
+            return NecExtendedCommand(address = address, command = command)
+        }
+
+        data class NecExtendedCommand(val address: Int, val command: Int) {
+            init {
+                require(address in 0..0xFFFF) { "NecExtendedCommand.address out of range." }
+                require(command in 0..255) { "NecExtendedCommand.command out of range." }
+            }
+        }
+
+        /**
+         * Decode an RC5 waveform. RC5 is 14
+         * Manchester bits, each 2 halves of 889 µs.
+         * Returns null if the waveform does not
+         * match RC5.
+         */
+        fun decodeRc5(waveform: IrWaveform): Rc5Command? {
+            if (waveform.carrierHz !in 34_000..38_000) return null
+            val p = waveform.pattern
+            if (p.size != 28) return null
+            // Each pair of entries is one Manchester
+            // bit. Bit value is determined by phase:
+            // (high, low) = 0, (low, high) = 1.
+            val bits = mutableListOf<Int>()
+            for (i in 0 until 14) {
+                val a = p[i * 2]
+                val b = p[i * 2 + 1]
+                if (!inRange(a, 889) || !inRange(b, 889)) return null
+                // In standard Manchester, the transition
+                // in the middle determines the bit.
+                // We can't distinguish phase from
+                // durations alone (both halves are
+                // 889 µs). We assume the first bit
+                // is always 1 (start bit), then
+                // decode the rest.
+                bits.add(if (i == 0) 1 else if (a > b) 1 else 0)
+            }
+            // S1=1, S2=1, T, A4-A0, C5-C0
+            if (bits[0] != 1 || bits[1] != 1) return null
+            val toggle = bits[2]
+            var address = 0
+            for (i in 0 until 5) {
+                address = (address shl 1) or bits[3 + i]
+            }
+            var command = 0
+            for (i in 0 until 6) {
+                command = (command shl 1) or bits[8 + i]
+            }
+            return Rc5Command(
+                address = address,
+                command = command,
+                toggle = toggle
+            )
+        }
+
+        data class Rc5Command(val address: Int, val command: Int, val toggle: Int) {
+            init {
+                require(address in 0..31) { "Rc5Command.address out of range." }
+                require(command in 0..63) { "Rc5Command.command out of range." }
+                require(toggle in 0..1) { "Rc5Command.toggle out of range." }
+            }
+        }
+
+        /**
+         * Decode a Sony SIRC waveform. SIRC uses
+         * pulse-width encoding at 40 kHz.
+         * Returns null if the waveform does not
+         * match SIRC.
+         */
+        fun decodeSonySirc(waveform: IrWaveform): SonySircCommand? {
+            if (waveform.carrierHz !in 38_000..42_000) return null
+            val p = waveform.pattern
+            // Minimum: header(2) + 12 bits (24) = 26
+            if (p.size < 26) return null
+            // Header: 2400 mark, 600 space
+            if (!inRange(p[0], 2400)) return null
+            if (!inRange(p[1], 600)) return null
+            // Decode bits. Pulse-width: short mark=0, long mark=1.
+            val bits = mutableListOf<Int>()
+            var i = 2
+            while (i + 1 < p.size) {
+                val mark = p[i]
+                val space = p[i + 1]
+                if (!inRange(space, 600)) break
+                val bit = if (inRange(mark, 600)) 0
+                    else if (inRange(mark, 1200)) 1
+                    else break
+                bits.add(bit)
+                i += 2
+            }
+            // SIRC: 7 command bits + 5 address bits
+            // (standard) or + 8 address bits (extended)
+            if (bits.size < 12) return null
+            var command = 0
+            for (j in 0 until 7) {
+                command = command or (bits[j] shl j)
+            }
+            var address = 0
+            for (j in 0 until 5) {
+                address = address or (bits[7 + j] shl j)
+            }
+            val extended = bits.size >= 20
+            if (extended) {
+                for (j in 5 until 13) {
+                    if (j + 7 < bits.size) {
+                        address = address or (bits[j + 7] shl j)
+                    }
+                }
+            }
+            return SonySircCommand(
+                address = address,
+                command = command,
+                extended = extended
+            )
+        }
+
+        data class SonySircCommand(val address: Int, val command: Int, val extended: Boolean) {
+            init {
+                require(address in 0..0x1FF) { "SonySircCommand.address out of range." }
+                require(command in 0..0x7F) { "SonySircCommand.command out of range." }
+            }
+        }
+
+        /**
+         * Decode a Samsung waveform. Samsung uses
+         * pulse-distance at 38 kHz with 4500/4500
+         * header and address+inverted,
+         * command+inverted.
+         */
+        fun decodeSamsung(waveform: IrWaveform): SamsungCommand? {
+            if (waveform.carrierHz !in 36_000..42_000) return null
+            val p = waveform.pattern
+            if (p.size < 68) return null
+            // Header: 4500 mark, 4500 space
+            if (!inRange(p[0], 4500)) return null
+            if (!inRange(p[1], 4500)) return null
+            var address = 0
+            var addressInv = 0
+            var command = 0
+            var commandInv = 0
+            for (i in 0 until 32) {
+                val mark = p[2 + i * 2]
+                val space = p[2 + i * 2 + 1]
+                if (!inRange(mark, 560)) return null
+                val bit = if (inRange(space, 560)) 0
+                    else if (inRange(space, 1690)) 1
+                    else return null
+                when {
+                    i < 8 -> address = (address shl 1) or bit
+                    i < 16 -> addressInv = (addressInv shl 1) or bit
+                    i < 24 -> command = (command shl 1) or bit
+                    else -> commandInv = (commandInv shl 1) or bit
+                }
+            }
+            if (!inRange(p[2 + 64], 560)) return null
+            // Validate inversions
+            if (address != (addressInv.inv() and 0xFF)) return null
+            if (command != (commandInv.inv() and 0xFF)) return null
+            return SamsungCommand(address = address, command = command)
+        }
+
+        data class SamsungCommand(val address: Int, val command: Int) {
+            init {
+                require(address in 0..255) { "SamsungCommand.address out of range." }
+                require(command in 0..255) { "SamsungCommand.command out of range." }
+            }
         }
     }
 }

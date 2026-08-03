@@ -1,5 +1,9 @@
 package com.elysium.nexus.fabric.adapter.infrared
 
+import android.content.Context
+import android.util.Log
+import com.elysium.nexus.core.device.DeviceCatalog
+import com.elysium.nexus.core.device.DeviceCategory
 import com.elysium.nexus.fabric.adapter.AdapterResult
 import com.elysium.nexus.fabric.adapter.AdapterState
 import com.elysium.nexus.fabric.adapter.DeviceAdapter
@@ -8,10 +12,15 @@ import com.elysium.nexus.fabric.adapter.ReadResult
 import com.elysium.nexus.fabric.adapter.ScanResult
 import com.elysium.nexus.fabric.adapter.WriteResult
 import com.elysium.nexus.fabric.canonical.Capability
+import com.elysium.nexus.fabric.canonical.ConnectivityState
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
 import com.elysium.nexus.fabric.canonical.DeviceTwin
+import com.elysium.nexus.fabric.canonical.DeviceType
 import com.elysium.nexus.fabric.canonical.Protocol
+import com.elysium.nexus.fabric.canonical.ProtocolBinding
+import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.fabric.infrared.IrWaveform
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,20 +30,15 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * Transmits IR commands via the phone's IR
  * blaster (if present) or the Nexus Hub's
- * IR transmitter. Uses the existing
- * [com.elysium.nexus.fabric.infrared.IrLearner]
- * for learning and the IR database for
- * playback.
+ * IR transmitter.
  *
- * ## Why a stub
- *
- * The IR transmitter hardware abstraction
- * (Android ConsumerIrManager / Hub IR LED)
- * is wired in Phase 3+. The adapter
- * interface is ready; the implementation
- * connects to the existing IrLearner + IrProtocol.
+ * Phase ULT.10 — wired to [AndroidIrTransmitter].
+ * The adapter now encodes and transmits real IR
+ * commands when the device has a working emitter.
  */
-class InfraredAdapter : DeviceAdapter {
+class InfraredAdapter(
+    private val context: Context? = null
+) : DeviceAdapter {
 
     override val protocol: Protocol = Protocol.DirectIr
     override val label: String = "Infrared"
@@ -52,11 +56,122 @@ class InfraredAdapter : DeviceAdapter {
     private val _devices = MutableStateFlow<List<DeviceTwin>>(emptyList())
     override val devices: StateFlow<List<DeviceTwin>> = _devices.asStateFlow()
 
-    override suspend fun start(): AdapterResult { _state.value = AdapterState.Active; return AdapterResult.Ok }
-    override suspend fun scan(timeoutMs: Long): ScanResult = ScanResult.Error(ErrorCode.HardwareUnavailable, "IR scan requires an IR blaster (phone) or Hub IR transmitter.")
-    override suspend fun read(deviceId: DeviceId): ReadResult = ReadResult.Error(ErrorCode.UnsupportedOperation, "IR is transmit-only; no state to read.")
-    override suspend fun write(deviceId: DeviceId, state: DeviceState): WriteResult = WriteResult.Error(ErrorCode.NotStarted, "IR adapter is a stub.")
-    override suspend fun subscribe(deviceId: DeviceId): AdapterResult = AdapterResult.Error(ErrorCode.UnsupportedOperation, "IR is fire-and-forget; no state subscription.")
+    private var transmitter: AndroidIrTransmitter? = null
+
+    companion object {
+        private const val TAG = "InfraredAdapter"
+    }
+
+    override suspend fun start(): AdapterResult {
+        _state.value = AdapterState.Starting
+        transmitter = context?.let { AndroidIrTransmitter(it) }
+        val hasEmitter = transmitter?.hasEmitter() == true
+        Log.i(TAG, "IR emitter present: $hasEmitter")
+        _state.value = AdapterState.Active
+        return AdapterResult.Ok
+    }
+
+    override suspend fun scan(timeoutMs: Long): ScanResult {
+        // If no transmitter is available, report
+        // scan unavailable (stub mode).
+        if (transmitter == null) {
+            return ScanResult.Error(
+                ErrorCode.HardwareUnavailable,
+                "No IR emitter available."
+            )
+        }
+        val twins = DeviceCatalog.all.map { template ->
+            DeviceTwin(
+                deviceId = DeviceId("ir-${template.id}"),
+                manufacturer = template.brand,
+                model = template.model,
+                deviceType = when (template.category) {
+                    DeviceCategory.TV -> DeviceType.Television
+                    DeviceCategory.ANDROID_TV -> DeviceType.Television
+                    DeviceCategory.SOUNDBAR -> DeviceType.Soundbar
+                    DeviceCategory.PROJECTOR -> DeviceType.Projector
+                    else -> DeviceType.Unknown
+                },
+                capabilities = setOf(Capability.OnOff),
+                connectivity = ConnectivityState.Online,
+                protocolBindings = setOf(
+                    ProtocolBinding(
+                        protocol = Protocol.DirectIr,
+                        endpoint = "ir-${template.id}",
+                        capabilities = setOf(Capability.OnOff)
+                    )
+                )
+            )
+        }
+        _devices.value = twins
+        return ScanResult.Ok(deviceCount = twins.size)
+    }
+
+    override suspend fun read(deviceId: DeviceId): ReadResult {
+        return ReadResult.Error(
+            ErrorCode.UnsupportedOperation,
+            "IR is transmit-only; no state to read."
+        )
+    }
+
+    override suspend fun write(deviceId: DeviceId, state: DeviceState): WriteResult {
+        val tx = transmitter
+        if (tx == null || !tx.hasEmitter()) {
+            return WriteResult.Error(
+                ErrorCode.HardwareUnavailable,
+                "No IR emitter available on this device."
+            )
+        }
+        return when (state) {
+            is DeviceState.IrCommand -> {
+                val waveform = encodeIrCommand(state)
+                if (waveform == null) {
+                    return WriteResult.Error(
+                        ErrorCode.UnsupportedOperation,
+                        "Cannot encode IR command for protocol ${state.protocolName}."
+                    )
+                }
+                val sent = tx.transmit(waveform)
+                if (sent) {
+                    Log.i(TAG, "IR transmitted: ${state.protocolName} addr=${state.address} cmd=${state.command}")
+                    WriteResult.Ok(reportedState = state)
+                } else {
+                    WriteResult.Error(
+                        ErrorCode.HardwareUnavailable,
+                        "IR transmit failed (carrier out of range or queue full)."
+                    )
+                }
+            }
+            else -> WriteResult.Error(
+                ErrorCode.UnsupportedOperation,
+                "IR adapter requires DeviceState.IrCommand."
+            )
+        }
+    }
+
+    private fun encodeIrCommand(state: DeviceState.IrCommand): IrWaveform? {
+        return when (state.protocolName.uppercase()) {
+            "NEC" -> IrWaveform.encodeNec(state.address, state.command)
+            "NECX", "NEC_EXTENDED" -> IrWaveform.encodeNecExtended(state.address, state.command)
+            "RC5" -> IrWaveform.encodeRc5(state.address, state.command)
+            "SIRC", "SONY_SIRC" -> IrWaveform.encodeSonySirc(state.address, state.command)
+            "SAMSUNG" -> IrWaveform.encodeSamsung(state.address, state.command)
+            else -> null
+        }
+    }
+
+    override suspend fun subscribe(deviceId: DeviceId): AdapterResult {
+        return AdapterResult.Error(
+            ErrorCode.UnsupportedOperation,
+            "IR is fire-and-forget; no state subscription."
+        )
+    }
+
     override suspend fun unsubscribe(deviceId: DeviceId): AdapterResult = AdapterResult.Ok
-    override suspend fun stop(): AdapterResult { _state.value = AdapterState.Released; return AdapterResult.Ok }
+
+    override suspend fun stop(): AdapterResult {
+        transmitter = null
+        _state.value = AdapterState.Released
+        return AdapterResult.Ok
+    }
 }

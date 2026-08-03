@@ -236,6 +236,13 @@ sealed class DeviceState {
     data class Media(val playing: Boolean, val track: String? = null) : DeviceState()
     /** Energy read. */
     data class EnergyRead(val watts: Float, val kwhTotal: Float) : DeviceState()
+    /** IR command to transmit. */
+    data class IrCommand(
+        val protocolName: String,
+        val address: Int,
+        val command: Int,
+        val extras: Map<String, String> = emptyMap()
+    ) : DeviceState()
 }
 
 /** Climate mode (HVAC). The enum is closed; new modes are an ADR. */
