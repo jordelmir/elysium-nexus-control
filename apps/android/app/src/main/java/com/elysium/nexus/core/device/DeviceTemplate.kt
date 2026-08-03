@@ -627,30 +627,6 @@ object DeviceCatalog {
             blurbEn = "Control any Android TV over Wi-Fi (ADB).",
             blurbEs = "Controla cualquier Android TV por Wi-Fi (ADB)."
         ))
-        add(DeviceTemplate(
-            id = "roku-generic",
-            category = DeviceCategory.STREAMING,
-            brand = "Roku",
-            model = "Generic (Wi-Fi ECP)",
-            protocol = IrProtocol.Nec,
-            deviceAddress = 0x00,
-            commandAddress = 0x00,
-            buttons = TV_BUTTONS,
-            blurbEn = "Control any Roku over Wi-Fi (ECP).",
-            blurbEs = "Controla cualquier Roku por Wi-Fi (ECP)."
-        ))
-        add(DeviceTemplate(
-            id = "appletv-generic",
-            category = DeviceCategory.STREAMING,
-            brand = "Apple TV",
-            model = "Generic (Wi-Fi DAAP)",
-            protocol = IrProtocol.Nec,
-            deviceAddress = 0x00,
-            commandAddress = 0x00,
-            buttons = TV_BUTTONS,
-            blurbEn = "Control any Apple TV over Wi-Fi (DAAP).",
-            blurbEs = "Controla cualquier Apple TV por Wi-Fi (DAAP)."
-        ))
         // === Consoles (Bluetooth, Phase 2+) ======================
         add(DeviceTemplate(
             id = "ps4-generic",
@@ -896,9 +872,94 @@ object DeviceCatalog {
             protocol = IrProtocol.Nec,
             deviceAddress = 0x04,
             commandAddress = 0x02,
-            buttons = TV_BUTTONS,
+            buttons = SOUNDBAR_BUTTONS,
             blurbEn = "Control any soundbar / AV receiver over IR.",
             blurbEs = "Controla cualquier barra de sonido / receptor AV por IR."
+        ))
+        // === Tier 1 — Popular soundbar brands ===
+        add(DeviceTemplate(
+            id = "soundbar-sonos",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "Sonos",
+            model = "Beam / One / Arc",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "Sonos Beam, One, Arc — IR remote for volume and power.",
+            blurbEs = "Sonos Beam, One, Arc — control IR para volumen y encendido."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-samsung",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "Samsung",
+            model = "HW-Q / HW-S series",
+            protocol = IrProtocol.Samsung,
+            deviceAddress = 0x07,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "Samsung HW-Q / HW-S soundbars. Q-Symphony compatible.",
+            blurbEs = "Barras de sonido Samsung HW-Q / HW-S. Compatible Q-Symphony."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-bose",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "Bose",
+            model = "Soundbar 600 / 900",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "Bose Soundbar 600, 900. Dolby Atmos support.",
+            blurbEs = "Bose Soundbar 600, 900. Soporte Dolby Atmos."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-lg",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "LG",
+            model = "SP / SN series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x08,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "LG SP / SN soundbars. Dolby Atmos & DTS:X.",
+            blurbEs = "Barras de sonido LG SP / SN. Dolby Atmos y DTS:X."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-sony",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "Sony",
+            model = "HT-A series",
+            protocol = IrProtocol.SonySirc,
+            deviceAddress = 0x18,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "Sony HT-A5000, HT-A7000, HT-A9. 360 Spatial Sound.",
+            blurbEs = "Sony HT-A5000, HT-A7000, HT-A9. Sonido espacial 360."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-jbl",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "JBL",
+            model = "Bar series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "JBL Bar 500, 700, 1000. MultiBeam surround.",
+            blurbEs = "JBL Bar 500, 700, 1000. MultiBeam surround."
+        ))
+        add(DeviceTemplate(
+            id = "soundbar-vizio",
+            category = DeviceCategory.SOUNDBAR,
+            brand = "Vizio",
+            model = "M / P series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x02,
+            buttons = SOUNDBAR_BUTTONS,
+            blurbEn = "Vizio M-Series, P-Series soundbars.",
+            blurbEs = "Barras de sonido Vizio M-Series, P-Series."
         ))
         add(DeviceTemplate(
             id = "projector-generic",
@@ -908,10 +969,157 @@ object DeviceCatalog {
             protocol = IrProtocol.Nec,
             deviceAddress = 0x04,
             commandAddress = 0x01,
-            buttons = TV_BUTTONS,
+            buttons = PROJECTOR_BUTTONS,
             blurbEn = "Control any projector over IR.",
             blurbEs = "Controla cualquier proyector por IR."
         ))
+        // === Tier 1 — Popular projector brands ===
+        add(DeviceTemplate(
+            id = "projector-epson",
+            category = DeviceCategory.PROJECTOR,
+            brand = "Epson",
+            model = "Home Cinema series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x01,
+            buttons = PROJECTOR_BUTTONS,
+            blurbEn = "Epson Home Cinema 2350, 2250, 5050UB. 4K PRO-UHD.",
+            blurbEs = "Epson Home Cinema 2350, 2250, 5050UB. 4K PRO-UHD."
+        ))
+        add(DeviceTemplate(
+            id = "projector-benq",
+            category = DeviceCategory.PROJECTOR,
+            brand = "BenQ",
+            model = "HT / TK series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x01,
+            buttons = PROJECTOR_BUTTONS,
+            blurbEn = "BenQ HT3550, TK700STi. 4K HDR gaming projector.",
+            blurbEs = "BenQ HT3550, TK700STi. Proyector gaming 4K HDR."
+        ))
+        add(DeviceTemplate(
+            id = "projector-optoma",
+            category = DeviceCategory.PROJECTOR,
+            brand = "Optoma",
+            model = "U / HD series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x01,
+            buttons = PROJECTOR_BUTTONS,
+            blurbEn = "Optoma UHD35, HD39HDR. True 4K UHD.",
+            blurbEs = "Optoma UHD35, HD39HDR. 4K UHD auténtico."
+        ))
+        add(DeviceTemplate(
+            id = "projector-viewsenic",
+            category = DeviceCategory.PROJECTOR,
+            brand = "ViewSonic",
+            model = "PX / X series",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x01,
+            buttons = PROJECTOR_BUTTONS,
+            blurbEn = "ViewSonic PX701-4K, X2000B. LED 4K.",
+            blurbEs = "ViewSonic PX701-4K, X2000B. LED 4K."
+        ))
+        add(DeviceTemplate(
+            id = "projector-sony",
+            category = DeviceCategory.PROJECTOR,
+            brand = "Sony",
+            model = "VPL series",
+            protocol = IrProtocol.SonySirc,
+            deviceAddress = 0x17,
+            commandAddress = 0x01,
+            buttons = PROJECTOR_BUTTONS,
+            blurbEn = "Sony VPL-XW5000ES, VPL-VW295ES. Native 4K SXRD.",
+            blurbEs = "Sony VPL-XW5000ES, VPL-VW295ES. 4K nativo SXRD."
+        ))
+        // === Android TV / Streaming (Wi-Fi) ======================
+        add(DeviceTemplate(
+            id = "androidtv-generic",
+            category = DeviceCategory.ANDROID_TV,
+            brand = "Android TV",
+            model = "Generic (Wi-Fi ADB)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Control any Android TV over Wi-Fi (ADB).",
+            blurbEs = "Controla cualquier Android TV por Wi-Fi (ADB)."
+        ))
+        add(DeviceTemplate(
+            id = "androidtv-nvidia-shield",
+            category = DeviceCategory.ANDROID_TV,
+            brand = "NVIDIA",
+            model = "Shield TV Pro",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "NVIDIA Shield TV Pro. 4K HDR, AI upscaling, Chromecast built-in.",
+            blurbEs = "NVIDIA Shield TV Pro. 4K HDR, escalado AI, Chromecast integrado."
+        ))
+        add(DeviceTemplate(
+            id = "androidtv-chromecast",
+            category = DeviceCategory.ANDROID_TV,
+            brand = "Google",
+            model = "Chromecast with Google TV",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Google Chromecast with Google TV (4K / HD).",
+            blurbEs = "Google Chromecast con Google TV (4K / HD)."
+        ))
+        add(DeviceTemplate(
+            id = "androidtv-fire-tv-cube",
+            category = DeviceCategory.ANDROID_TV,
+            brand = "Amazon",
+            model = "Fire TV Cube",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Amazon Fire TV Cube. Hands-free Alexa, IR blaster built-in.",
+            blurbEs = "Amazon Fire TV Cube. Alexa manos libres, IR integrado."
+        ))
+        add(DeviceTemplate(
+            id = "androidtv-mibox",
+            category = DeviceCategory.ANDROID_TV,
+            brand = "Xiaomi",
+            model = "Mi Box S 2nd Gen",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Xiaomi Mi Box S 2nd Gen. 4K, Google TV, Chromecast.",
+            blurbEs = "Xiaomi Mi Box S 2nd Gen. 4K, Google TV, Chromecast."
+        ))
+        add(DeviceTemplate(
+            id = "roku-generic",
+            category = DeviceCategory.STREAMING,
+            brand = "Roku",
+            model = "Generic (Wi-Fi ECP)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Control any Roku over Wi-Fi (ECP).",
+            blurbEs = "Controla cualquier Roku por Wi-Fi (ECP)."
+        ))
+        add(DeviceTemplate(
+            id = "appletv-generic",
+            category = DeviceCategory.STREAMING,
+            brand = "Apple TV",
+            model = "Generic (Wi-Fi DAAP)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Control any Apple TV over Wi-Fi (DAAP).",
+            blurbEs = "Controla cualquier Apple TV por Wi-Fi (DAAP)."
+        ))
+        // === Consoles (Bluetooth, Phase 2+) ======================
     }
 
     /**
@@ -981,6 +1189,62 @@ val TV_BUTTONS: List<DeviceButton> = listOf(
     DeviceButton("n0", "0", "0", "num_0", 0x00),
     DeviceButton("dash", "-", "-", "minus", 0x0C),
     DeviceButton("plus", "+", "+", "plus", 0x1F)
+)
+
+/**
+ * Soundbar button set.
+ *
+ * Simplified layout compared to TV — soundbars
+ * have fewer buttons: power, volume, mute, input
+ * source, and sometimes bass/treble/surround.
+ *
+ *  ```
+ *  Power    Mute     Input
+ *  Vol+     Bass+    Surround
+ *  Vol-     Bass-    Night
+ *  ```
+ */
+val SOUNDBAR_BUTTONS: List<DeviceButton> = listOf(
+    DeviceButton("power", "Power", "Encender", "power", 0x02, layoutWeight = 2),
+    DeviceButton("mute", "Mute", "Mudo", "mute", 0x09),
+    DeviceButton("input", "Input", "Entrada", "input", 0x0B),
+    DeviceButton("vol_up", "Vol +", "Vol +", "vol_up", 0x07),
+    DeviceButton("bass_up", "Bass +", "Graves +", "bass_up", 0x15),
+    DeviceButton("surround", "Surround", "Envolvente", "surround", 0x16),
+    DeviceButton("vol_down", "Vol -", "Vol -", "vol_down", 0x0A),
+    DeviceButton("bass_down", "Bass -", "Graves -", "bass_down", 0x17),
+    DeviceButton("night", "Night", "Noche", "night", 0x18)
+)
+
+/**
+ * Projector button set.
+ *
+ * Projectors have a D-pad for menu navigation,
+ * plus source, keystone, focus, and zoom.
+ *
+ *  ```
+ *  Power     Source   Menu
+ *  Up        Focus+   Zoom+
+ *  Left      OK       Right
+ *  Down      Focus-   Zoom-
+ *  Keystone  Back
+ *  ```
+ */
+val PROJECTOR_BUTTONS: List<DeviceButton> = listOf(
+    DeviceButton("power", "Power", "Encender", "power", 0x02, layoutWeight = 2),
+    DeviceButton("source", "Source", "Fuente", "input", 0x0B),
+    DeviceButton("menu", "Menu", "Menú", "menu", 0x1A),
+    DeviceButton("up", "Up", "Arriba", "up", 0x0E, layoutWeight = 2),
+    DeviceButton("focus_up", "Focus +", "Enfoque +", "focus_up", 0x19),
+    DeviceButton("zoom_up", "Zoom +", "Zoom +", "zoom_up", 0x1A),
+    DeviceButton("left", "Left", "Izquierda", "left", 0x0F, layoutWeight = 2),
+    DeviceButton("ok", "OK", "OK", "ok", 0x0D, layoutWeight = 2),
+    DeviceButton("right", "Right", "Derecha", "right", 0x11, layoutWeight = 2),
+    DeviceButton("down", "Down", "Abajo", "down", 0x0C),
+    DeviceButton("focus_down", "Focus -", "Enfoque -", "focus_down", 0x1B),
+    DeviceButton("zoom_down", "Zoom -", "Zoom -", "zoom_down", 0x1C),
+    DeviceButton("keystone", "Keystone", "Keystone", "keystone", 0x1D),
+    DeviceButton("back", "Back", "Atrás", "back", 0x1B)
 )
 
 /**
