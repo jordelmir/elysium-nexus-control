@@ -13,6 +13,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.elysium.nexus.core.model.CanonicalButton
+import com.elysium.nexus.core.model.DpadState
 import com.elysium.nexus.core.model.UniversalControllerState
 import com.elysium.nexus.core.transport.ConnectionResult
 import com.elysium.nexus.core.transport.ControllerTransport
@@ -325,9 +327,76 @@ class BluetoothHidTransport(
         return ConnectionResult.Error("Use connectTo(BluetoothDevice) for HID")
     }
 
-    override suspend fun sendReliable(event: ReliableInputEvent): SendResult = SendResult.Ok
+    override suspend fun sendReliable(event: ReliableInputEvent): SendResult {
+        return when (event) {
+            is ReliableInputEvent.ReleaseAll -> {
+                releaseAllKeys()
+                SendResult.Ok
+            }
+            is ReliableInputEvent.ButtonDown -> {
+                val hidKey = canonicalButtonToHidKey(event.button) ?: return SendResult.Ok
+                val report = HidReports.keyboard(modifier = 0, keycodes = intArrayOf(hidKey))
+                if (sendKeyboardReport(report)) SendResult.Ok
+                else SendResult.Error("BT HID send failed")
+            }
+            is ReliableInputEvent.ButtonUp -> {
+                if (sendKeyboardReport(HidReports.keyboardReleaseAll())) SendResult.Ok
+                else SendResult.Error("BT HID send failed")
+            }
+            is ReliableInputEvent.ProfileChanged -> SendResult.Ok
+            else -> SendResult.Ok
+        }
+    }
 
-    override suspend fun sendRealtime(state: UniversalControllerState): SendResult = SendResult.Ok
+    override suspend fun sendRealtime(state: UniversalControllerState): SendResult {
+        if (hidDevice == null || connectedHost == null) return SendResult.Error("Not connected")
+
+        // D-pad → arrow keys (HID usage codes)
+        val dpadKey = when (state.dpad) {
+            DpadState.North -> 0x52
+            DpadState.South -> 0x51
+            DpadState.West -> 0x50
+            DpadState.East -> 0x4F
+            DpadState.NorthWest -> 0x04    // 'a' for diagonal
+            DpadState.NorthEast -> 0x07    // 'd'
+            DpadState.SouthWest -> 0x16    // 's'
+            DpadState.SouthEast -> 0x15    // 'r'
+            DpadState.Center -> 0
+        }
+        if (dpadKey != 0) {
+            sendKeyboardReport(HidReports.keyboard(modifier = 0, keycodes = intArrayOf(dpadKey)))
+        } else {
+            sendKeyboardReport(HidReports.keyboardReleaseAll())
+        }
+
+        // Left stick → mouse movement
+        val dx = (state.leftStick.x * 8f).toInt().coerceIn(-127, 127)
+        val dy = (state.leftStick.y * 8f).toInt().coerceIn(-127, 127)
+        if (dx != 0 || dy != 0) {
+            sendMouseReport(HidReports.mouse(buttons = 0, dx = dx, dy = dy, wheel = 0))
+        }
+
+        // Face buttons → keyboard keys
+        val keys = mutableListOf<Int>()
+        if (state.buttons.isPressed(CanonicalButton.South)) keys.add(0x2C)  // Space
+        if (state.buttons.isPressed(CanonicalButton.East)) keys.add(0x29)   // Escape
+        if (state.buttons.isPressed(CanonicalButton.West)) keys.add(0x06)   // 'c'
+        if (state.buttons.isPressed(CanonicalButton.North)) keys.add(0x19)  // 'v'
+        if (state.buttons.isPressed(CanonicalButton.MenuPrimary)) keys.add(0x28)  // Enter
+        if (keys.isNotEmpty()) {
+            val arr = keys.toIntArray()
+            sendKeyboardReport(HidReports.keyboard(modifier = 0, keycodes = arr))
+        }
+
+        // Triggers → scroll wheel
+        val scrollDelta = ((state.rightTrigger.value - state.leftTrigger.value) * 3f).toInt()
+            .coerceIn(-127, 127)
+        if (scrollDelta != 0) {
+            sendMouseReport(HidReports.mouse(buttons = 0, dx = 0, dy = 0, wheel = scrollDelta))
+        }
+
+        return SendResult.Ok
+    }
 
     override suspend fun releaseAll(): SendResult {
         releaseAllKeys()
@@ -351,6 +420,25 @@ class BluetoothHidTransport(
         connectedHost = null
         _hidState.value = HidConnectionState.Idle
         return TransportResult.Ok
+    }
+
+    /**
+     * Map a [CanonicalButton] to an HID keyboard usage code.
+     * Returns null for buttons that don't have a keyboard mapping.
+     */
+    private fun canonicalButtonToHidKey(button: CanonicalButton): Int? = when (button) {
+        CanonicalButton.South -> 0x2C       // Space
+        CanonicalButton.East -> 0x29        // Escape
+        CanonicalButton.West -> 0x06        // 'c'
+        CanonicalButton.North -> 0x19       // 'v'
+        CanonicalButton.LeftBumper -> 0x2F  // '['
+        CanonicalButton.RightBumper -> 0x30 // ']'
+        CanonicalButton.MenuPrimary -> 0x28 // Enter
+        CanonicalButton.MenuSecondary -> 0x2A // Backspace
+        CanonicalButton.System -> 0x08      // 'e' (home)
+        CanonicalButton.LeftStickClick -> 0x16 // 's'
+        CanonicalButton.RightStickClick -> 0x07 // 'd'
+        else -> null
     }
 
     companion object {
