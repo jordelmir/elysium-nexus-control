@@ -122,6 +122,9 @@ class MainActivity : ComponentActivity() {
     private var settingsStore: AppSettingsStore? = null
     private var haptics: Haptics? = null
     private var irTransmitter: AndroidIrTransmitter? = null
+    private var acStateStore: com.elysium.nexus.core.settings.AcStateStore? = null
+    private var automationStore: List<com.elysium.nexus.fabric.automation.Automation> = emptyList()
+    private val inMemoryAutomationStore = com.elysium.nexus.fabric.automation.DefaultAutomationStore()
     private val profileFlow: MutableStateFlow<Profile?> = MutableStateFlow(null)
     private val allProfilesFlow: MutableStateFlow<List<Profile>> = MutableStateFlow(emptyList())
     private val transportFlow: MutableStateFlow<com.elysium.nexus.core.transport.ControllerTransport?> = MutableStateFlow(null)
@@ -203,6 +206,7 @@ class MainActivity : ComponentActivity() {
         // blaster.
         val ir = AndroidIrTransmitter(this)
         this.irTransmitter = ir
+        this.acStateStore = com.elysium.nexus.core.settings.AcStateStore(this)
 
         driverJob = engine.state
             .onEach { state -> logState(state) }
@@ -334,6 +338,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onUniversalRemoteSelected = {
                             navStack.value = navStack.value + HubDestination.UniversalRemote
+                        },
+                        onAutomationSelected = {
+                            navStack.value = navStack.value + HubDestination.AutomationList
                         },
                         onSettings = { settingsVisible.value = true },
                         onShowHelp = { tourVisible.value = true },
@@ -545,7 +552,8 @@ class MainActivity : ComponentActivity() {
                                 template = current.template,
                                 onBack = { navStack.value = navStack.value.dropLast(1) },
                                 irTransmitter = ir,
-                                hasEmitter = ir.hasEmitter()
+                                hasEmitter = ir.hasEmitter(),
+                                acStateStore = acStateStore
                             )
                         }
                     }
@@ -554,6 +562,47 @@ class MainActivity : ComponentActivity() {
                         onBack = { navStack.value = navStack.value.dropLast(1) },
                         onRetry = { navStack.value = navStack.value.dropLast(1) },
                         onSave = { navStack.value = navStack.value.dropLast(1) }
+                    )
+                    is HubDestination.AutomationList -> com.elysium.nexus.ui.automation.AutomationListScreen(
+                        automations = automationStore,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onCreateNew = {
+                            navStack.value = navStack.value + HubDestination.AutomationEditor()
+                        },
+                        onEditAutomation = { auto ->
+                            navStack.value = navStack.value + HubDestination.AutomationEditor(auto)
+                        },
+                        onDeleteAutomation = { auto ->
+                            automationStore = automationStore.filter { it.id != auto.id }
+                        },
+                        onRunAutomation = { auto ->
+                            // Execute the automation with the in-memory store + no-op dispatcher
+                            com.elysium.nexus.fabric.automation.AutomationEngine.execute(
+                                automation = auto,
+                                event = auto.triggers.firstOrNull()?.event
+                                    ?: com.elysium.nexus.fabric.automation.TriggerEvent.Motion,
+                                deviceId = auto.actions.firstOrNull()?.deviceId,
+                                context = com.elysium.nexus.fabric.automation.Context(emptyMap()),
+                                store = inMemoryAutomationStore,
+                                dispatcher = com.elysium.nexus.fabric.automation.ActionDispatcher { _, _ ->
+                                    com.elysium.nexus.fabric.automation.CommandStatus.Confirmed
+                                }
+                            )
+                        }
+                    )
+                    is HubDestination.AutomationEditor -> com.elysium.nexus.ui.automation.AutomationEditorScreen(
+                        existingAutomation = current.automation,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onSave = { saved ->
+                            if (current.automation != null) {
+                                automationStore = automationStore.map {
+                                    if (it.id == saved.id) saved else it
+                                }
+                            } else {
+                                automationStore = automationStore + saved
+                            }
+                            navStack.value = navStack.value.dropLast(1)
+                        }
                     )
                 }
 
@@ -661,6 +710,7 @@ class MainActivity : ComponentActivity() {
         this.settingsStore = null
         this.haptics = null
         this.irTransmitter = null
+        this.acStateStore = null
     }
 
     private fun driveEngineToActive(engine: CanonicalInputEngine) {

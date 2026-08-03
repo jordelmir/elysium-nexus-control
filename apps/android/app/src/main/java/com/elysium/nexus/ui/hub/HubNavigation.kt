@@ -93,6 +93,14 @@ sealed class HubDestination {
     data class IrLearner(
         val learnResult: com.elysium.nexus.fabric.infrared.IrLearner.LearnResult?
     ) : HubDestination()
+
+    /** Phase ULT.12 — Automation list screen. */
+    object AutomationList : HubDestination()
+
+    /** Phase ULT.12 — Automation editor screen. */
+    data class AutomationEditor(
+        val automation: com.elysium.nexus.fabric.automation.Automation? = null
+    ) : HubDestination()
 }
 
 /**

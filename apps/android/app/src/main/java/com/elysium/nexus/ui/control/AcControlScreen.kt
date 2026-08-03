@@ -86,13 +86,15 @@ fun AcControlScreen(
     onBack: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasEmitter: Boolean,
+    acStateStore: com.elysium.nexus.core.settings.AcStateStore? = null,
     modifier: Modifier = Modifier
 ) {
+    val savedState = remember { acStateStore?.get(template.id) }
     var showHelp by remember { mutableStateOf(false) }
-    var temperature by remember { mutableIntStateOf(24) }
-    var mode by remember { mutableIntStateOf(1) } // 0=auto,1=cool,2=dry,3=fan,4=heat
-    var fanSpeed by remember { mutableIntStateOf(0) } // 0=auto,1=low,2=med,3=high
-    var powerOn by remember { mutableStateOf(true) }
+    var temperature by remember { mutableIntStateOf(savedState?.temperature ?: 24) }
+    var mode by remember { mutableIntStateOf(savedState?.mode ?: 1) }
+    var fanSpeed by remember { mutableIntStateOf(savedState?.fanSpeed ?: 0) }
+    var powerOn by remember { mutableStateOf(savedState?.powerOn ?: true) }
     var lastCommandLabel by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -145,6 +147,15 @@ fun AcControlScreen(
                 )
             }
             irTransmitter.transmit(waveform)
+            acStateStore?.set(
+                template.id,
+                com.elysium.nexus.core.settings.AcState(
+                    temperature = temperature,
+                    mode = mode,
+                    fanSpeed = fanSpeed,
+                    powerOn = powerOn
+                )
+            )
         }
     }
 

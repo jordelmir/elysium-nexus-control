@@ -97,6 +97,7 @@ fun HubScreen(
     onMacSelected: () -> Unit,
     onUsbCSelected: () -> Unit = {},
     onUniversalRemoteSelected: () -> Unit = {},
+    onAutomationSelected: () -> Unit = {},
     onSettings: () -> Unit,
     onShowHelp: () -> Unit,
     firstDeviceLabel: String? = null,
@@ -475,6 +476,70 @@ fun HubScreen(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = ElysiumColors.NeonOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === AUTOMATIZACIONES ==================================
+            // §28 — deterministic trigger + conditions
+            // + actions automations. The user creates
+            // rules like "when motion detected, turn
+            // on the lights".
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onAutomationSelected() },
+                accent = ElysiumColors.NeonCyan,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonCyan.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayCircle,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonCyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "AUTOMATIZACIONES",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonCyan
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "§28 · triggers · condiciones · acciones",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonCyan,
                         modifier = Modifier.size(28.dp)
                     )
                 }
