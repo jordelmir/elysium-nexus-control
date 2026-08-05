@@ -9,6 +9,88 @@
     "Mitsubishi", "Aiwa", "Bose", "Epson", "NEC48"
   ],
   "brands": {
+    "Control Universal TV": {
+      "device_types": ["tv"],
+      "models": {
+        "tv_generic": {
+          "protocol": "NEC",
+          "device_address": "0x00",
+          "commands": {
+            "power": "0x02",
+            "vol_up": "0x07",
+            "vol_down": "0x0A",
+            "mute": "0x09",
+            "ch_up": "0x12",
+            "ch_down": "0x10",
+            "input_source": "0x0B",
+            "menu": "0x1A",
+            "info": "0x1C",
+            "back": "0x1B",
+            "up": "0x0E",
+            "down": "0x0C",
+            "left": "0x0F",
+            "right": "0x11",
+            "enter": "0x0D",
+            "home": "0x20",
+            "netflix": "0x21",
+            "youtube": "0x22",
+            "play": "0x24",
+            "num_0": "0x00",
+            "num_1": "0x01",
+            "num_2": "0x02",
+            "num_3": "0x03",
+            "num_4": "0x04",
+            "num_5": "0x05",
+            "num_6": "0x06",
+            "num_7": "0x07",
+            "num_8": "0x08",
+            "num_9": "0x09"
+          }
+        }
+      }
+    },
+    "Kintech": {
+      "device_types": ["tv"],
+      "models": {
+        "tv_generic": {
+          "protocol": "NEC",
+          "device_address": "0x00",
+          "commands": {
+            "power": "0x12",
+            "power_on": "0x12",
+            "power_off": "0x12",
+            "vol_up": "0x07",
+            "vol_down": "0x0A",
+            "mute": "0x09",
+            "ch_up": "0x10",
+            "ch_down": "0x11",
+            "input_source": "0x0B",
+            "menu": "0x1A",
+            "info": "0x1C",
+            "back": "0x1B",
+            "up": "0x0E",
+            "down": "0x0C",
+            "left": "0x0F",
+            "right": "0x13",
+            "enter": "0x0D",
+            "home": "0x20",
+            "netflix": "0x21",
+            "youtube": "0x22",
+            "play": "0x24",
+            "num_0": "0x00",
+            "num_1": "0x01",
+            "num_2": "0x02",
+            "num_3": "0x03",
+            "num_4": "0x04",
+            "num_5": "0x05",
+            "num_6": "0x06",
+            "num_7": "0x07",
+            "num_8": "0x08",
+            "num_9": "0x09"
+          }
+        }
+      }
+    },
     "Samsung": {
       "device_types": ["tv", "soundbar", "dvd", "blu_ray", "ac", "projector"],
       "models": {

@@ -1,938 +1,215 @@
 {
-  "version": "2.0.0",
-  "source": "Elysium Nexus IR Database — aggregated from open-source IRDB, LIRC, and Flipper Zero IRDB formats",
-  "last_updated": "2026-08-04",
-  "protocols_supported": [
-    "NEC", "NECext", "NEC42", "Samsung32", "RC5", "RC5X", "RC6",
-    "SIRC", "SIRC15", "SIRC20", "Kaseikyo", "RCA", "Pioneer",
-    "Panasonic", "Sharp", "Denon", "JVC", "LG", "LG32",
-    "Mitsubishi", "Aiwa", "Bose", "Epson", "NEC48"
-  ],
-  "brands": {
-    "Samsung": {
-      "device_types": ["tv", "soundbar", "dvd", "blu_ray", "ac", "projector"],
-      "models": {
-        "tv_generic": {
-          "protocol": "Samsung32",
-          "device_address": "0x07",
-          "commands": {
-            "power": "0x02",
-            "power_on": "0x98",
-            "power_off": "0x99",
-            "vol_up": "0x07",
-            "vol_down": "0x0B",
-            "mute": "0x0F",
-            "ch_up": "0x12",
-            "ch_down": "0x10",
-            "input_source": "0x01",
-            "menu": "0x1A",
-            "guide": "0x4F",
-            "info": "0x1F",
-            "tools": "0x4B",
-            "return": "0x58",
-            "exit": "0x2D",
-            "up": "0x60",
-            "down": "0x61",
-            "left": "0x65",
-            "right": "0x62",
-            "enter": "0x68",
-            "num_0": "0x11",
-            "num_1": "0x04",
-            "num_2": "0x05",
-            "num_3": "0x06",
-            "num_4": "0x08",
-            "num_5": "0x09",
-            "num_6": "0x0A",
-            "num_7": "0x0C",
-            "num_8": "0x0D",
-            "num_9": "0x0E",
-            "play": "0x47",
-            "pause": "0x46",
-            "stop": "0x45",
-            "ff": "0x48",
-            "rew": "0x49",
-            "rec": "0x44",
-            "hdmi_1": "0xC8",
-            "hdmi_2": "0xC9",
-            "hdmi_3": "0xCA",
-            "hdmi_4": "0xCB",
-            "smart_hub": "0x79",
-            "netflix": "0xF2",
-            "amazon": "0xF4",
-            "youtube": "0xF1",
-            "picture_mode": "0x28",
-            "sound_mode": "0x2E",
-            "sleep": "0x03",
-            "aspect": "0x3E",
-            "caption": "0x25"
-          }
-        },
-        "soundbar_generic": {
-          "protocol": "Samsung32",
-          "device_address": "0x01",
-          "commands": {
-            "power": "0x02",
-            "vol_up": "0x07",
-            "vol_down": "0x0B",
-            "mute": "0x0F",
-            "input_bt": "0x32",
-            "input_hdmi": "0x31",
-            "input_optical": "0x33",
-            "input_aux": "0x34",
-            "input_usb": "0x35",
-            "surround": "0x36",
-            "bass_up": "0x37",
-            "bass_down": "0x38",
-            "treble_up": "0x39",
-            "treble_down": "0x3A",
-            "night_mode": "0x3B"
-          }
+  "version": 2,
+  "source": "Elysium Nexus Verified IR Code Database",
+  "brands": [
+    {
+      "id": "universal_tv",
+      "name": "Control Universal TV",
+      "categories": [
+        {
+          "type": "TV",
+          "protocols": ["NEC", "SAMSUNG32", "SIRC15", "RC5"],
+          "codesets": [
+            {
+              "id": "universal_nec_std",
+              "name": "Control Universal TV (Multimarca)",
+              "frequency_hz": 38000,
+              "protocol": "NEC",
+              "commands": {
+                "POWER": "0x00FF02FD",
+                "VOL_UP": "0x00FF07F8",
+                "VOL_DOWN": "0x00FF0AF5",
+                "MUTE": "0x00FF09F6",
+                "CH_UP": "0x00FF12ED",
+                "CH_DOWN": "0x00FF10EF",
+                "INPUT_SOURCE": "0x00FF0BF4",
+                "MENU": "0x00FF1AE5",
+                "INFO": "0x00FF1CE3",
+                "BACK": "0x00FF1BE4",
+                "UP": "0x00FF0EF1",
+                "DOWN": "0x00FF0CF3",
+                "LEFT": "0x00FF0FF0",
+                "RIGHT": "0x00FF11EE",
+                "ENTER": "0x00FF0DF2",
+                "HOME": "0x00FF20DF",
+                "NETFLIX": "0x00FF21DE",
+                "YOUTUBE": "0x00FF22DD",
+                "PLAY_PAUSE": "0x00FF24DB",
+                "NUM_0": "0x00FF00FF",
+                "NUM_1": "0x00FF01FE",
+                "NUM_2": "0x00FF02FD",
+                "NUM_3": "0x00FF03FC",
+                "NUM_4": "0x00FF04FB",
+                "NUM_5": "0x00FF05FA",
+                "NUM_6": "0x00FF06F9",
+                "NUM_7": "0x00FF07F8",
+                "NUM_8": "0x00FF08F7",
+                "NUM_9": "0x00FF09F6"
+              }
+            }
+          ]
         }
-      }
+      ]
     },
-    "LG": {
-      "device_types": ["tv", "soundbar", "dvd", "blu_ray", "ac", "projector"],
-      "models": {
-        "tv_generic": {
-          "protocol": "NEC",
-          "device_address": "0x04",
-          "commands": {
-            "power": "0x08",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x09",
-            "ch_up": "0x00",
-            "ch_down": "0x01",
-            "input": "0x0B",
-            "menu": "0x43",
-            "home": "0x7C",
-            "guide": "0xAB",
-            "info": "0xAA",
-            "back": "0x28",
-            "exit": "0x5B",
-            "up": "0x40",
-            "down": "0x41",
-            "left": "0x07",
-            "right": "0x06",
-            "enter": "0x44",
-            "num_0": "0x10",
-            "num_1": "0x11",
-            "num_2": "0x12",
-            "num_3": "0x13",
-            "num_4": "0x14",
-            "num_5": "0x15",
-            "num_6": "0x16",
-            "num_7": "0x17",
-            "num_8": "0x18",
-            "num_9": "0x19",
-            "play": "0xB0",
-            "pause": "0xBA",
-            "stop": "0xB1",
-            "ff": "0x8E",
-            "rew": "0x8F",
-            "rec": "0xBD",
-            "netflix": "0xBC",
-            "amazon": "0xBE",
-            "hdmi_1": "0xCE",
-            "hdmi_2": "0xCC",
-            "hdmi_3": "0xE9",
-            "picture_mode": "0x4D",
-            "sound_mode": "0x52",
-            "sleep": "0x0E",
-            "aspect": "0x79",
-            "energy_saving": "0x95",
-            "subtitle": "0x39",
-            "settings": "0xC1"
-          }
-        },
-        "soundbar_generic": {
-          "protocol": "NEC",
-          "device_address": "0x04",
-          "commands": {
-            "power": "0x08",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x09",
-            "input_bt": "0xD0",
-            "input_optical": "0xD1",
-            "input_hdmi": "0xD2",
-            "input_aux": "0xD3",
-            "sound_effect": "0xD4",
-            "bass_up": "0xD5",
-            "bass_down": "0xD6"
-          }
+    {
+      "id": "kintech",
+      "name": "Kintech",
+      "categories": [
+        {
+          "type": "TV",
+          "protocols": ["NEC"],
+          "codesets": [
+            {
+              "id": "kintech_smart_tv",
+              "name": "Kintech Smart / LED TV",
+              "frequency_hz": 38000,
+              "protocol": "NEC",
+              "commands": {
+                "POWER": "0x00FF12ED",
+                "VOL_UP": "0x00FF07F8",
+                "VOL_DOWN": "0x00FF0AF5",
+                "MUTE": "0x00FF09F6",
+                "CH_UP": "0x00FF10EF",
+                "CH_DOWN": "0x00FF11EE",
+                "INPUT_SOURCE": "0x00FF0BF4",
+                "MENU": "0x00FF1AE5",
+                "INFO": "0x00FF1CE3",
+                "BACK": "0x00FF1BE4",
+                "UP": "0x00FF0EF1",
+                "DOWN": "0x00FF0CF3",
+                "LEFT": "0x00FF0FF0",
+                "RIGHT": "0x00FF13EC",
+                "ENTER": "0x00FF0DF2",
+                "HOME": "0x00FF20DF",
+                "NETFLIX": "0x00FF21DE",
+                "YOUTUBE": "0x00FF22DD",
+                "PLAY_PAUSE": "0x00FF24DB",
+                "NUM_0": "0x00FF00FF",
+                "NUM_1": "0x00FF01FE",
+                "NUM_2": "0x00FF02FD",
+                "NUM_3": "0x00FF03FC",
+                "NUM_4": "0x00FF04FB",
+                "NUM_5": "0x00FF05FA",
+                "NUM_6": "0x00FF06F9",
+                "NUM_7": "0x00FF07F8",
+                "NUM_8": "0x00FF08F7",
+                "NUM_9": "0x00FF09F6"
+              }
+            }
+          ]
         }
-      }
+      ]
     },
-    "Sony": {
-      "device_types": ["tv", "dvd", "blu_ray", "soundbar", "av_receiver", "projector", "ps4", "ps5"],
-      "models": {
-        "tv_generic": {
-          "protocol": "SIRC15",
-          "device_address": "0x01",
-          "commands": {
-            "power": "0x15",
-            "vol_up": "0x12",
-            "vol_down": "0x13",
-            "mute": "0x14",
-            "ch_up": "0x10",
-            "ch_down": "0x11",
-            "input": "0x25",
-            "menu": "0x60",
-            "home": "0x60",
-            "guide": "0x5A",
-            "display": "0x3A",
-            "return": "0x23",
-            "up": "0x74",
-            "down": "0x75",
-            "left": "0x34",
-            "right": "0x33",
-            "enter": "0x65",
-            "num_0": "0x09",
-            "num_1": "0x00",
-            "num_2": "0x01",
-            "num_3": "0x02",
-            "num_4": "0x03",
-            "num_5": "0x04",
-            "num_6": "0x05",
-            "num_7": "0x06",
-            "num_8": "0x07",
-            "num_9": "0x08",
-            "play": "0x58",
-            "pause": "0x39",
-            "stop": "0x38",
-            "ff": "0x5C",
-            "rew": "0x5B",
-            "netflix": "0xF1",
-            "youtube": "0xF2",
-            "hdmi_1": "0xA1",
-            "hdmi_2": "0xA2",
-            "hdmi_3": "0xA3",
-            "hdmi_4": "0xA4",
-            "picture_mode": "0x36",
-            "sleep": "0x36",
-            "subtitle": "0x46",
-            "audio": "0x17",
-            "wide": "0x3D"
-          }
-        },
-        "av_receiver": {
-          "protocol": "SIRC15",
-          "device_address": "0x10",
-          "commands": {
-            "power": "0x15",
-            "vol_up": "0x12",
-            "vol_down": "0x13",
-            "mute": "0x14",
-            "input_bd": "0x55",
-            "input_dvd": "0x53",
-            "input_game": "0x5E",
-            "input_tv": "0x54",
-            "input_bt": "0x5D",
-            "surround": "0x5F"
-          }
+    {
+      "id": "samsung",
+      "name": "Samsung",
+      "categories": [
+        {
+          "type": "TV",
+          "protocols": ["SAMSUNG32"],
+          "codesets": [
+            {
+              "id": "samsung_tv_std",
+              "name": "Samsung Smart TV (2010+)",
+              "frequency_hz": 37900,
+              "protocol": "SAMSUNG32",
+              "commands": {
+                "POWER": "0xE0E040BF",
+                "VOL_UP": "0xE0E0E01F",
+                "VOL_DOWN": "0xE0E0D02F",
+                "MUTE": "0xE0E0F00F",
+                "CH_UP": "0xE0E048B7",
+                "CH_DOWN": "0xE0E008F7",
+                "INPUT_SOURCE": "0xE0E0807F",
+                "MENU": "0xE0E058A7",
+                "INFO": "0xE0E0F807",
+                "BACK": "0xE0E01AE5",
+                "UP": "0xE0E006F9",
+                "DOWN": "0xE0E08679",
+                "LEFT": "0xE0E0A659",
+                "RIGHT": "0xE0E046B9",
+                "ENTER": "0xE0E016E9",
+                "HOME": "0xE0E09E61",
+                "NETFLIX": "0xE0E0B14E",
+                "YOUTUBE": "0xE0E0C13E",
+                "PLAY_PAUSE": "0xE0E052AD"
+              }
+            }
+          ]
         }
-      }
+      ]
     },
-    "Panasonic": {
-      "device_types": ["tv", "dvd", "blu_ray", "ac", "projector"],
-      "models": {
-        "tv_generic": {
-          "protocol": "Kaseikyo",
-          "device_address": "0x2002",
-          "commands": {
-            "power": "0x3D",
-            "vol_up": "0x20",
-            "vol_down": "0x21",
-            "mute": "0x32",
-            "ch_up": "0x34",
-            "ch_down": "0x35",
-            "input": "0xF0",
-            "menu": "0x06",
-            "home": "0x49",
-            "guide": "0xE2",
-            "info": "0x39",
-            "return": "0x2B",
-            "exit": "0xCB",
-            "up": "0x52",
-            "down": "0x53",
-            "left": "0x54",
-            "right": "0x55",
-            "enter": "0x49",
-            "num_0": "0x00",
-            "num_1": "0x01",
-            "num_2": "0x02",
-            "num_3": "0x03",
-            "num_4": "0x04",
-            "num_5": "0x05",
-            "num_6": "0x06",
-            "num_7": "0x07",
-            "num_8": "0x08",
-            "num_9": "0x09",
-            "play": "0x0C",
-            "pause": "0x06",
-            "stop": "0x00",
-            "ff": "0x0A",
-            "rew": "0x09",
-            "rec": "0x08",
-            "netflix": "0x92",
-            "picture_mode": "0x47",
-            "aspect": "0x43",
-            "sleep": "0x30",
-            "subtitle": "0x01",
-            "3d": "0x96"
-          }
-        },
-        "ac_generic": {
-          "protocol": "Kaseikyo",
-          "device_address": "0x4004",
-          "commands": {
-            "power": "0x00",
-            "mode_cool": "0x30",
-            "mode_heat": "0x40",
-            "mode_auto": "0x00",
-            "mode_dry": "0x20",
-            "mode_fan": "0x60",
-            "temp_up": "0x01",
-            "temp_down": "0x02",
-            "fan_auto": "0xA0",
-            "fan_low": "0x30",
-            "fan_med": "0x50",
-            "fan_high": "0x70",
-            "swing_auto": "0x0F",
-            "swing_off": "0x00",
-            "timer_on": "0x04",
-            "timer_off": "0x05",
-            "quiet": "0x06",
-            "powerful": "0x07"
-          }
+    {
+      "id": "lg",
+      "name": "LG",
+      "categories": [
+        {
+          "type": "TV",
+          "protocols": ["NEC"],
+          "codesets": [
+            {
+              "id": "lg_tv_std",
+              "name": "LG OLED / Smart TV",
+              "frequency_hz": 38000,
+              "protocol": "NEC",
+              "commands": {
+                "POWER": "0x20DF10EF",
+                "VOL_UP": "0x20DF40BF",
+                "VOL_DOWN": "0x20DFC03F",
+                "MUTE": "0x20DF906F",
+                "CH_UP": "0x20DF00FF",
+                "CH_DOWN": "0x20DF807F",
+                "INPUT_SOURCE": "0x20DFD02F",
+                "MENU": "0x20DFC23D",
+                "INFO": "0x20DF55AA",
+                "BACK": "0x20DF14EB",
+                "UP": "0x20DF02FD",
+                "DOWN": "0x20DF827D",
+                "LEFT": "0x20DFE01F",
+                "RIGHT": "0x20DF609F",
+                "ENTER": "0x20DF22DD",
+                "HOME": "0x20DF3EC1",
+                "NETFLIX": "0x20DF58A7",
+                "YOUTUBE": "0x20DF7887"
+              }
+            }
+          ]
         }
-      }
+      ]
     },
-    "Vizio": {
-      "device_types": ["tv", "soundbar"],
-      "models": {
-        "tv_generic": {
-          "protocol": "NEC",
-          "device_address": "0x04",
-          "commands": {
-            "power": "0x08",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x09",
-            "ch_up": "0x00",
-            "ch_down": "0x01",
-            "input": "0x0B",
-            "menu": "0x0E",
-            "up": "0x40",
-            "down": "0x41",
-            "left": "0x07",
-            "right": "0x06",
-            "enter": "0x44",
-            "back": "0x28",
-            "smartcast": "0x80",
-            "play": "0xB0",
-            "pause": "0xBA",
-            "num_0": "0x10",
-            "num_1": "0x11",
-            "num_2": "0x12",
-            "num_3": "0x13",
-            "num_4": "0x14",
-            "num_5": "0x15",
-            "num_6": "0x16",
-            "num_7": "0x17",
-            "num_8": "0x18",
-            "num_9": "0x19"
-          }
+    {
+      "id": "sony",
+      "name": "Sony",
+      "categories": [
+        {
+          "type": "TV",
+          "protocols": ["SIRC15", "SIRC20"],
+          "codesets": [
+            {
+              "id": "sony_bravia_std",
+              "name": "Sony Bravia Smart TV",
+              "frequency_hz": 40000,
+              "protocol": "SIRC15",
+              "commands": {
+                "POWER": "0x000A8A",
+                "VOL_UP": "0x000484",
+                "VOL_DOWN": "0x000C8C",
+                "MUTE": "0x000282",
+                "CH_UP": "0x000080",
+                "CH_DOWN": "0x000888",
+                "INPUT_SOURCE": "0x000A5A",
+                "MENU": "0x000070",
+                "BACK": "0x000C70",
+                "UP": "0x0002F0",
+                "DOWN": "0x000AF0",
+                "LEFT": "0x000CE0",
+                "RIGHT": "0x0002E0",
+                "ENTER": "0x000AE0"
+              }
+            }
+          ]
         }
-      }
-    },
-    "TCL": {
-      "device_types": ["tv"],
-      "models": {
-        "tv_generic": {
-          "protocol": "NEC",
-          "device_address": "0x40",
-          "commands": {
-            "power": "0x0C",
-            "vol_up": "0x10",
-            "vol_down": "0x11",
-            "mute": "0x0D",
-            "ch_up": "0x20",
-            "ch_down": "0x21",
-            "input": "0x04",
-            "menu": "0x06",
-            "home": "0x40",
-            "up": "0x02",
-            "down": "0x03",
-            "left": "0x50",
-            "right": "0x51",
-            "enter": "0x0A",
-            "back": "0x1C",
-            "netflix": "0xF1",
-            "play": "0x41",
-            "pause": "0x42"
-          }
-        }
-      }
-    },
-    "Hisense": {
-      "device_types": ["tv"],
-      "models": {
-        "tv_generic": {
-          "protocol": "NEC",
-          "device_address": "0x00",
-          "commands": {
-            "power": "0x08",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x09",
-            "ch_up": "0x00",
-            "ch_down": "0x01",
-            "input": "0x0B",
-            "menu": "0x0E",
-            "home": "0x56",
-            "guide": "0xCC",
-            "up": "0x40",
-            "down": "0x41",
-            "left": "0x07",
-            "right": "0x06",
-            "enter": "0x44",
-            "back": "0x28",
-            "netflix": "0xF1",
-            "youtube": "0xF2",
-            "play": "0xB0",
-            "pause": "0xBA"
-          }
-        }
-      }
-    },
-    "Philips": {
-      "device_types": ["tv", "dvd", "blu_ray"],
-      "models": {
-        "tv_generic": {
-          "protocol": "RC6",
-          "device_address": "0x00",
-          "commands": {
-            "power": "0x0C",
-            "vol_up": "0x10",
-            "vol_down": "0x11",
-            "mute": "0x0D",
-            "ch_up": "0x20",
-            "ch_down": "0x21",
-            "input_source": "0x38",
-            "menu": "0x54",
-            "home": "0x54",
-            "guide": "0xCC",
-            "info": "0x0F",
-            "return": "0x0A",
-            "up": "0x58",
-            "down": "0x59",
-            "left": "0x5A",
-            "right": "0x5B",
-            "enter": "0x5C",
-            "num_0": "0x00",
-            "num_1": "0x01",
-            "num_2": "0x02",
-            "num_3": "0x03",
-            "num_4": "0x04",
-            "num_5": "0x05",
-            "num_6": "0x06",
-            "num_7": "0x07",
-            "num_8": "0x08",
-            "num_9": "0x09",
-            "play": "0x2C",
-            "pause": "0x30",
-            "stop": "0x31",
-            "ff": "0x28",
-            "rew": "0x29",
-            "ambilight": "0xE5",
-            "netflix": "0xF1"
-          }
-        }
-      }
-    },
-    "Toshiba": {
-      "device_types": ["tv"],
-      "models": {
-        "tv_generic": {
-          "protocol": "NEC",
-          "device_address": "0x40",
-          "commands": {
-            "power": "0x12",
-            "vol_up": "0x1A",
-            "vol_down": "0x1E",
-            "mute": "0x10",
-            "ch_up": "0x1B",
-            "ch_down": "0x1F",
-            "input": "0x0F",
-            "menu": "0x41",
-            "up": "0x42",
-            "down": "0x43",
-            "left": "0x44",
-            "right": "0x45",
-            "enter": "0x46",
-            "back": "0x47",
-            "num_0": "0x00",
-            "num_1": "0x01",
-            "num_2": "0x02",
-            "num_3": "0x03",
-            "num_4": "0x04",
-            "num_5": "0x05",
-            "num_6": "0x06",
-            "num_7": "0x07",
-            "num_8": "0x08",
-            "num_9": "0x09"
-          }
-        }
-      }
-    },
-    "Sharp": {
-      "device_types": ["tv"],
-      "models": {
-        "tv_generic": {
-          "protocol": "Sharp",
-          "device_address": "0x01",
-          "commands": {
-            "power": "0x16",
-            "vol_up": "0x14",
-            "vol_down": "0x15",
-            "mute": "0x17",
-            "ch_up": "0x19",
-            "ch_down": "0x1A",
-            "input": "0x1E",
-            "menu": "0x51",
-            "up": "0x52",
-            "down": "0x53",
-            "left": "0x54",
-            "right": "0x55",
-            "enter": "0x44",
-            "back": "0x56"
-          }
-        }
-      }
-    },
-    "Denon": {
-      "device_types": ["av_receiver", "soundbar"],
-      "models": {
-        "avr_generic": {
-          "protocol": "Denon",
-          "device_address": "0x00",
-          "commands": {
-            "power": "0x00",
-            "vol_up": "0x04",
-            "vol_down": "0x05",
-            "mute": "0x06",
-            "input_cd": "0x0A",
-            "input_dvd": "0x0C",
-            "input_bd": "0x0E",
-            "input_game": "0x14",
-            "input_tv": "0x1A",
-            "input_bt": "0x1C",
-            "input_aux1": "0x20",
-            "input_aux2": "0x22",
-            "input_media_player": "0x24",
-            "surround_auto": "0x30",
-            "surround_stereo": "0x32",
-            "surround_movie": "0x34",
-            "surround_music": "0x36",
-            "surround_game": "0x38",
-            "bass_up": "0x40",
-            "bass_down": "0x42",
-            "treble_up": "0x44",
-            "treble_down": "0x46"
-          }
-        }
-      }
-    },
-    "Yamaha": {
-      "device_types": ["av_receiver", "soundbar"],
-      "models": {
-        "avr_generic": {
-          "protocol": "NEC",
-          "device_address": "0x7A",
-          "commands": {
-            "power": "0x1F",
-            "vol_up": "0x1A",
-            "vol_down": "0x1B",
-            "mute": "0x1C",
-            "input_hdmi1": "0xE1",
-            "input_hdmi2": "0xE2",
-            "input_hdmi3": "0xE3",
-            "input_hdmi4": "0xE4",
-            "input_av1": "0xA1",
-            "input_av2": "0xA2",
-            "input_bt": "0xB0",
-            "input_tuner": "0xA8",
-            "input_net": "0xB1",
-            "input_usb": "0xB2",
-            "surround_auto": "0xE0",
-            "surround_stereo": "0xE5",
-            "surround_movie": "0xE7",
-            "surround_music": "0xE8",
-            "scene_1": "0x70",
-            "scene_2": "0x71",
-            "scene_3": "0x72",
-            "scene_4": "0x73"
-          }
-        }
-      }
-    },
-    "Bose": {
-      "device_types": ["soundbar", "speaker"],
-      "models": {
-        "soundbar_generic": {
-          "protocol": "Bose",
-          "device_address": "0x00",
-          "commands": {
-            "power": "0x01",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x04",
-            "input_tv": "0x10",
-            "input_bt": "0x11",
-            "input_aux": "0x12",
-            "input_hdmi": "0x13",
-            "bass_up": "0x20",
-            "bass_down": "0x21",
-            "dialogue_mode": "0x22"
-          }
-        }
-      }
-    },
-    "Apple_TV": {
-      "device_types": ["streaming_device"],
-      "models": {
-        "apple_tv_gen4_plus": {
-          "protocol": "NEC",
-          "device_address": "0xEE",
-          "commands": {
-            "power": "0x02",
-            "menu": "0x04",
-            "up": "0x05",
-            "down": "0x06",
-            "left": "0x09",
-            "right": "0x07",
-            "enter": "0x0A",
-            "play_pause": "0x0B",
-            "home": "0x0C",
-            "vol_up": "0x0E",
-            "vol_down": "0x0F"
-          }
-        }
-      }
-    },
-    "Fire_TV": {
-      "device_types": ["streaming_device"],
-      "models": {
-        "firestick_generic": {
-          "protocol": "NEC",
-          "device_address": "0x80",
-          "commands": {
-            "power": "0x01",
-            "home": "0x02",
-            "back": "0x03",
-            "menu": "0x04",
-            "up": "0x05",
-            "down": "0x06",
-            "left": "0x07",
-            "right": "0x08",
-            "enter": "0x09",
-            "play_pause": "0x0A",
-            "ff": "0x0B",
-            "rew": "0x0C",
-            "vol_up": "0x0D",
-            "vol_down": "0x0E",
-            "mute": "0x0F"
-          }
-        }
-      }
-    },
-    "Daikin": {
-      "device_types": ["ac"],
-      "models": {
-        "ac_generic": {
-          "protocol": "NEC",
-          "device_address": "0x11",
-          "commands": {
-            "power": "0x00",
-            "mode_cool": "0x30",
-            "mode_heat": "0x40",
-            "mode_auto": "0x00",
-            "mode_dry": "0x20",
-            "mode_fan": "0x60",
-            "temp_18": "0x08",
-            "temp_19": "0x09",
-            "temp_20": "0x0A",
-            "temp_21": "0x0B",
-            "temp_22": "0x0C",
-            "temp_23": "0x0D",
-            "temp_24": "0x0E",
-            "temp_25": "0x0F",
-            "temp_26": "0x10",
-            "temp_27": "0x11",
-            "temp_28": "0x12",
-            "temp_29": "0x13",
-            "temp_30": "0x14",
-            "fan_auto": "0xA0",
-            "fan_1": "0x30",
-            "fan_2": "0x40",
-            "fan_3": "0x50",
-            "fan_4": "0x60",
-            "fan_5": "0x70",
-            "swing_on": "0x0F",
-            "swing_off": "0x00",
-            "timer_on": "0x04",
-            "timer_off": "0x05",
-            "quiet": "0x80",
-            "powerful": "0x90"
-          }
-        }
-      }
-    },
-    "Mitsubishi_Electric": {
-      "device_types": ["ac", "projector"],
-      "models": {
-        "ac_generic": {
-          "protocol": "Mitsubishi",
-          "device_address": "0x23",
-          "commands": {
-            "power": "0x00",
-            "mode_cool": "0x18",
-            "mode_heat": "0x08",
-            "mode_auto": "0x20",
-            "mode_dry": "0x10",
-            "temp_16": "0x00",
-            "temp_17": "0x01",
-            "temp_18": "0x02",
-            "temp_19": "0x03",
-            "temp_20": "0x04",
-            "temp_21": "0x05",
-            "temp_22": "0x06",
-            "temp_23": "0x07",
-            "temp_24": "0x08",
-            "temp_25": "0x09",
-            "temp_26": "0x0A",
-            "temp_27": "0x0B",
-            "temp_28": "0x0C",
-            "temp_29": "0x0D",
-            "temp_30": "0x0E",
-            "temp_31": "0x0F",
-            "fan_auto": "0x80",
-            "fan_1": "0x01",
-            "fan_2": "0x02",
-            "fan_3": "0x03",
-            "fan_4": "0x04",
-            "swing_on": "0xC0",
-            "swing_off": "0x40"
-          }
-        }
-      }
-    },
-    "Carrier": {
-      "device_types": ["ac"],
-      "models": {
-        "ac_generic": {
-          "protocol": "NEC",
-          "device_address": "0x10",
-          "commands": {
-            "power": "0x00",
-            "mode_cool": "0x01",
-            "mode_heat": "0x02",
-            "mode_auto": "0x03",
-            "mode_dry": "0x04",
-            "mode_fan": "0x05",
-            "temp_up": "0x06",
-            "temp_down": "0x07",
-            "fan_auto": "0x08",
-            "fan_low": "0x09",
-            "fan_med": "0x0A",
-            "fan_high": "0x0B",
-            "swing": "0x0C",
-            "sleep": "0x0D",
-            "timer": "0x0E"
-          }
-        }
-      }
-    },
-    "Epson": {
-      "device_types": ["projector"],
-      "models": {
-        "projector_generic": {
-          "protocol": "NEC",
-          "device_address": "0x05",
-          "commands": {
-            "power_on": "0x04",
-            "power_off": "0x18",
-            "menu": "0x06",
-            "up": "0x58",
-            "down": "0x59",
-            "left": "0x5A",
-            "right": "0x5B",
-            "enter": "0x16",
-            "back": "0x48",
-            "input_hdmi": "0x04",
-            "input_vga": "0x05",
-            "input_video": "0x06",
-            "source_search": "0x30",
-            "freeze": "0x07",
-            "blank": "0x08",
-            "zoom_in": "0x0A",
-            "zoom_out": "0x0B",
-            "vol_up": "0x56",
-            "vol_down": "0x57",
-            "mute": "0x55",
-            "aspect": "0x40",
-            "keystone_up": "0x46",
-            "keystone_down": "0x47"
-          }
-        }
-      }
-    },
-    "BenQ": {
-      "device_types": ["projector"],
-      "models": {
-        "projector_generic": {
-          "protocol": "NEC",
-          "device_address": "0x30",
-          "commands": {
-            "power_on": "0x00",
-            "power_off": "0x01",
-            "menu": "0x06",
-            "up": "0x0C",
-            "down": "0x0D",
-            "left": "0x0E",
-            "right": "0x0F",
-            "enter": "0x14",
-            "back": "0x15",
-            "input_hdmi1": "0x08",
-            "input_hdmi2": "0x09",
-            "input_vga": "0x0A",
-            "blank": "0x16",
-            "freeze": "0x17",
-            "auto": "0x02",
-            "zoom_in": "0x03",
-            "zoom_out": "0x04"
-          }
-        }
-      }
-    },
-    "JBL": {
-      "device_types": ["soundbar", "speaker"],
-      "models": {
-        "soundbar_generic": {
-          "protocol": "NEC",
-          "device_address": "0x80",
-          "commands": {
-            "power": "0x01",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x04",
-            "input_bt": "0x10",
-            "input_hdmi": "0x11",
-            "input_optical": "0x12",
-            "input_aux": "0x13",
-            "bass_up": "0x20",
-            "bass_down": "0x21",
-            "surround": "0x22",
-            "play_pause": "0x30"
-          }
-        }
-      }
-    },
-    "Sonos": {
-      "device_types": ["soundbar"],
-      "models": {
-        "soundbar_generic": {
-          "protocol": "NEC",
-          "device_address": "0x90",
-          "commands": {
-            "power": "0x01",
-            "vol_up": "0x02",
-            "vol_down": "0x03",
-            "mute": "0x04",
-            "play_pause": "0x05",
-            "skip_next": "0x06",
-            "skip_prev": "0x07",
-            "input_tv": "0x10",
-            "input_line_in": "0x11",
-            "speech_enhancement": "0x20",
-            "night_mode": "0x21"
-          }
-        }
-      }
+      ]
     }
-  },
-  "protocol_specs": {
-    "NEC": {
-      "carrier_frequency_hz": 38000,
-      "duty_cycle": 0.33,
-      "leader_mark_us": 9000,
-      "leader_space_us": 4500,
-      "bit_mark_us": 560,
-      "one_space_us": 1690,
-      "zero_space_us": 560,
-      "stop_bit_us": 560,
-      "repeat_gap_us": 110000,
-      "bits": 32,
-      "lsb_first": true,
-      "encoding": "pulse_distance"
-    },
-    "Samsung32": {
-      "carrier_frequency_hz": 38000,
-      "duty_cycle": 0.33,
-      "leader_mark_us": 4500,
-      "leader_space_us": 4500,
-      "bit_mark_us": 560,
-      "one_space_us": 1690,
-      "zero_space_us": 560,
-      "stop_bit_us": 560,
-      "bits": 32,
-      "lsb_first": true,
-      "encoding": "pulse_distance"
-    },
-    "RC5": {
-      "carrier_frequency_hz": 36000,
-      "duty_cycle": 0.33,
-      "bit_time_us": 889,
-      "bits": 14,
-      "msb_first": true,
-      "encoding": "manchester"
-    },
-    "RC6": {
-      "carrier_frequency_hz": 36000,
-      "duty_cycle": 0.33,
-      "leader_mark_us": 2666,
-      "leader_space_us": 889,
-      "bit_time_us": 444,
-      "bits": 20,
-      "msb_first": true,
-      "encoding": "manchester"
-    },
-    "SIRC15": {
-      "carrier_frequency_hz": 40000,
-      "duty_cycle": 0.33,
-      "leader_mark_us": 2400,
-      "leader_space_us": 600,
-      "bit_mark_one_us": 1200,
-      "bit_mark_zero_us": 600,
-      "bit_space_us": 600,
-      "bits": 15,
-      "lsb_first": true,
-      "encoding": "pulse_width"
-    },
-    "Kaseikyo": {
-      "carrier_frequency_hz": 37000,
-      "duty_cycle": 0.33,
-      "leader_mark_us": 3456,
-      "leader_space_us": 1728,
-      "bit_mark_us": 432,
-      "one_space_us": 1296,
-      "zero_space_us": 432,
-      "stop_bit_us": 432,
-      "bits": 48,
-      "lsb_first": true,
-      "encoding": "pulse_distance"
-    }
-  }
+  ]
 }
