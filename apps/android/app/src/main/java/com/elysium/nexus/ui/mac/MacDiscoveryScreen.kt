@@ -62,6 +62,7 @@ import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonSectionHeader
 import com.elysium.nexus.ui.theme.NeonStatusPill
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The Mac/PC discovery screen.
@@ -93,8 +94,34 @@ fun MacDiscoveryScreen(
     LaunchedEffect(Unit) {
         isScanning = true
         val foundList = mutableListOf<DiscoveredHost>()
+
+        // 1. Fast parallel subnet & gateway probe (< 500ms)
+        launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val fastHost = com.elysium.nexus.core.transport.mac.FastHostScanner.findFirstActiveHost(context, timeoutMs = 1500)
+                if (fastHost != null) {
+                    val hostType = HostType.MAC_DESKTOP
+                    val discovered = DiscoveredHost(
+                        id = fastHost.host,
+                        name = fastHost.name,
+                        type = hostType,
+                        signalStrength = 4,
+                        isOnline = true,
+                        host = fastHost.host,
+                        port = fastHost.port,
+                        publicKeyB64 = fastHost.publicKeyB64
+                    )
+                    if (foundList.none { it.host == discovered.host }) {
+                        foundList.add(discovered)
+                        hosts = foundList.toList()
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 2. mDNS discovery
         try {
-            kotlinx.coroutines.withTimeoutOrNull(2500) {
+            kotlinx.coroutines.withTimeoutOrNull(2000) {
                 discovery.discover().collect { item ->
                     val hostType = when {
                         item.model.lowercase().contains("macbook") -> HostType.MAC_LAPTOP
@@ -124,10 +151,8 @@ fun MacDiscoveryScreen(
         // Auto-connect to the first discovered host on Wi-Fi automatically!
         val autoTarget = foundList.firstOrNull { it.isOnline } ?: foundList.firstOrNull()
         if (autoTarget != null) {
-            delay(200)
+            delay(150)
             onHostSelected(autoTarget)
-        } else if (hosts.isEmpty()) {
-            hosts = MOCK_HOSTS
         }
     }
     ResponsiveContainer(modifier = modifier) { info ->
