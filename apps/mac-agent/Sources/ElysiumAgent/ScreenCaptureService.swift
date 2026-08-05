@@ -13,22 +13,20 @@ final class ScreenCaptureService {
     private var sendBlock: ((Data) -> Void)?
     private var isRunning = false
     private var isSendingFrame = false
-    private var quality: CGFloat = 0.50 // Optimized for ultra-fast <2ms JPEG encoding & small frame size
-    /// Target width: 1280px (crisp text, 4x lower bandwidth, <5ms latency)
-    private let targetWidth: CGFloat = 1280
-    /// Target FPS: 60 FPS over USB-C wired cable for 0 latency feeling
+    private var quality: CGFloat = 0.65 // Optimized for ultra-fast <3ms JPEG encoding
+    /// Target width: 1920px (Full HD text clarity)
+    private let targetWidth: CGFloat = 1920
+    /// Target FPS: 60 FPS over USB-C wired cable for near-0 latency feeling
     private var targetFPS: Int = 60
 
     static let shared = ScreenCaptureService()
 
     /// Start streaming screen frames at maximum speed.
     func start(send: @escaping (Data) -> Void) {
-        if isRunning {
-            stop()
-        }
+        guard !isRunning else { return }
         isRunning = true
         sendBlock = send
-        Log.info("ScreenCapture: starting ultra-low latency 60 FPS stream (quality=\(quality), width=\(targetWidth))")
+        Log.info("ScreenCapture: starting ultra-low latency 60 FPS Full HD stream (quality=\(quality))")
 
         // Check & request Screen Recording permission if needed
         if #available(macOS 10.15, *) {

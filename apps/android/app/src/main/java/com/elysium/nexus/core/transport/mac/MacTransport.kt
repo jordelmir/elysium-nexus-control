@@ -246,7 +246,11 @@ class MacTransport {
                 if (pairType == MacProtocol.FrameType.PAIR_OK) {
                     val pairPlain = ck.decrypt(pairPayload)
                     if (pairPlain.isNotEmpty() && pairPlain[0] != 0x01.toByte()) {
-                        Log.w(TAG, "Pairing rejected by server, retrying in auto-approve mode")
+                        Log.w(TAG, "Pairing rejected by server")
+                        _state.value = MacConnectionState.Error("Pairing rejected: wrong PIN")
+                        connected.set(false)
+                        sock.close()
+                        return@withContext _state.value
                     }
                 } else {
                     Log.d(TAG, "Server responded with frame $pairType; auto-approved zero-PIN connection active")
