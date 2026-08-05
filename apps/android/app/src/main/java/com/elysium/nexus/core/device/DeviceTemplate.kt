@@ -1289,6 +1289,11 @@ val TV_BUTTONS: List<DeviceButton> = listOf(
     DeviceButton("vol_down", "Vol -", "Vol -", "vol_down", 0x0A),
     DeviceButton("info", "Info", "Info", "info", 0x1C),
     DeviceButton("last", "Last Ch", "Último", "last", 0x14),
+    // Smart & Streaming row
+    DeviceButton("home", "Home", "Inicio", "home", 0x20),
+    DeviceButton("netflix", "Netflix", "Netflix", "netflix", 0x21, layoutWeight = 2),
+    DeviceButton("youtube", "YouTube", "YouTube", "youtube", 0x22, layoutWeight = 2),
+    DeviceButton("play_pause", "Play/Pause", "Play/Pausa", "play", 0x24),
     // Numpad
     DeviceButton("n1", "1", "1", "num_1", 0x01),
     DeviceButton("n2", "2", "2", "num_2", 0x02),

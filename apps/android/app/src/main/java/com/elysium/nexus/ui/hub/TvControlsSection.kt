@@ -102,6 +102,9 @@ fun TvControlsSection(
     val tier1Brands = remember {
         setOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     }
+    val tier1Order = remember {
+        listOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+    }
     val filteredTvs by remember {
         derivedStateOf {
             if (searchQuery.isBlank()) allTvs
@@ -112,8 +115,10 @@ fun TvControlsSection(
         }
     }
     val tier1 = filteredTvs.filter { it.brand in tier1Brands }
-    val tier2 = filteredTvs.filter { it.brand !in tier1Brands && tier1Brands.contains(it.brand).not() }
-    // Tier 2: brands that aren't in tier1
+        .sortedBy { tv ->
+            val idx = tier1Order.indexOf(tv.brand)
+            if (idx >= 0) idx else 999
+        }
     val tier2Actual = filteredTvs.filter { it.brand !in tier1Brands }
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
@@ -367,7 +372,7 @@ private fun TvBrandList(
     cardSpacing: androidx.compose.ui.unit.Dp,
     onDeviceSelected: (DeviceTemplate) -> Unit
 ) {
-    val tier1Brands = setOf("Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+    val tier1Brands = setOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     val rows = tvs.chunked(columns)
     Column(
         modifier = Modifier
@@ -404,8 +409,10 @@ private fun TvBrandCard(
     modifier: Modifier = Modifier
 ) {
     val isUniversal = tv.id == "tv-universal-generic"
+    val isKintech = tv.id == "tv-kintech-generic" || tv.brand.equals("Kintech", ignoreCase = true)
     val accentColor = when {
         isUniversal -> ElysiumColors.NeonYellow
+        isKintech -> ElysiumColors.NeonPurple
         isPopular -> ElysiumColors.NeonOrange
         else -> ElysiumColors.NeonCyan
     }

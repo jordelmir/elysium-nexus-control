@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -409,6 +411,9 @@ private fun iconForButton(hint: String): ImageVector = when (hint) {
     "back" -> Icons.Filled.Close
     "info" -> Icons.Filled.Info
     "last" -> Icons.Filled.Refresh
+    "home" -> Icons.Filled.Home
+    "netflix", "youtube", "prime" -> Icons.Filled.LiveTv
+    "play" -> Icons.Filled.PlayArrow
     "num_1", "num_2", "num_3", "num_4", "num_5" -> Icons.Filled.Numbers
     "num_6", "num_7", "num_8", "num_9", "num_0" -> Icons.Filled.Numbers
     "minus" -> Icons.Filled.FastRewind
