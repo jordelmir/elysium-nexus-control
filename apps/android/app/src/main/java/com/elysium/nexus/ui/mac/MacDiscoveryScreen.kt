@@ -94,7 +94,7 @@ fun MacDiscoveryScreen(
         isScanning = true
         val foundList = mutableListOf<DiscoveredHost>()
         try {
-            kotlinx.coroutines.withTimeoutOrNull(3000) {
+            kotlinx.coroutines.withTimeoutOrNull(2500) {
                 discovery.discover().collect { item ->
                     val hostType = when {
                         item.model.lowercase().contains("macbook") -> HostType.MAC_LAPTOP
@@ -119,10 +119,16 @@ fun MacDiscoveryScreen(
                 }
             }
         } catch (_: Throwable) {}
-        if (hosts.isEmpty()) {
+        isScanning = false
+
+        // Auto-connect to the first discovered host on Wi-Fi automatically!
+        val autoTarget = foundList.firstOrNull { it.isOnline } ?: foundList.firstOrNull()
+        if (autoTarget != null) {
+            delay(200)
+            onHostSelected(autoTarget)
+        } else if (hosts.isEmpty()) {
             hosts = MOCK_HOSTS
         }
-        isScanning = false
     }
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
