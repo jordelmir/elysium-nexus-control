@@ -379,7 +379,8 @@ class MainActivity : ComponentActivity() {
                             navStack.value = navStack.value + HubDestination.TvControls
                         },
                         onMacSelected = {
-                            navStack.value = navStack.value + HubDestination.MacDiscovery
+                            // USB-C Direct transport is top priority when connecting to Mac/PC
+                            navStack.value = navStack.value + HubDestination.UsbC
                         },
                         onUsbCSelected = {
                             navStack.value = navStack.value + HubDestination.UsbC

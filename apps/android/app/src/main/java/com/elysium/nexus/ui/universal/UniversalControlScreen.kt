@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -687,6 +688,9 @@ private fun ConnectedControls(
     onRecenter: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
+    val view = androidx.compose.ui.platform.LocalView.current
+
     Box(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // The trackpad OR the air-mouse surface.
@@ -695,7 +699,7 @@ private fun ConnectedControls(
                     onRecenter = onRecenter,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(280.dp)
+                        .height(260.dp)
                 )
             } else {
                 val trackpadState = remember { TrackpadState() }
@@ -704,9 +708,68 @@ private fun ConnectedControls(
                     state = trackpadState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(280.dp)
+                        .height(260.dp)
                 )
             }
+
+            // Dedicated Mouse Clic Izquierdo / Clic Derecho buttons (matching USB-C screen)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                        scope.launch {
+                            transport.sendMouseReport(HidReports.mouse(HidDescriptors.MouseButton.LEFT, 0, 0))
+                            delay(50)
+                            transport.sendMouseReport(HidReports.mouse(0, 0, 0))
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = ElysiumColors.Surface
+                    )
+                ) {
+                    Text(
+                        "CLIC IZQUIERDO",
+                        color = ElysiumColors.OnSurface,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                androidx.compose.material3.Button(
+                    onClick = {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                        scope.launch {
+                            transport.sendMouseReport(HidReports.mouse(HidDescriptors.MouseButton.RIGHT, 0, 0))
+                            delay(50)
+                            transport.sendMouseReport(HidReports.mouse(0, 0, 0))
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = ElysiumColors.Surface
+                    )
+                ) {
+                    Text(
+                        "CLIC DERECHO",
+                        color = ElysiumColors.OnSurface,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             // The mode toggle + modifier/action/media bar.
             ModeBar(
                 airMouseEnabled = airMouseEnabled,
@@ -1402,20 +1465,20 @@ private fun UniversalKeyboardOverlay(
                     BasicTextField(
                         value = text,
                         onValueChange = { newText ->
-                            val newChars = newText.drop(text.length)
-                            if (newChars.isNotEmpty()) {
+                            if (newText.length > text.length) {
+                                val newChars = newText.substring(text.length)
                                 newChars.forEach { c ->
                                     val (hid, needsShift) = asciiToHid(c)
                                     val mod = if (needsShift) HidDescriptors.Modifier.LEFT_SHIFT else 0
                                     transport.sendKeyboardReport(HidReports.keyboard(mod, hid))
                                     transport.sendKeyboardReport(HidReports.keyboardReleaseAll())
                                 }
+                            } else if (newText.length < text.length) {
+                                val deletedCount = text.length - newText.length
+                                repeat(deletedCount) {
+                                    sendKey(transport, 0x2A, 0)
+                                }
                             }
-                            // Backspace detection: if newText shorter than
-                            // text, it means user deleted; we already
-                            // sent the character so we don't need to
-                            // backspace via HID (host sees the
-                            // disappearance of the character).
                             text = newText
                         },
                         textStyle = TextStyle(

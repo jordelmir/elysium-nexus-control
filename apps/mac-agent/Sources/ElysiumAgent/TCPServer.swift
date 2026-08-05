@@ -40,7 +40,10 @@ final class TCPServer {
     }
 
     func start() async throws {
-        let parameters = NWParameters.tcp
+        let tcpOpts = NWProtocolTCP.Options()
+        tcpOpts.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOpts)
+        parameters.allowLocalEndpointReuse = true
         if let inOpts = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
             inOpts.version = .v4
         }
