@@ -85,6 +85,9 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
  * tier 1 brands have a small star icon next to
  * the name indicating "popular".
  */
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+
 @Composable
 fun TvControlsSection(
     onBack: () -> Unit,
@@ -97,7 +100,7 @@ fun TvControlsSection(
         DeviceCatalog.byCategory(DeviceCategory.TV)
     }
     val tier1Brands = remember {
-        setOf("Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+        setOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     }
     val filteredTvs by remember {
         derivedStateOf {
@@ -308,16 +311,11 @@ private fun SearchBar(
                 tint = ElysiumColors.NeonCyan,
                 modifier = Modifier.size(20.dp)
             )
-            // We use a basic TextField-equivalent
-            // (Box with text + cursor) to avoid
-            // adding focus management complexity.
-            // The user taps the field and types via
-            // the soft keyboard.
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable { /* focus the field */ }
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.CenterStart
             ) {
                 if (query.isEmpty()) {
                     Text(
@@ -325,24 +323,23 @@ private fun SearchBar(
                         style = TextStyle(fontSize = 14.sp),
                         color = ElysiumColors.OnSurfaceMuted
                     )
-                } else {
-                    Text(
-                        text = query,
-                        style = TextStyle(
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = ElysiumColors.OnSurface
-                    )
                 }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    textStyle = TextStyle(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = ElysiumColors.OnSurface
+                    ),
+                    cursorBrush = SolidColor(ElysiumColors.NeonCyan),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-            // We don't render a real TextField here
-            // (would require focus management); the
-            // user can clear by tapping the X icon
-            // when present.
             if (query.isNotEmpty()) {
                 NeonChip(
-                    label = "X",
+                    label = "✕",
                     onClick = { onQueryChange("") },
                     accent = ElysiumColors.NeonOrange
                 )
@@ -406,9 +403,16 @@ private fun TvBrandCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isUniversal = tv.id == "tv-universal-generic"
+    val accentColor = when {
+        isUniversal -> ElysiumColors.NeonYellow
+        isPopular -> ElysiumColors.NeonOrange
+        else -> ElysiumColors.NeonCyan
+    }
+
     NeonCard(
         modifier = modifier.clickable(onClick = onClick),
-        accent = if (isPopular) ElysiumColors.NeonOrange else ElysiumColors.NeonCyan,
+        accent = accentColor,
         cornerRadius = 14.dp,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
     ) {
@@ -417,18 +421,18 @@ private fun TvBrandCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (isPopular) {
+                if (isPopular || isUniversal) {
                     Icon(
                         Icons.Filled.Star,
                         contentDescription = "Popular",
-                        tint = ElysiumColors.NeonOrange,
+                        tint = accentColor,
                         modifier = Modifier.size(14.dp)
                     )
                 }
                 Icon(
                     Icons.Filled.LiveTv,
                     contentDescription = null,
-                    tint = if (isPopular) ElysiumColors.NeonOrange else ElysiumColors.NeonCyan,
+                    tint = accentColor,
                     modifier = Modifier.size(14.dp)
                 )
             }
@@ -449,7 +453,10 @@ private fun TvBrandCard(
             )
             if (tv.hintEs != null) {
                 Spacer(modifier = Modifier.height(4.dp))
-                NeonStatusPill(label = tv.hintEs, color = ElysiumColors.NeonGreen)
+                NeonStatusPill(
+                    label = tv.hintEs,
+                    color = if (isUniversal) ElysiumColors.NeonYellow else ElysiumColors.NeonGreen
+                )
             }
         }
     }

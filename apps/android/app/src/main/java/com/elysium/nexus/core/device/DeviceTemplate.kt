@@ -139,6 +139,34 @@ object DeviceCatalog {
         //
         // === Tier 1 — Major brands (most common) ===
         add(DeviceTemplate(
+            id = "tv-universal-generic",
+            category = DeviceCategory.TV,
+            brand = "Control Universal TV",
+            model = "Multimarca (Todas las marcas)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Universal TV remote for all TV brands (Samsung, LG, Sony, TCL, Hisense, etc.).",
+            blurbEs = "Control remoto universal para todas las marcas de TV (Samsung, LG, Sony, TCL, Hisense, etc.).",
+            hintEn = "UNIVERSAL",
+            hintEs = "UNIVERSAL"
+        ))
+        add(DeviceTemplate(
+            id = "tv-kintech-generic",
+            category = DeviceCategory.TV,
+            brand = "Kintech",
+            model = "Generic (Smart / LED)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x12,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Kintech LED and Smart TVs. Standard NEC IR frequency.",
+            blurbEs = "Funciona con televisores Kintech LED y Smart TV. Frecuencia IR NEC estándar.",
+            hintEn = "Kintech",
+            hintEs = "KINTECH"
+        ))
+        add(DeviceTemplate(
             id = "tv-samsung-generic",
             category = DeviceCategory.TV,
             brand = "Samsung",
