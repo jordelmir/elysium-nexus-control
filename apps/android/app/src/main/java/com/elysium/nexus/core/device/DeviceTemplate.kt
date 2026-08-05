@@ -166,6 +166,120 @@ object DeviceCatalog {
             hintEn = "Kintech",
             hintEs = "KINTECH"
         ))
+        // === Sankey Models ===
+        add(DeviceTemplate(
+            id = "tv-sankey-generic",
+            category = DeviceCategory.TV,
+            brand = "Sankey",
+            model = "Generic (Smart / LED TV)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x00,
+            commandAddress = 0x00,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Sankey LED, LCD and Smart TVs across Latin America.",
+            blurbEs = "Funciona con televisores Sankey LED, LCD y Smart TV en Latinoamérica.",
+            hintEn = "Sankey Universal",
+            hintEs = "SANKEY UNIVERSAL"
+        ))
+        add(DeviceTemplate(
+            id = "tv-sankey-smart",
+            category = DeviceCategory.TV,
+            brand = "Sankey",
+            model = "Smart TV (Android OS Series)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x12,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Sankey Android Smart TVs and web-enabled models.",
+            blurbEs = "Funciona con televisores Sankey Smart TV sistema Android y navegables.",
+            hintEn = "Sankey Smart",
+            hintEs = "SANKEY SMART"
+        ))
+        add(DeviceTemplate(
+            id = "tv-sankey-uhd",
+            category = DeviceCategory.TV,
+            brand = "Sankey",
+            model = "4K UHD Smart TV (Series C / S)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x08,
+            commandAddress = 0x02,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Sankey 4K UHD and Ultra Slim Series televisions.",
+            blurbEs = "Funciona con televisores Sankey 4K UHD y Serie Ultra Slim.",
+            hintEn = "Sankey 4K",
+            hintEs = "SANKEY 4K"
+        ))
+        add(DeviceTemplate(
+            id = "tv-sankey-curved",
+            category = DeviceCategory.TV,
+            brand = "Sankey",
+            model = "Curved & Frameless LED TV",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x40,
+            commandAddress = 0x1A,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Sankey Curved and Frameless LED TV displays.",
+            blurbEs = "Funciona con televisores Sankey Curvos y pantallas LED sin marco.",
+            hintEn = "Sankey Curved",
+            hintEs = "SANKEY CURVED"
+        ))
+        // === Regional LatAm & International Brands ===
+        add(DeviceTemplate(
+            id = "tv-kalley-generic",
+            category = DeviceCategory.TV,
+            brand = "Kalley",
+            model = "Generic (Smart / LED)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x08,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Kalley Smart TVs and LED models.",
+            blurbEs = "Funciona con televisores Kalley Smart TV y modelos LED.",
+            hintEn = "Kalley",
+            hintEs = "KALLEY"
+        ))
+        add(DeviceTemplate(
+            id = "tv-challenger-generic",
+            category = DeviceCategory.TV,
+            brand = "Challenger",
+            model = "Generic (Smart / LED)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x12,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Challenger LED and Smart TVs.",
+            blurbEs = "Funciona con televisores Challenger LED y Smart TV.",
+            hintEn = "Challenger",
+            hintEs = "CHALLENGER"
+        ))
+        add(DeviceTemplate(
+            id = "tv-daewoo-generic",
+            category = DeviceCategory.TV,
+            brand = "Daewoo",
+            model = "Generic (Smart / LED)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x02,
+            commandAddress = 0x10,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Daewoo Smart TVs and LCD models.",
+            blurbEs = "Funciona con televisores Daewoo Smart TV y modelos LCD.",
+            hintEn = "Daewoo",
+            hintEs = "DAEWOO"
+        ))
+        add(DeviceTemplate(
+            id = "tv-hyundai-generic",
+            category = DeviceCategory.TV,
+            brand = "Hyundai",
+            model = "Generic (Smart / LED)",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x14,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with Hyundai Smart TVs and Android TV models.",
+            blurbEs = "Funciona con televisores Hyundai Smart TV y modelos Android TV.",
+            hintEn = "Hyundai",
+            hintEs = "HYUNDAI"
+        ))
         add(DeviceTemplate(
             id = "tv-samsung-generic",
             category = DeviceCategory.TV,
@@ -1231,6 +1345,20 @@ object DeviceCatalog {
             buttons = AC_BUTTONS,
             blurbEn = "Carrier AC. NEC protocol at 38 kHz.",
             blurbEs = "AC Carrier. Protocolo NEC a 38 kHz."
+        ))
+        add(DeviceTemplate(
+            id = "ac-sankey-generic",
+            category = DeviceCategory.AIR_CONDITIONER,
+            brand = "Sankey",
+            model = "Generic Split Inverter",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0xC3,
+            commandAddress = 0x00,
+            buttons = AC_BUTTONS,
+            blurbEn = "Sankey split inverter AC. Temperature + mode + fan encoded at 38 kHz.",
+            blurbEs = "AC Sankey split inverter. Temperatura + modo + ventilador a 38 kHz.",
+            hintEn = "Sankey AC",
+            hintEs = "SANKEY CLIMA"
         ))
         // === Consoles (Bluetooth, Phase 2+) ======================
     }

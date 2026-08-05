@@ -100,10 +100,10 @@ fun TvControlsSection(
         DeviceCatalog.byCategory(DeviceCategory.TV)
     }
     val tier1Brands = remember {
-        setOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+        setOf("Control Universal TV", "Sankey", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     }
     val tier1Order = remember {
-        listOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+        listOf("Control Universal TV", "Sankey", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     }
     val filteredTvs by remember {
         derivedStateOf {
@@ -372,7 +372,7 @@ private fun TvBrandList(
     cardSpacing: androidx.compose.ui.unit.Dp,
     onDeviceSelected: (DeviceTemplate) -> Unit
 ) {
-    val tier1Brands = setOf("Control Universal TV", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
+    val tier1Brands = setOf("Control Universal TV", "Sankey", "Kintech", "Samsung", "LG", "Sony", "Panasonic", "Philips", "TCL", "Hisense")
     val rows = tvs.chunked(columns)
     Column(
         modifier = Modifier
