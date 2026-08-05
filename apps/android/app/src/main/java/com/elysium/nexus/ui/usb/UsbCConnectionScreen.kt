@@ -184,20 +184,6 @@ fun UsbCConnectionScreen(
         }
     }
 
-    // Auto-bypass PIN if AwaitingPin state occurs dynamically
-    LaunchedEffect(connectionState) {
-        if (connectionState is MacConnectionState.AwaitingPin) {
-            Log.i(TAG, "USB-C: AwaitingPin -> Auto-sending zero-PIN bypass")
-            withContext(Dispatchers.IO) {
-                try {
-                    transport.sendPin("000000")
-                } catch (e: Throwable) {
-                    Log.e(TAG, "Auto-PIN failed: ${e.message}")
-                }
-            }
-        }
-    }
-
     // Latency telemetry
     LaunchedEffect(connectionState) {
         if (connectionState is MacConnectionState.Ready ||
