@@ -69,10 +69,14 @@ public final class ADBBridgeDaemon {
         let currentCount = activeDevices.count
 
         // If devices changed or on initial run, execute `adb reverse tcp:7878 tcp:7878`
-        if currentCount > 0 && currentCount != lastDeviceCount {
-            Log.info("ADBBridgeDaemon — Android device detected via USB (\(currentCount) device(s)). Executing adb reverse tcp:7878 tcp:7878...")
+        if currentCount > 0 {
+            if currentCount != lastDeviceCount {
+                Log.info("ADBBridgeDaemon — Android device detected via USB (\(currentCount) device(s)). Executing adb reverse tcp:7878 tcp:7878...")
+            }
             let reverseOutput = runProcess(executable: adbPath, arguments: ["reverse", "tcp:7878", "tcp:7878"])
-            Log.info("ADBBridgeDaemon — adb reverse output: \(reverseOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+            if currentCount != lastDeviceCount {
+                Log.info("ADBBridgeDaemon — adb reverse output: \(reverseOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
         }
 
         lastDeviceCount = currentCount

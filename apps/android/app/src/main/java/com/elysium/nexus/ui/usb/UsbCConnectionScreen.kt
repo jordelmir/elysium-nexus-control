@@ -144,48 +144,42 @@ fun UsbCConnectionScreen(
         }
     }
 
-    // Auto-connect loop using FastHostScanner (USB-C cable, USB Tethering, and Wi-Fi)
-    val context = androidx.compose.ui.platform.LocalContext.current
+    // Pure 100% Wired USB-C Cable Transmission Loop (127.0.0.1:7878 ADB Reverse)
     LaunchedEffect(isConnected) {
         if (!isConnected) {
             var attemptCount = 0
             while (isActive) {
                 attemptCount++
-                Log.i(TAG, "Zero-Touch Auto-Probe: Attempt #$attemptCount...")
+                Log.i(TAG, "USB-C Wired Cable Transmission: Connecting to 127.0.0.1:7878 (attempt #$attemptCount)...")
                 var success = false
                 withContext(Dispatchers.IO) {
                     try {
-                        val activeHost = com.elysium.nexus.core.transport.mac.FastHostScanner.findFirstActiveHost(
-                            context = context,
-                            timeoutMs = 1500
+                        val usbHost = DiscoveredHost(
+                            name = "USB-C Cable",
+                            host = "127.0.0.1",
+                            port = 7878,
+                            model = "Mac",
+                            osVersion = "macOS",
+                            publicKeyB64 = null
                         )
-                        if (activeHost != null) {
-                            Log.i(TAG, "Zero-Touch Auto-Probe: Found active host at ${activeHost.host}:${activeHost.port}")
-                            val result = transport.startHandshake(activeHost)
-                            if (result is MacConnectionState.AwaitingPin) {
-                                transport.sendPin("000000")
-                            }
-                            if (transport.state.value is MacConnectionState.Ready ||
-                                transport.state.value is MacConnectionState.ReadyEvent) {
-                                success = true
-                            }
+                        val result = transport.startHandshake(usbHost)
+                        if (result is MacConnectionState.AwaitingPin) {
+                            transport.sendPin("000000")
+                        }
+                        if (transport.state.value is MacConnectionState.Ready ||
+                            transport.state.value is MacConnectionState.ReadyEvent) {
+                            success = true
                         }
                     } catch (e: Throwable) {
-                        Log.d(TAG, "Zero-Touch auto-connect polling failed: ${e.message}")
+                        Log.d(TAG, "USB-C wired cable socket polling: ${e.message}")
                     }
                 }
                 if (success || transport.state.value is MacConnectionState.Ready ||
                     transport.state.value is MacConnectionState.ReadyEvent) {
+                    Log.i(TAG, "USB-C Wired Cable Transmission: READY and STREAMING!")
                     break
                 }
-                if (attemptCount >= 3) {
-                    Log.i(TAG, "Host not detected after $attemptCount attempts. Falling back to Wi-Fi discovery...")
-                    withContext(Dispatchers.Main) {
-                        onFallbackToWifi()
-                    }
-                    break
-                }
-                delay(600)
+                delay(500)
             }
         }
     }
