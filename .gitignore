@@ -39,3 +39,6 @@ coverage/
 *.exec
 *.ec
 macos-agent/.build/
+apps/mac-agent/.build/
+.agents/
+.gemini/

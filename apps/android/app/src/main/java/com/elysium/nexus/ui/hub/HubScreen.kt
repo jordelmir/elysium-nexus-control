@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -605,10 +606,6 @@ private fun CategoryGrid(
 ) {
     val categories = DeviceCategory.hubOrder
     val columns = info.columns
-    // We chunk the categories into rows of `columns`.
-    // Each row is a `Row` with `columns` cards.
-    // If the last row is short, the cards stretch
-    // to fill the row (Arrangement.SpaceEvenly).
     val rows = categories.chunked(columns)
     Column(
         modifier = Modifier
@@ -618,19 +615,20 @@ private fun CategoryGrid(
     ) {
         rows.forEach { rowCategories ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(androidx.compose.foundation.layout.IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(info.cardSpacing)
             ) {
                 rowCategories.forEach { category ->
                     CategoryCard(
                         category = category,
                         onClick = { onCategorySelected(category) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
                     )
                 }
-                // If the row is short, fill with
-                // empty Spacers so the cards
-                // align to the left.
                 repeat(columns - rowCategories.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }

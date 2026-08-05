@@ -432,8 +432,14 @@ private suspend fun sendButtonCommand(
     button: DeviceButton
 ) {
     val waveform = when (template.protocol) {
-        IrProtocol.Nec, IrProtocol.NecExtended, IrProtocol.Samsung, IrProtocol.Kaseikyo -> {
+        IrProtocol.Nec, IrProtocol.NecExtended -> {
             IrWaveform.encodeNec(
+                address = template.deviceAddress,
+                command = button.commandCode
+            )
+        }
+        IrProtocol.Samsung -> {
+            IrWaveform.encodeSamsung(
                 address = template.deviceAddress,
                 command = button.commandCode
             )
@@ -444,14 +450,20 @@ private suspend fun sendButtonCommand(
                 command = button.commandCode
             )
         }
+        IrProtocol.Rc6 -> {
+            IrWaveform.encodeRc6(
+                address = template.deviceAddress,
+                command = button.commandCode
+            )
+        }
         IrProtocol.SonySirc -> {
             IrWaveform.encodeSonySirc(
                 address = template.deviceAddress,
                 command = button.commandCode
             )
         }
-        IrProtocol.Samsung -> {
-            IrWaveform.encodeSamsung(
+        IrProtocol.Kaseikyo -> {
+            IrWaveform.encodeKaseikyo(
                 address = template.deviceAddress,
                 command = button.commandCode
             )

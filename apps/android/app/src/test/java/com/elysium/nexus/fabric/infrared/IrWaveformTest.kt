@@ -621,4 +621,153 @@ class IrWaveformTest {
         assertNotEquals(midea.pattern.toList(), mitsubishi.pattern.toList())
         assertNotEquals(daikin.pattern.toList(), mitsubishi.pattern.toList())
     }
+
+    // ── Kaseikyo (Panasonic) encoder tests ──────
+
+    @Test
+    fun `Kaseikyo header is 3456 mark, 1728 space`() {
+        val w = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        assertEquals(3456, w.pattern[0])
+        assertEquals(1728, w.pattern[1])
+    }
+
+    @Test
+    fun `Kaseikyo carrier is 38 kHz`() {
+        val w = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        assertEquals(38_000, w.carrierHz)
+    }
+
+    @Test
+    fun `Kaseikyo frame is 50 entries (header 2 + 48 data bits + trailing 2)`() {
+        val w = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        // 2 (header) + 48 bits * 2 (mark+space each) + 2 (trailing) = 100
+        assertEquals(100, w.pattern.size)
+    }
+
+    @Test
+    fun `Kaseikyo different addresses produce different waveforms`() {
+        val w1 = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        val w2 = IrWaveform.encodeKaseikyo(address = 0x04, command = 0x01)
+        assertNotEquals(w1.pattern.toList(), w2.pattern.toList())
+    }
+
+    @Test
+    fun `Kaseikyo different commands produce different waveforms`() {
+        val w1 = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        val w2 = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x02)
+        assertNotEquals(w1.pattern.toList(), w2.pattern.toList())
+    }
+
+    @Test
+    fun `Kaseikyo encode rejects address outside 0 to 255`() {
+        try {
+            IrWaveform.encodeKaseikyo(address = 256, command = 0x01)
+            fail("Expected IllegalArgumentException for address > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Kaseikyo encode rejects command outside 0 to 255`() {
+        try {
+            IrWaveform.encodeKaseikyo(address = 0x40, command = 256)
+            fail("Expected IllegalArgumentException for command > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `Kaseikyo power command for Panasonic TV`() {
+        val w = IrWaveform.encodeKaseikyo(address = 0x40, command = 0x01)
+        // Verify it's a valid waveform
+        assertTrue(w.pattern.isNotEmpty())
+        assertEquals(38_000, w.carrierHz)
+    }
+
+    // ── RC6 encoder tests ──────────────────────
+
+    @Test
+    fun `RC6 carrier is 36 kHz`() {
+        val w = IrWaveform.encodeRc6(address = 0x00, command = 0x0C)
+        assertEquals(36_000, w.carrierHz)
+    }
+
+    @Test
+    fun `RC6 different addresses produce different waveforms`() {
+        val w1 = IrWaveform.encodeRc6(address = 0x00, command = 0x0C)
+        val w2 = IrWaveform.encodeRc6(address = 0x04, command = 0x0C)
+        assertNotEquals(w1.pattern.toList(), w2.pattern.toList())
+    }
+
+    @Test
+    fun `RC6 different commands produce different waveforms`() {
+        val w1 = IrWaveform.encodeRc6(address = 0x00, command = 0x0C)
+        val w2 = IrWaveform.encodeRc6(address = 0x00, command = 0x0D)
+        assertNotEquals(w1.pattern.toList(), w2.pattern.toList())
+    }
+
+    @Test
+    fun `RC6 toggle bit changes waveform`() {
+        val w1 = IrWaveform.encodeRc6(address = 0x00, command = 0x0C, toggle = 0)
+        val w2 = IrWaveform.encodeRc6(address = 0x00, command = 0x0C, toggle = 1)
+        assertNotEquals(w1.pattern.toList(), w2.pattern.toList())
+    }
+
+    @Test
+    fun `RC6 encode rejects address outside 0 to 15`() {
+        try {
+            IrWaveform.encodeRc6(address = 16, command = 0x0C)
+            fail("Expected IllegalArgumentException for address > 15.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `RC6 encode rejects command outside 0 to 255`() {
+        try {
+            IrWaveform.encodeRc6(address = 0x00, command = 256)
+            fail("Expected IllegalArgumentException for command > 255.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `RC6 encode rejects toggle outside 0 to 1`() {
+        try {
+            IrWaveform.encodeRc6(address = 0x00, command = 0x0C, toggle = 2)
+            fail("Expected IllegalArgumentException for toggle > 1.")
+        } catch (e: IllegalArgumentException) {
+            // ok
+        }
+    }
+
+    @Test
+    fun `RC6 pattern starts with leader mark`() {
+        val w = IrWaveform.encodeRc6(address = 0x00, command = 0x0C)
+        // Leader should be double-wide mark (1778 µs)
+        assertEquals(1778, w.pattern[0])
+    }
+
+    // ── Cross-protocol uniqueness tests ────────
+
+    @Test
+    fun `all TV encoders produce unique waveforms for same address and command`() {
+        val nec = IrWaveform.encodeNec(address = 0x04, command = 0x08)
+        val samsung = IrWaveform.encodeSamsung(address = 0x04, command = 0x08)
+        val rc5 = IrWaveform.encodeRc5(address = 0x04, command = 0x08)
+        val rc6 = IrWaveform.encodeRc6(address = 0x04, command = 0x08)
+        val sirc = IrWaveform.encodeSonySirc(address = 0x04, command = 0x08)
+        val kaseikyo = IrWaveform.encodeKaseikyo(address = 0x04, command = 0x08)
+        // All six are different protocols
+        assertNotEquals(nec.pattern.toList(), samsung.pattern.toList())
+        assertNotEquals(samsung.pattern.toList(), rc5.pattern.toList())
+        assertNotEquals(rc5.pattern.toList(), rc6.pattern.toList())
+        assertNotEquals(rc6.pattern.toList(), sirc.pattern.toList())
+        assertNotEquals(sirc.pattern.toList(), kaseikyo.pattern.toList())
+        assertNotEquals(nec.pattern.toList(), kaseikyo.pattern.toList())
+    }
 }

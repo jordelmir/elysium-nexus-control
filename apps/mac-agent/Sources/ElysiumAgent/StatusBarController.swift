@@ -51,8 +51,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             menu.addItem(p)
         }
         // Last event.
-        if let last = state.lastEventDescription {
-            let l = NSMenuItem(title: "Último: \(last)", action: nil, keyEquivalent: "")
+        if !state.lastEventDescription.isEmpty && state.lastEventDescription != "—" {
+            let l = NSMenuItem(title: "Último: \(state.lastEventDescription)", action: nil, keyEquivalent: "")
             l.isEnabled = false
             menu.addItem(l)
         }

@@ -19,6 +19,9 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Elysium Nexus — Mac/PC transport.
@@ -77,6 +80,12 @@ class MacTransport {
     private val _state = MutableStateFlow<MacConnectionState>(MacConnectionState.Idle)
     val state: StateFlow<MacConnectionState> = _state.asStateFlow()
 
+    // Priority dual-channel: input events (mouse,
+    // key, click) are ALWAYS sent before screen
+    // frames. This prevents large JPEG frames
+    // (~30-50KB) from blocking tiny mouse move
+    // packets (~50 bytes).
+    private val inputEvents = Channel<ByteArray>(capacity = Channel.UNLIMITED)
     private val outgoing = Channel<ByteArray>(capacity = Channel.UNLIMITED)
     private val connected = AtomicBoolean(false)
     private var socket: Socket? = null
@@ -84,6 +93,13 @@ class MacTransport {
     private var writeJob: Job? = null
     private var keyPair: MacCrypto.KeyPair? = null
     private var channelKey: MacCrypto.ChannelKey? = null
+    // Screen frame stream — JPEG bytes from Mac.
+    private val _screenFrames = MutableSharedFlow<ByteArray>(
+        replay = 1,
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    val screenFrames: SharedFlow<ByteArray> = _screenFrames.asSharedFlow()
     // Phase ULT.4 — pending streams for the
     // handshake half-done state. The transport
     // opens the socket in `startHandshake` and
@@ -312,11 +328,20 @@ class MacTransport {
             .putFloat(dx)
             .putFloat(dy)
             .array()
-        sendEncrypted(MacProtocol.FrameType.MOUSE_MOVE, payload)
+        sendHighPriority(MacProtocol.FrameType.MOUSE_MOVE, payload)
+    }
+
+    /** Direct Touch: Send absolute normalized cursor coordinates (0.0 to 1.0) */
+    fun sendMouseAbsMove(normX: Float, normY: Float) {
+        val payload = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
+            .putFloat(normX)
+            .putFloat(normY)
+            .array()
+        sendHighPriority(MacProtocol.FrameType.MOUSE_ABS_MOVE, payload)
     }
 
     fun sendMouseButton(button: MacProtocol.MouseButton, state: MacProtocol.ButtonState) {
-        sendEncrypted(
+        sendHighPriority(
             MacProtocol.FrameType.MOUSE_BUTTON,
             byteArrayOf(button.byte, state.byte)
         )
@@ -327,7 +352,7 @@ class MacTransport {
             .putFloat(dx)
             .putFloat(dy)
             .array()
-        sendEncrypted(MacProtocol.FrameType.SCROLL, payload)
+        sendHighPriority(MacProtocol.FrameType.SCROLL, payload)
     }
 
     fun sendKey(action: MacProtocol.KeyAction, hidUsage: Int, modifiers: Int) {
@@ -336,14 +361,14 @@ class MacTransport {
             .putInt(hidUsage)
             .putInt(modifiers)
             .array()
-        sendEncrypted(MacProtocol.FrameType.KEY, payload)
+        sendHighPriority(MacProtocol.FrameType.KEY, payload)
     }
 
     fun sendPinch(factor: Float) {
         val payload = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN)
             .putFloat(factor)
             .array()
-        sendEncrypted(MacProtocol.FrameType.PINCH, payload)
+        sendHighPriority(MacProtocol.FrameType.PINCH, payload)
     }
 
     /**
@@ -355,7 +380,7 @@ class MacTransport {
      * 18 = next.
      */
     fun sendMedia(keyCode: Int) {
-        sendEncrypted(MacProtocol.FrameType.MEDIA, byteArrayOf(keyCode.toByte()))
+        sendHighPriority(MacProtocol.FrameType.MEDIA, byteArrayOf(keyCode.toByte()))
     }
 
     fun sendHeartbeat() {
@@ -365,8 +390,28 @@ class MacTransport {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * Request the Mac agent to start or stop
+     * streaming its screen as JPEG frames.
+     *
+     * @param start true to start, false to stop
+     */
+    fun sendScreenRequest(start: Boolean) {
+        val cmd: Byte = if (start) 0x01 else 0x00
+        sendEncrypted(MacProtocol.FrameType.SCREEN_REQUEST, byteArrayOf(cmd))
+    }
+
     // === Internals ===
 
+    /** High-priority send for input events (mouse, key, click). */
+    private fun sendHighPriority(type: MacProtocol.FrameType, payload: ByteArray) {
+        val ck = channelKey ?: return
+        val enc = ck.encrypt(payload)
+        val frame = MacProtocol.encodeFrame(type, enc)
+        inputEvents.trySend(frame)
+    }
+
+    /** Normal-priority send for non-input frames. */
     private fun sendEncrypted(type: MacProtocol.FrameType, payload: ByteArray) {
         val ck = channelKey ?: return
         val enc = ck.encrypt(payload)
@@ -432,6 +477,12 @@ class MacTransport {
         when (frame.type) {
             MacProtocol.FrameType.HEARTBEAT,
             MacProtocol.FrameType.GOODBYE -> Unit
+            MacProtocol.FrameType.SCREEN_FRAME -> {
+                // JPEG bytes from the Mac. Emit to
+                // the screen frame flow for the UI
+                // to render. NOT encrypted for perf.
+                _screenFrames.tryEmit(frame.payload)
+            }
             else -> {
                 Log.d(TAG, "Received ${frame.type} (${frame.payload.size} B)")
                 _state.value = MacConnectionState.ReadyEvent(
@@ -444,10 +495,41 @@ class MacTransport {
 
     private suspend fun writePump(output: java.io.OutputStream) {
         try {
-            for (frame in outgoing) {
-                if (!connected.get()) break
-                output.write(frame)
+            while (connected.get()) {
+                // 1. ALWAYS drain ALL queued input
+                //    events first (mouse, key, click).
+                //    These are tiny (~50 bytes) and
+                //    latency-critical.
+                var inputFrame = inputEvents.tryReceive().getOrNull()
+                while (inputFrame != null) {
+                    output.write(inputFrame)
+                    inputFrame = inputEvents.tryReceive().getOrNull()
+                }
                 output.flush()
+
+                // 2. Then send ONE low-priority frame
+                //    (heartbeat, screen request) if any.
+                val bulkFrame = outgoing.tryReceive().getOrNull()
+                if (bulkFrame != null) {
+                    output.write(bulkFrame)
+                    output.flush()
+                }
+
+                // 3. If both channels are empty, suspend
+                //    until either has data. Use select to
+                //    wake on whichever fires first.
+                if (inputEvents.isEmpty && outgoing.isEmpty) {
+                    kotlinx.coroutines.selects.select<Unit> {
+                        inputEvents.onReceive { frame ->
+                            output.write(frame)
+                            output.flush()
+                        }
+                        outgoing.onReceive { frame ->
+                            output.write(frame)
+                            output.flush()
+                        }
+                    }
+                }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "writePump: ${e.message}")

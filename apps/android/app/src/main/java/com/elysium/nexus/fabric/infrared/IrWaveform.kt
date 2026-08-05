@@ -315,6 +315,144 @@ data class IrWaveform(
         }
 
         /**
+         * Encode a Kaseikyo (Panasonic) command.
+         * Kaseikyo uses pulse-distance encoding
+         * at 38 kHz with a 48-bit frame.
+         *
+         * Frame layout (per §6.4):
+         *   Header: 3456 µs mark, 1728 µs space
+         *   8-bit address (MSB first)
+         *   8-bit ~address (MSB first)
+         *   8-bit group (MSB first)
+         *   8-bit ~group (MSB first)
+         *   8-bit function (MSB first)
+         *   8-bit checksum (XOR of first 5 bytes)
+         *   Trailing mark: 432 µs
+         *
+         * Bit encoding (pulse-distance):
+         *   0: 432 µs mark, 432 µs space
+         *   1: 432 µs mark, 1296 µs space
+         */
+        fun encodeKaseikyo(address: Int, command: Int): IrWaveform {
+            require(address in 0..0xFF) {
+                "Kaseikyo address must be in [0, 255] (got $address)."
+            }
+            require(command in 0..0xFF) {
+                "Kaseikyo command must be in [0, 255] (got $command)."
+            }
+            val pattern = ArrayList<Int>()
+            // Header
+            pattern.add(3456)
+            pattern.add(1728)
+            // Address + inverted address
+            emitByteKaseikyo(pattern, address)
+            emitByteKaseikyo(pattern, address.inv() and 0xFF)
+            // Group (0x00 for TV) + inverted group
+            val group = 0x00
+            emitByteKaseikyo(pattern, group)
+            emitByteKaseikyo(pattern, group.inv() and 0xFF)
+            // Function (command) byte
+            emitByteKaseikyo(pattern, command)
+            // Checksum: XOR of address, ~address, group, ~group, function
+            val checksum = (address xor (address.inv() and 0xFF) xor
+                group xor (group.inv() and 0xFF) xor command) and 0xFF
+            emitByteKaseikyo(pattern, checksum)
+            // Trailing mark
+            pattern.add(432)
+            pattern.add(0)
+            return IrWaveform(IrProtocol.Kaseikyo.carrierHz, pattern.toIntArray())
+        }
+
+        /**
+         * Emit a single byte MSB-first as
+         * Kaseikyo mark-space pairs (pulse-distance).
+         * Kaseikyo uses shorter timings than NEC:
+         * 432 µs mark, 432/1296 µs space.
+         */
+        private fun emitByteKaseikyo(pattern: MutableList<Int>, value: Int) {
+            for (i in 7 downTo 0) {
+                val bit = (value shr i) and 1
+                pattern.add(432)
+                pattern.add(if (bit == 0) 432 else 1296)
+            }
+        }
+
+        /**
+         * Encode an RC6 command (4-bit address,
+         * 8-bit command). The carrier is 36 kHz.
+         *
+         * RC6 frame shape (per §6.4):
+         *   Start bits: 1, 1, 0 (3 half-periods each)
+         *   Toggle bit: 1 bit
+         *   4-bit address (LSB first)
+         *   8-bit command (MSB first)
+         *
+         * Manchester encoding: each bit is two
+         * half-periods of 889 µs.
+         *   Bit 0: high for T/2, low for T/2
+         *   Bit 1: low for T/2, high for T/2
+         *
+         * The start bits use a special encoding:
+         * leader is 1T high + 1T low (like bit 1),
+         * then start bits are 1T high + 1T low
+         * (like bit 0) but with a double-wide
+         * first half for the leader.
+         */
+        fun encodeRc6(address: Int, command: Int, toggle: Int = 0): IrWaveform {
+            require(address in 0..0xF) {
+                "RC6 address must be in [0, 15] (got $address)."
+            }
+            require(command in 0..0xFF) {
+                "RC6 command must be in [0, 255] (got $command)."
+            }
+            require(toggle in 0..1) {
+                "RC6 toggle must be in [0, 1] (got $toggle)."
+            }
+            val halfPeriod = 889 // µs
+            val pattern = ArrayList<Int>()
+            // Leader: 1T mark + 1T space (like bit 1)
+            pattern.add(halfPeriod * 2) // 1778 µs mark (double-wide)
+            pattern.add(halfPeriod)     // 889 µs space
+            // Start bit 1: 1T mark + 1T space
+            pattern.add(halfPeriod)
+            pattern.add(halfPeriod)
+            // Start bit 0: 1T mark + 1T space
+            pattern.add(halfPeriod)
+            pattern.add(halfPeriod)
+            // Toggle bit (Manchester encoded)
+            addManchesterBit(pattern, toggle, halfPeriod)
+            // 4-bit address (LSB first, Manchester)
+            for (i in 0 until 4) {
+                val bit = (address shr i) and 1
+                addManchesterBit(pattern, bit, halfPeriod)
+            }
+            // 8-bit command (MSB first, Manchester)
+            for (i in 7 downTo 0) {
+                val bit = (command shr i) and 1
+                addManchesterBit(pattern, bit, halfPeriod)
+            }
+            // Trailing mark + 0 space
+            pattern.add(halfPeriod)
+            pattern.add(0)
+            return IrWaveform(IrProtocol.Rc6.carrierHz, pattern.toIntArray())
+        }
+
+        /**
+         * Add a Manchester-encoded bit to the
+         * pattern. Bit 0 = high-then-low, bit 1 =
+         * low-then-high. Each half is [halfPeriod] µs.
+         */
+        private fun addManchesterBit(pattern: MutableList<Int>, bit: Int, halfPeriod: Int) {
+            if (bit == 0) {
+                pattern.add(halfPeriod)
+                pattern.add(halfPeriod)
+            } else {
+                pattern.add(0) // no mark (space continues)
+                pattern.add(halfPeriod * 2) // full low period
+            }
+        }
+
+        /**
          * Decode a waveform back to the NEC
          * command it represents. Returns null if
          * the waveform does not look like NEC.

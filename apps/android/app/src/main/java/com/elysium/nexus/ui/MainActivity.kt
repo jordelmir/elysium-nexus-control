@@ -43,6 +43,7 @@ import com.elysium.nexus.databases.profile.ProfileDatabase
 import com.elysium.nexus.databases.profile.ProfileRepository
 import com.elysium.nexus.databases.profile.RoomProfileRepository
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.ui.splash.SplashScreen
 import com.elysium.nexus.ui.connect.IrConnectFlow
 import com.elysium.nexus.ui.control.TvControlScreen
 import com.elysium.nexus.ui.help.GuidedTourOverlay
@@ -69,6 +70,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * The first `Activity`. The first end-to-end milestone.
@@ -294,12 +296,42 @@ class MainActivity : ComponentActivity() {
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
                 val manualAddVisible = remember { mutableStateOf(false) }
+                var splashVisible by remember { mutableStateOf(true) }
                 val current = navStack.value.last()
                 // Phase ULT.4 — a single Mac transport
                 // is created when the user enters the
                 // pairing flow and lives until they
                 // leave the control surface.
                 val macTransport = remember { MacTransport() }
+
+                // Phase ULT.9 — Startup animation.
+                // The splash plays on every cold start
+                // (~2.8s) then fades to reveal the
+                // tour or the Hub.
+                if (splashVisible) {
+                    SplashScreen(
+                        onSplashComplete = {
+                            splashVisible = false
+                            // Auto-detect USB-C cable bridge on startup
+                            activityScope?.launch(Dispatchers.IO) {
+                                try {
+                                    val s = java.net.Socket()
+                                    s.connect(java.net.InetSocketAddress("127.0.0.1", 7878), 1000)
+                                    s.close()
+                                    Log.i(tag, "USB-C Direct Cable detected! Auto-launching UsbC screen...")
+                                    withContext(Dispatchers.Main) {
+                                        if (navStack.value.last() is HubDestination.Hub) {
+                                            navStack.value = navStack.value + HubDestination.UsbC
+                                        }
+                                    }
+                                } catch (_: Throwable) {
+                                    Log.d(tag, "No USB-C cable bridge active on startup.")
+                                }
+                            }
+                        }
+                    )
+                    return@ElysiumTheme
+                }
 
                 if (tourVisible.value) {
                     GuidedTourOverlay(
@@ -310,6 +342,7 @@ class MainActivity : ComponentActivity() {
                     )
                     return@ElysiumTheme
                 }
+
 
                 when (current) {
                     is HubDestination.Hub -> HubScreen(
@@ -558,7 +591,8 @@ class MainActivity : ComponentActivity() {
                         onBack = { navStack.value = navStack.value.dropLast(1) }
                     )
                     is HubDestination.UsbC -> com.elysium.nexus.ui.usb.UsbCConnectionScreen(
-                        onBack = { navStack.value = navStack.value.dropLast(1) }
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        transport = macTransport
                     )
                     is HubDestination.AcControl -> {
                         val ir = irTransmitter

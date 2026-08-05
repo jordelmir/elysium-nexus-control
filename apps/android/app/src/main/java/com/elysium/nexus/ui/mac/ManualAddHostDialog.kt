@@ -1,6 +1,7 @@
 package com.elysium.nexus.ui.mac
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -71,6 +73,7 @@ fun ManualAddHostDialog(
         Box(
             modifier = Modifier
                 .padding(24.dp)
+                .widthIn(max = 440.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(
                     brush = Brush.verticalGradient(
@@ -112,15 +115,14 @@ fun ManualAddHostDialog(
                             .size(32.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(ElysiumColors.Surface)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clickable { onDismiss() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = "Cerrar",
                             tint = ElysiumColors.OnSurfaceVariant,
-                            modifier = Modifier
-                                .size(20.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

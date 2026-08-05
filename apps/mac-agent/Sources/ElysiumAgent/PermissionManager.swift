@@ -9,6 +9,7 @@
 import Foundation
 import ApplicationServices
 import IOKit.hid
+import AppKit
 
 final class PermissionManager {
     /// `true` if the agent has Accessibility

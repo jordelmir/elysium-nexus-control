@@ -13,4 +13,10 @@
     <color name="brand_paper" tools:ignore="UnusedResources">#F2F2F4</color>
     <color name="brand_accent" tools:ignore="UnusedResources">#1F6FEB</color>
     <color name="brand_danger" tools:ignore="UnusedResources">#B42318</color>
+
+    <!-- Elysium Nexus dark background — near-black with
+         violet undertone. Used as windowBackground in
+         Theme.ElysiumNexus so the cold-start window
+         matches the Compose dark scheme. -->
+    <color name="elysium_background">#050008</color>
 </resources>

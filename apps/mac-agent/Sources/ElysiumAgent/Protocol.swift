@@ -67,6 +67,14 @@ enum FrameType: UInt8 {
     // 1-byte payload is the macOS media key
     // code (0, 1, 7, 16, 17, 18).
     case media       = 0x0C
+    // Phase ULT.9 — screen mirroring. The Mac
+    // captures the screen as JPEG and streams
+    // it as SCREEN_FRAME to the Android. The
+    // Android can request start/stop via
+    // SCREEN_REQUEST.
+    case screenRequest = 0x0D  // client → server: 1 byte (0=stop, 1=start, 2=quality)
+    case screenFrame   = 0x0E  // server → client: JPEG bytes (unencrypted for perf)
+    case mouseAbsMove  = 0x0F  // client → server: 8 bytes (float32 normX, float32 normY)
 }
 
 enum MouseButton: UInt8 {
@@ -83,7 +91,7 @@ enum ButtonState: UInt8 {
 enum KeyAction: UInt8 {
     case down = 0
     case up = 1
-    case repeat = 2
+    case `repeat` = 2
 }
 
 //
@@ -174,8 +182,8 @@ enum FrameEncoder {
 enum PayloadEncoder {
     static func mouseMove(dx: Float, dy: Float) -> Data {
         var d = Data()
-        d.append(Float32(dx).bigEndian)
-        d.append(Float32(dy).bigEndian)
+        d.append(Float32(dx).bigEndianData)
+        d.append(Float32(dy).bigEndianData)
         return d
     }
     static func mouseButton(button: MouseButton, state: ButtonState) -> Data {
@@ -187,12 +195,12 @@ enum PayloadEncoder {
     static func key(action: KeyAction, hidUsage: UInt32, modifiers: Modifiers) -> Data {
         var d = Data()
         d.append(action.rawValue)
-        d.append(UInt32(hidUsage).bigEndian)
-        d.append(UInt32(modifiers.rawValue).bigEndian)
+        d.append(UInt32(hidUsage).bigEndianData)
+        d.append(UInt32(modifiers.rawValue).bigEndianData)
         return d
     }
     static func pinch(factor: Float) -> Data {
-        return Data(Float32(factor).bigEndian.bytes)
+        return Float32(factor).bigEndianData
     }
     static func pinDigit(_ digit: UInt8) -> Data {
         precondition(digit < 10, "PIN digit must be 0-9")
@@ -202,16 +210,16 @@ enum PayloadEncoder {
 
 extension Float32 {
     /// Big-endian bytes.
-    var bigEndian: Data {
+    var bigEndianData: Data {
         var v = self.bitPattern.bigEndian
-        return Data(bytes: &v, count: 4)
+        return Data(bytes: &v, count: MemoryLayout<UInt32>.size)
     }
 }
 
 extension UInt32 {
     /// Big-endian bytes.
-    var bigEndian: Data {
+    var bigEndianData: Data {
         var v = self.bigEndian
-        return Data(bytes: &v, count: 4)
+        return Data(bytes: &v, count: MemoryLayout<UInt32>.size)
     }
 }

@@ -44,13 +44,20 @@ build() {
     echo "==> Building Swift package (release)…"
     swift build -c release
     echo "==> Bundling .app…"
+    rm -rf "$APP_BUNDLE"
     mkdir -p "$APP_BUNDLE/Contents/MacOS"
     mkdir -p "$APP_BUNDLE/Contents/Resources"
     # Copy the binary.
-    cp ".build/release/elysium-agent" "$APP_BUNDLE/Contents/MacOS/ElysiumNexusAgent"
-    # Info.plist. We declare the LSUIElement
-    # (no dock icon) and a high-res friendly
-    # bundle ID.
+    cp "$BUILD_DIR/release/elysium-agent" "$APP_BUNDLE/Contents/MacOS/ElysiumNexusAgent"
+    chmod +x "$APP_BUNDLE/Contents/MacOS/ElysiumNexusAgent"
+    # Copy icon if present
+    if [ -f "/tmp/AppIcon.icns" ]; then
+        cp "/tmp/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+    fi
+    if [ -f "/tmp/master_1024.png" ]; then
+        cp "/tmp/master_1024.png" "$APP_BUNDLE/Contents/Resources/AppIcon.png"
+    fi
+    # Info.plist.
     cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,14 +66,16 @@ build() {
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
     <key>CFBundleExecutable</key><string>ElysiumNexusAgent</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Elysium Nexus</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>1.1.0</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
-    <key>LSUIElement</key><true/>
+    <key>LSUIElement</key><false/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSLocalNetworkUsageDescription</key>
@@ -74,6 +83,9 @@ build() {
 </dict>
 </plist>
 PLIST
+    # Ad-hoc code sign the bundle
+    echo "==> Signing app bundle with ad-hoc identity…"
+    codesign --force --deep --sign - "$APP_BUNDLE"
     echo
     echo "==> Build complete."
     echo "  Bundle: $APP_BUNDLE"
@@ -85,6 +97,20 @@ PLIST
     echo "  Ajustes del Sistema → Privacidad y Seguridad → Accesibilidad"
     echo "  → Agregar 'Elysium Nexus Mac Agent' y activarlo."
     echo
+}
+
+dmg() {
+    build
+    echo "==> Creating DMG installer package…"
+    DMG_DIR="$BUILD_DIR/dmg_staging"
+    DMG_OUTPUT="$BUILD_DIR/Elysium-Nexus-Universal-Controller.dmg"
+    rm -rf "$DMG_DIR" "$DMG_OUTPUT"
+    mkdir -p "$DMG_DIR"
+    cp -R "$APP_BUNDLE" "$DMG_DIR/"
+    ln -s /Applications "$DMG_DIR/Applications"
+    hdiutil create -volname "Elysium Nexus" -srcfolder "$DMG_DIR" -ov -format UDZO "$DMG_OUTPUT"
+    echo "==> DMG created successfully at:"
+    echo "    $DMG_OUTPUT"
 }
 
 run() {
@@ -100,9 +126,27 @@ clean() {
     echo "Done."
 }
 
+install() {
+    build
+    echo "==> Installing to /Applications…"
+    # Kill any running instance
+    pkill -f ElysiumNexusAgent 2>/dev/null || true
+    sleep 1
+    # Remove old bundle
+    rm -rf "/Applications/Elysium Nexus.app"
+    # Copy fresh bundle
+    cp -R "$APP_BUNDLE" "/Applications/Elysium Nexus.app"
+    codesign --force --deep --sign - "/Applications/Elysium Nexus.app"
+    echo "==> Installed & signed at /Applications/Elysium Nexus.app"
+    echo "==> Launching…"
+    open "/Applications/Elysium Nexus.app"
+}
+
 case "${1:-build}" in
     build) build ;;
     run) build; run ;;
+    install) install ;;
+    dmg) dmg ;;
     clean) clean ;;
-    *) echo "Usage: $0 {build|run|clean}"; exit 1 ;;
+    *) echo "Usage: $0 {build|run|install|dmg|clean}"; exit 1 ;;
 esac

@@ -74,7 +74,10 @@ object MacProtocol {
         PINCH(0x09),
         HEARTBEAT(0x0A),
         GOODBYE(0x0B),
-        MEDIA(0x0C);
+        MEDIA(0x0C),
+        SCREEN_REQUEST(0x0D),
+        SCREEN_FRAME(0x0E.toByte()),
+        MOUSE_ABS_MOVE(0x0F.toByte());
 
         companion object {
             private val BY_INDEX = entries.associateBy { it.byte }

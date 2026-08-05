@@ -23,10 +23,6 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "elysium-agent",
-            dependencies: ["ElysiumAgent"]
-        ),
-        .target(
-            name: "ElysiumAgent",
             path: "Sources/ElysiumAgent"
         )
     ]

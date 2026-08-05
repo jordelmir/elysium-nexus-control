@@ -30,8 +30,8 @@ enum ChannelCipher {
     /// agent's private key + the phone's public
     /// key. Both sides will derive the same key
     /// (ECDH).
-    static func deriveKey(myPrivate: X25519.KeyAgreement.PrivateKey,
-                          theirPublic: X25519.KeyAgreement.PublicKey) -> SymmetricKey {
+    static func deriveKey(myPrivate: Curve25519.KeyAgreement.PrivateKey,
+                          theirPublic: Curve25519.KeyAgreement.PublicKey) -> SymmetricKey {
         let shared = try! myPrivate.sharedSecretFromKeyAgreement(with: theirPublic)
         return shared.hkdfDerivedSymmetricKey(
             using: SHA256.self,

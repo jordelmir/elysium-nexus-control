@@ -154,8 +154,10 @@ class InfraredAdapter(
             "NEC" -> IrWaveform.encodeNec(state.address, state.command)
             "NECX", "NEC_EXTENDED" -> IrWaveform.encodeNecExtended(state.address, state.command)
             "RC5" -> IrWaveform.encodeRc5(state.address, state.command)
+            "RC6" -> IrWaveform.encodeRc6(state.address, state.command)
             "SIRC", "SONY_SIRC" -> IrWaveform.encodeSonySirc(state.address, state.command)
             "SAMSUNG" -> IrWaveform.encodeSamsung(state.address, state.command)
+            "KASEIKYO", "PANASONIC" -> IrWaveform.encodeKaseikyo(state.address, state.command)
             else -> null
         }
     }

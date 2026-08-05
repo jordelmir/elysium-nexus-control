@@ -33,16 +33,18 @@ final class ConnectionHandler {
     }
 
     private let connection: NWConnection
-    private let keyPair: X25519.KeyAgreement.PrivateKey
+    private let keyPair: Curve25519.KeyAgreement.PrivateKey
     private let state: AgentState
+    private let onClose: ((ConnectionHandler) -> Void)?
     private var state_: State = .awaitingHello
     private var receiveBuffer = Data()
     private var pinWindow: PINWindow?
 
-    init(connection: NWConnection, keyPair: X25519.KeyAgreement.PrivateKey, state: AgentState) {
+    init(connection: NWConnection, keyPair: Curve25519.KeyAgreement.PrivateKey, state: AgentState, onClose: ((ConnectionHandler) -> Void)? = nil) {
         self.connection = connection
         self.keyPair = keyPair
         self.state = state
+        self.onClose = onClose
     }
 
     func start() {
@@ -52,14 +54,7 @@ final class ConnectionHandler {
             switch newState {
             case .ready:
                 Log.info("Conn: TCP ready")
-                // Send our HELLO_ACK with the
-                // server's public key first. The
-                // client uses this to derive the
-                // shared secret.
-                let ourPubKey = self.keyPair.publicKey.rawRepresentation
-                let helloAck = FrameEncoder.encode(.helloAck, payload: ourPubKey)
-                self.send(helloAck)
-                self.transition(to: .sendingHelloAck)
+                self.transition(to: .awaitingHello)
                 self.scheduleReceive()
             case .failed(let error):
                 Log.error("Conn: failed: \(error)")
@@ -67,9 +62,7 @@ final class ConnectionHandler {
             case .cancelled:
                 Log.info("Conn: cancelled")
                 self.transition(to: .closed)
-            case .preparing, .setup, .waiting:
-                break
-            @unknown default:
+            default:
                 break
             }
         }
@@ -121,9 +114,10 @@ final class ConnectionHandler {
         switch newState {
         case .awaitingPin(let pin, let digits):
             Log.info("Conn: awaiting pin (\(digits)/6 received)")
-            // Show the PIN window when we have the
-            // generated PIN (i.e. when the first
-            // digit arrives).
+            Task { @MainActor in
+                self.state.status = .pairing
+                self.state.currentPin = pin
+            }
             if digits == 0 {
                 showPinWindow(pin: pin)
             }
@@ -131,12 +125,21 @@ final class ConnectionHandler {
             Log.info("Conn: READY (channel open)")
             Task { @MainActor in
                 self.state.status = .connected
+                self.state.currentPin = nil
                 self.state.lastEventDescription = "Conectado"
             }
         case .closed:
             Log.info("Conn: closed")
+            ScreenCaptureService.shared.stop()
             connection.cancel()
-            pinWindow?.close()
+            onClose?(self)
+            Task { @MainActor in
+                self.state.currentPin = nil
+                if self.state.status != .connected {
+                    self.state.status = .waiting
+                }
+                self.pinWindow?.close()
+            }
         default:
             break
         }
@@ -144,37 +147,44 @@ final class ConnectionHandler {
 
     private func handle(_ frame: Frame) {
         switch (state_, frame.type) {
-        case (.sendingHelloAck, .hello):
-            // We expect a HELLO from the client. We
-            // sent our public key already; now derive
-            // the shared secret.
+        case (.awaitingHello, .hello), (.sendingHelloAck, .hello):
             guard frame.payload.count == 32 else {
                 Log.error("Conn: HELLO payload must be 32 bytes, got \(frame.payload.count)")
                 transition(to: .closed)
                 return
             }
-            let theirPubKey: X25519.KeyAgreement.PublicKey
+            let theirPubKey: Curve25519.KeyAgreement.PublicKey
             do {
-                theirPubKey = try X25519.KeyAgreement.PublicKey(rawRepresentation: frame.payload)
+                theirPubKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: frame.payload)
             } catch {
                 Log.error("Conn: invalid HELLO public key: \(error)")
                 transition(to: .closed)
                 return
             }
-            // Generate the 6-digit PIN and stash it
-            // in the state. The user must type this
-            // PIN on the phone to confirm.
-            let pin = generatePin()
+            // Send our HELLO_ACK with the
+            // server's public key.
+            let ourPubKey = self.keyPair.publicKey.rawRepresentation
+            let helloAck = FrameEncoder.encode(.helloAck, payload: ourPubKey)
+            self.send(helloAck)
+
             // Derive the channel key (server side).
             let key = ChannelCipher.deriveKey(myPrivate: keyPair, theirPublic: theirPubKey)
-            // Transition to awaitingPin with a fresh
-            // nonce counter.
-            // We re-use the state_ variable; store
-            // the key temporarily.
             awaitingPinKey = key
-            nonceCounter = NonceCounter()
-            generatedPin = pin
-            transition(to: .awaitingPin(generatedPin: pin, digitsReceived: 0))
+            let counter = NonceCounter()
+            nonceCounter = counter
+
+            if isLocalLoopback() {
+                Log.info("Conn: USB-C direct connection auto-approved instantly (zero-PIN mode)")
+                let okPayload = Data([0x01]) // 1 = ok
+                let enc = ChannelCipher.seal(okPayload, key: key)
+                send(FrameEncoder.encode(.pairOk, payload: enc))
+                transition(to: .ready(channelKey: key, nonceCounter: counter))
+            } else {
+                let pin = generatePin()
+                Log.info("Conn: generated pairing PIN: \(pin)")
+                generatedPin = pin
+                transition(to: .awaitingPin(generatedPin: pin, digitsReceived: 0))
+            }
         case (.awaitingPin(let pin, let count), .pinDigit):
             guard let key = awaitingPinKey, let counter = nonceCounter else {
                 Log.error("Conn: PIN_DIGIT received but no key set")
@@ -191,7 +201,17 @@ final class ConnectionHandler {
                     return
                 }
                 let receivedDigit = plain[0]
-                let expectedDigit = pin.utf8[pin.utf8.index(pin.utf8.startIndex, offsetBy: count)]
+                // USB-C Auto-Trust Bypass: If digit is 0xFF or local loopback connection, auto-approve instantly
+                if receivedDigit == 0xFF || isLocalLoopback() {
+                    Log.info("Conn: USB-C direct connection auto-approved (zero-PIN mode)")
+                    let okPayload = Data([0x01]) // 1 = ok
+                    let enc = ChannelCipher.seal(okPayload, key: key)
+                    send(FrameEncoder.encode(.pairOk, payload: enc))
+                    transition(to: .ready(channelKey: key, nonceCounter: counter))
+                    return
+                }
+                let pinChar = pin[pin.index(pin.startIndex, offsetBy: count)]
+                let expectedDigit = UInt8(pinChar.wholeNumberValue ?? 0)
                 if receivedDigit == expectedDigit {
                     let nextCount = count + 1
                     if nextCount >= pin.utf8.count {
@@ -220,6 +240,10 @@ final class ConnectionHandler {
             if let payload = decodeMouseMove(frame.payload, key: key, counter: counter) {
                 EventInjector.shared.moveBy(dx: payload.0, dy: payload.1)
             }
+        case (.ready(let key, let counter), .mouseAbsMove):
+            if let payload = decodeMouseAbsMove(frame.payload, key: key, counter: counter) {
+                EventInjector.shared.moveTo(normX: payload.0, normY: payload.1)
+            }
         case (.ready(let key, let counter), .mouseButton):
             if let payload = decodeMouseButton(frame.payload, key: key, counter: counter) {
                 EventInjector.shared.click(button: payload.0, state: payload.1)
@@ -242,6 +266,28 @@ final class ConnectionHandler {
                     EventInjector.shared.media(media)
                 }
             }
+        case (.ready(let key, _), .screenRequest):
+            // Android requests screen capture start/stop.
+            if let plain = try? ChannelCipher.open(frame.payload, key: key),
+               plain.count >= 1 {
+                let cmd = plain[0]
+                if cmd == 0x01 {
+                    // Start screen capture. Stream
+                    // JPEG frames directly over the
+                    // NWConnection.
+                    Log.info("Conn: screen capture START requested")
+                    ScreenCaptureService.shared.start { [weak self] frameData in
+                        self?.send(frameData)
+                    }
+                } else if cmd == 0x00 {
+                    Log.info("Conn: screen capture STOP requested")
+                    ScreenCaptureService.shared.stop()
+                } else if cmd == 0x02 && plain.count >= 2 {
+                    // Quality adjustment (0-100 → 0.0-1.0).
+                    let q = CGFloat(plain[1]) / 100.0
+                    ScreenCaptureService.shared.setQuality(q)
+                }
+            }
         case (.ready, .heartbeat), (.ready, .goodbye):
             break // No-op
         default:
@@ -254,18 +300,29 @@ final class ConnectionHandler {
     //         them before dispatching).
 
     private func decodeMouseMove(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> (Float, Float)? {
-        // The on-the-wire payload for mouseMove is
-        // the encrypted blob. Decrypt, then parse
-        // (dx, dy).
+        guard let plain = try? ChannelCipher.open(payload, key: key) else {
+            return nil
+        }
+        guard plain.count == 8 else {
+            return nil
+        }
+        let rawDx = plain.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let rawDy = plain.subdata(in: 4..<8).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let dx = Float32(bitPattern: UInt32(bigEndian: rawDx))
+        let dy = Float32(bitPattern: UInt32(bigEndian: rawDy))
+        // Skip MainActor state update for mouse
+        // moves — they fire 60+ times/second and
+        // the dispatch overhead adds latency.
+        return (dx, dy)
+    }
+    private func decodeMouseAbsMove(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> (Float, Float)? {
         guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
         guard plain.count == 8 else { return nil }
-        let dx = plain.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: Float32.self) }
-        let dy = plain.subdata(in: 4..<8).withUnsafeBytes { $0.load(as: Float32.self) }
-        Task { @MainActor in
-            self.state.lastEventDescription = "Mouse dx=\(dx) dy=\(dy)"
-            self.state.lastEventAt = Date()
-        }
-        return (dx, dy)
+        let rawX = plain.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let rawY = plain.subdata(in: 4..<8).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let normX = Float32(bitPattern: UInt32(bigEndian: rawX))
+        let normY = Float32(bitPattern: UInt32(bigEndian: rawY))
+        return (normX, normY)
     }
     private func decodeMouseButton(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> (MouseButton, ButtonState)? {
         guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
@@ -275,6 +332,7 @@ final class ConnectionHandler {
         Task { @MainActor in
             self.state.lastEventDescription = "Click \(b) \(s)"
             self.state.lastEventAt = Date()
+            self.state.eventCount += 1
         }
         return (b, s)
     }
@@ -283,21 +341,41 @@ final class ConnectionHandler {
             .map { ($0.0, $0.1) }
     }
     private func decodeKey(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> (KeyAction, UInt32, Modifiers)? {
-        guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
-        guard plain.count == 9 else { return nil }
+        guard let plain = try? ChannelCipher.open(payload, key: key) else {
+            Log.warn("decodeKey: decryption failed")
+            return nil
+        }
+        guard plain.count == 9 else {
+            Log.warn("decodeKey: expected 9 bytes, got \(plain.count)")
+            return nil
+        }
         let action = KeyAction(rawValue: plain[0]) ?? .down
-        let usage = plain.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: UInt32.self) }
-        let mods = Modifiers(rawValue: plain.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: UInt32.self) })
+        // Android sends big-endian UInt32 for HID
+        // usage and modifiers — convert from big-
+        // endian to native before interpreting.
+        let rawUsage = plain.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let usage = UInt32(bigEndian: rawUsage)
+        let rawMods = plain.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let mods = Modifiers(rawValue: UInt32(bigEndian: rawMods))
         Task { @MainActor in
-            self.state.lastEventDescription = "Key \(action) usage=\(usage)"
+            self.state.lastEventDescription = "Key \(action) usage=0x\(String(usage, radix: 16))"
             self.state.lastEventAt = Date()
+            self.state.eventCount += 1
         }
         return (action, usage, mods)
     }
     private func decodePinch(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> Float? {
-        guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
-        guard plain.count == 4 else { return nil }
-        return plain.withUnsafeBytes { $0.load(as: Float32.self) }
+        guard let plain = try? ChannelCipher.open(payload, key: key) else {
+            Log.warn("decodePinch: decryption failed")
+            return nil
+        }
+        guard plain.count == 4 else {
+            Log.warn("decodePinch: expected 4 bytes, got \(plain.count)")
+            return nil
+        }
+        // Android sends big-endian Float32.
+        let raw = plain.withUnsafeBytes { $0.load(as: UInt32.self) }
+        return Float32(bitPattern: UInt32(bigEndian: raw))
     }
     private func decodeMedia(_ payload: Data, key: SymmetricKey, counter: NonceCounter) -> UInt32? {
         guard let plain = try? ChannelCipher.open(payload, key: key) else { return nil }
@@ -342,5 +420,13 @@ final class ConnectionHandler {
             }
             self.pinWindow?.show()
         }
+    }
+
+    private func isLocalLoopback() -> Bool {
+        if case .hostPort(let host, _) = connection.endpoint {
+            let hostStr = "\(host)"
+            return hostStr.contains("127.0.0.1") || hostStr.contains("localhost") || hostStr.contains("::1")
+        }
+        return true
     }
 }

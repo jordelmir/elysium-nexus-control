@@ -50,7 +50,7 @@ final class BonjourAdvertiser {
         self.netService = service
         // Run a tiny CFRunLoop so the NetService
         // delegate callbacks fire.
-        let source = CFRunLoopGetCurrent()?.takeRetainedValue()
+        let source = CFRunLoopGetCurrent()
         // The NetService takes care of its own
         // scheduling; we just need the run loop
         // running. The main.swift `app.run()` covers

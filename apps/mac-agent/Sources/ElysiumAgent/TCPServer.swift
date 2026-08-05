@@ -17,26 +17,30 @@
 //
 import Foundation
 import Network
+import CryptoKit
 
 final class TCPServer {
     private let port: UInt16
-    private let keyPair: X25519.KeyAgreement.PrivateKey
+    private let keyPair: Curve25519.KeyAgreement.PrivateKey
     private let state: AgentState
+    private var activeConnections: [ConnectionHandler] = []
     private var listener: NWListener?
+    private let lock = NSLock()
 
-    init(port: UInt16, keyPair: X25519.KeyAgreement.PrivateKey, state: AgentState) {
+    init(port: UInt16, keyPair: Curve25519.KeyAgreement.PrivateKey, state: AgentState) {
         self.port = port
         self.keyPair = keyPair
         self.state = state
     }
 
+    func removeConnection(_ handler: ConnectionHandler) {
+        lock.lock()
+        defer { lock.unlock() }
+        activeConnections.removeAll { $0 === handler }
+    }
+
     func start() async throws {
-        // Use TCP only. The X25519 + ChaCha20 layer
-        // gives us confidentiality + integrity on
-        // top.
         let parameters = NWParameters.tcp
-        // Allow address reuse so a quick restart
-        // doesn't hit "address already in use".
         if let inOpts = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
             inOpts.version = .v4
         }
@@ -57,14 +61,17 @@ final class TCPServer {
         }
         listener.newConnectionHandler = { [weak self] connection in
             guard let self = self else { return }
-            // Hand the connection off to a per-conn
-            // handler. The listener is free to accept
-            // the next one.
             let handler = ConnectionHandler(
                 connection: connection,
                 keyPair: self.keyPair,
-                state: self.state
+                state: self.state,
+                onClose: { [weak self] h in
+                    self?.removeConnection(h)
+                }
             )
+            self.lock.lock()
+            self.activeConnections.append(handler)
+            self.lock.unlock()
             handler.start()
         }
         listener.start(queue: .global())

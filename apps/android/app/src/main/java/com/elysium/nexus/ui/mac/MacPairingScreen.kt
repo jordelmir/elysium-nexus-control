@@ -162,13 +162,12 @@ fun MacPairingScreen(
         }
     }
 
-    // When the 6th digit is entered, submit
-    // automatically.
-    LaunchedEffect(pinDigits.value) {
-        if (state == PairingState.AWAITING_PIN &&
-            pinDigits.value.all { it.length == 1 }
-        ) {
-            val pin = pinDigits.value.joinToString("")
+    var pinText by remember { mutableStateOf("") }
+
+    // When 6 digits are entered, submit automatically.
+    LaunchedEffect(pinText) {
+        if (state == PairingState.AWAITING_PIN && pinText.length == 6) {
+            val pin = pinText
             state = PairingState.VERIFYING
             scope.launch { transport.sendPin(pin) }
         }
@@ -262,14 +261,8 @@ fun MacPairingScreen(
                         .padding(horizontal = info.sidePadding, vertical = 8.dp)
                 )
                 PairingState.AWAITING_PIN -> PinInputContent(
-                    pinDigits = pinDigits.value,
-                    onDigitChange = { index, value ->
-                        if (value.length <= 1 && value.all { it.isDigit() }) {
-                            val newList = pinDigits.value.toMutableList()
-                            newList[index] = value
-                            pinDigits.value = newList
-                        }
-                    },
+                    pinText = pinText,
+                    onPinTextChange = { pinText = it },
                     hostName = host.name,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -454,8 +447,8 @@ private fun ConnectingContent(
  */
 @Composable
 private fun PinInputContent(
-    pinDigits: List<String>,
-    onDigitChange: (Int, String) -> Unit,
+    pinText: String,
+    onPinTextChange: (String) -> Unit,
     hostName: String,
     modifier: Modifier = Modifier
 ) {
@@ -475,7 +468,7 @@ private fun PinInputContent(
                 modifier = Modifier.size(48.dp)
             )
             Text(
-                text = "Escribe el PIN que muestra tu $hostName",
+                text = "Escribe el PIN de 6 dígitos de tu $hostName",
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -483,62 +476,73 @@ private fun PinInputContent(
                 color = ElysiumColors.OnSurface,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
-            // The 6-digit input row.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+
+            // SINGLE CONTINUOUS TEXT FIELD (6 visual boxes)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                pinDigits.forEachIndexed { index, digit ->
-                    BasicTextField(
-                        value = digit,
-                        onValueChange = { onDigitChange(index, it) },
-                        textStyle = TextStyle(
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ElysiumColors.NeonCyan,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        ),
-                        cursorBrush = SolidColor(ElysiumColors.NeonCyan),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.NumberPassword
-                        ),
-                        modifier = Modifier
-                            .size(width = 48.dp, height = 64.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        ElysiumColors.NeonCyan.copy(alpha = 0.25f),
-                                        ElysiumColors.NeonCyan.copy(alpha = 0.1f)
-                                    )
-                                )
-                            )
-                            .border(
-                                width = 1.5.dp,
-                                color = ElysiumColors.NeonCyan,
-                                shape = RoundedCornerShape(10.dp)
-                            ),
-                        decorationBox = { innerTextField ->
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (digit.isEmpty()) {
-                                    Text(
-                                        text = "•",
-                                        style = TextStyle(
-                                            fontSize = 24.sp,
-                                            color = ElysiumColors.OnSurfaceMuted
+                // Invisible/transparent input field spanning the full width
+                BasicTextField(
+                    value = pinText,
+                    onValueChange = { newValue ->
+                        val clean = newValue.filter { it.isDigit() }.take(6)
+                        onPinTextChange(clean)
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword
+                    ),
+                    textStyle = TextStyle(color = Color.Transparent),
+                    cursorBrush = SolidColor(Color.Transparent),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 6 Visual boxes that display the typed digits
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (i in 0 until 6) {
+                        val char = pinText.getOrNull(i)?.toString() ?: ""
+                        val isCurrent = (i == pinText.length)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(58.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            if (isCurrent) ElysiumColors.NeonCyan.copy(alpha = 0.35f)
+                                            else ElysiumColors.NeonCyan.copy(alpha = 0.15f),
+                                            ElysiumColors.Surface
                                         )
                                     )
-                                }
-                                innerTextField()
-                            }
+                                )
+                                .border(
+                                    width = if (isCurrent) 2.dp else 1.5.dp,
+                                    color = if (isCurrent) ElysiumColors.NeonGreen else ElysiumColors.NeonCyan.copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (char.isNotEmpty()) char else "•",
+                                style = TextStyle(
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (char.isNotEmpty()) ElysiumColors.NeonCyan else ElysiumColors.OnSurfaceMuted
+                                )
+                            )
                         }
-                    )
+                    }
                 }
             }
+
             Text(
-                text = "Toca cada casilla. Se envía automáticamente al llenar las 6.",
+                text = "Escribe continuo en el teclado. Se envía automáticamente al completar 6 dígitos.",
                 style = TextStyle(fontSize = 11.sp),
                 color = ElysiumColors.OnSurfaceMuted,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
