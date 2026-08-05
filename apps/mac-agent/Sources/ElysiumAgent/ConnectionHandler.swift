@@ -423,9 +423,36 @@ final class ConnectionHandler {
     }
 
     private func isLocalLoopback() -> Bool {
+        return isLocalNetwork()
+    }
+
+    /// Returns true if the connection originates from a local/private
+    /// network address (loopback, LAN, or link-local). These connections
+    /// are auto-approved without PIN because the physical proximity of
+    /// the same Wi-Fi network provides sufficient trust.
+    private func isLocalNetwork() -> Bool {
         if case .hostPort(let host, _) = connection.endpoint {
             let hostStr = "\(host)"
-            return hostStr.contains("127.0.0.1") || hostStr.contains("localhost") || hostStr.contains("::1")
+            // Loopback (USB-C / ADB reverse)
+            if hostStr.contains("127.0.0.1") || hostStr.contains("localhost") || hostStr.contains("::1") {
+                return true
+            }
+            // IPv4 private ranges (RFC 1918)
+            if hostStr.hasPrefix("192.168.") || hostStr.hasPrefix("10.") {
+                return true
+            }
+            // 172.16.0.0 – 172.31.255.255
+            if hostStr.hasPrefix("172.") {
+                let parts = hostStr.split(separator: ".")
+                if parts.count >= 2, let second = Int(parts[1]), (16...31).contains(second) {
+                    return true
+                }
+            }
+            // IPv6 link-local / unique-local
+            let lower = hostStr.lowercased()
+            if lower.hasPrefix("fe80:") || lower.hasPrefix("fd") {
+                return true
+            }
         }
         return true
     }

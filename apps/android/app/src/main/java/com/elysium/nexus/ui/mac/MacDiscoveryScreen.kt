@@ -243,57 +243,59 @@ fun MacDiscoveryScreen(
                     )
                 }
             }
-            // === MANUAL ADD ===
-            NeonSectionHeader(
-                text = "Opciones",
-                accent = ElysiumColors.NeonPurple,
-                modifier = Modifier.padding(
-                    horizontal = info.sidePadding,
-                    vertical = 8.dp
+            // === MANUAL ADD (available if automatic connection fails / no hosts found) ===
+            if (!isScanning) {
+                NeonSectionHeader(
+                    text = "Conexión Manual",
+                    accent = ElysiumColors.NeonPurple,
+                    modifier = Modifier.padding(
+                        horizontal = info.sidePadding,
+                        vertical = 8.dp
+                    )
                 )
-            )
-            NeonCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 4.dp)
-                    .clickable { onManualAdd() },
-                accent = ElysiumColors.NeonPurple
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                NeonCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = info.sidePadding, vertical = 4.dp)
+                        .clickable { onManualAdd() },
+                    accent = ElysiumColors.NeonPurple
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(ElysiumColors.NeonPurple.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = null,
-                            tint = ElysiumColors.NeonPurple,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Agregar manualmente",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = ElysiumColors.OnSurface
-                        )
-                        Text(
-                            text = "Conectar por IP o nombre de host",
-                            style = TextStyle(fontSize = 12.sp),
-                            color = ElysiumColors.OnSurfaceMuted
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(ElysiumColors.NeonPurple.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = null,
+                                tint = ElysiumColors.NeonPurple,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Agregar manualmente",
+                                style = TextStyle(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = ElysiumColors.OnSurface
+                            )
+                            Text(
+                                text = "Conectar por IP o nombre de host",
+                                style = TextStyle(fontSize = 12.sp),
+                                color = ElysiumColors.OnSurfaceMuted
+                            )
+                        }
                     }
                 }
-            }
+            } // end if (!isScanning)
             Spacer(modifier = Modifier.height(48.dp))
         }
     }

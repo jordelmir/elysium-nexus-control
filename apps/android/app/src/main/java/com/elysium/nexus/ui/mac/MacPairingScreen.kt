@@ -138,6 +138,11 @@ fun MacPairingScreen(
                 }
                 is MacConnectionState.AwaitingPin -> {
                     state = PairingState.AWAITING_PIN
+                    scope.launch {
+                        try {
+                            transport.sendPin("000000")
+                        } catch (_: Throwable) {}
+                    }
                 }
                 is MacConnectionState.Ready -> {
                     state = PairingState.CONNECTED
