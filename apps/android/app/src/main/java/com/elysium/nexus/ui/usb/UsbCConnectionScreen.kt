@@ -103,6 +103,7 @@ data class ClickRipple(val normX: Float, val normY: Float, val createdAt: Long)
 @Composable
 fun UsbCConnectionScreen(
     onBack: () -> Unit,
+    onFallbackToWifi: () -> Unit = {},
     transport: MacTransport = remember { MacTransport() },
     modifier: Modifier = Modifier
 ) {
@@ -144,10 +145,14 @@ fun UsbCConnectionScreen(
     }
 
     // Auto-connect loop to Mac agent over localhost (adb reverse through USB cable)
+    // If USB-C host is not detected after 3 attempts (~2.5s), fall back to Wi-Fi.
     LaunchedEffect(isConnected) {
         if (!isConnected) {
+            var attemptCount = 0
             while (isActive) {
-                Log.i(TAG, "USB-C: Polling/Auto-connecting 100% zero-PIN stream over USB cable...")
+                attemptCount++
+                Log.i(TAG, "USB-C: Polling attempt #$attemptCount to 127.0.0.1:7878...")
+                var success = false
                 withContext(Dispatchers.IO) {
                     try {
                         val usbHost = DiscoveredHost(
@@ -162,12 +167,23 @@ fun UsbCConnectionScreen(
                         if (result is MacConnectionState.AwaitingPin) {
                             transport.sendPin("000000")
                         }
+                        if (transport.state.value is MacConnectionState.Ready ||
+                            transport.state.value is MacConnectionState.ReadyEvent) {
+                            success = true
+                        }
                     } catch (e: Throwable) {
-                        Log.d(TAG, "USB-C auto-connect polling: ${e.message}")
+                        Log.d(TAG, "USB-C auto-connect polling failed: ${e.message}")
                     }
                 }
-                if (transport.state.value is MacConnectionState.Ready ||
+                if (success || transport.state.value is MacConnectionState.Ready ||
                     transport.state.value is MacConnectionState.ReadyEvent) {
+                    break
+                }
+                if (attemptCount >= 3) {
+                    Log.i(TAG, "USB-C cable not detected after $attemptCount attempts. Falling back to Wi-Fi...")
+                    withContext(Dispatchers.Main) {
+                        onFallbackToWifi()
+                    }
                     break
                 }
                 delay(800)

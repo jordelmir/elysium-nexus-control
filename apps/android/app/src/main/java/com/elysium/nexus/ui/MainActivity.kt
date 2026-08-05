@@ -593,6 +593,9 @@ class MainActivity : ComponentActivity() {
                     )
                     is HubDestination.UsbC -> com.elysium.nexus.ui.usb.UsbCConnectionScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onFallbackToWifi = {
+                            navStack.value = navStack.value.dropLast(1) + HubDestination.MacDiscovery
+                        },
                         transport = macTransport
                     )
                     is HubDestination.AcControl -> {
