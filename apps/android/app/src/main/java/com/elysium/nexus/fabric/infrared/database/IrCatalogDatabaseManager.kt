@@ -37,7 +37,7 @@ class IrCatalogDatabaseManager private constructor(
         repositoryInstance?.let { return it }
 
         ensureDatabaseInstalled()
-        val repo = IrCatalogRepository(applicationContext)
+        val repo = IrCatalogRepository.getInstance(applicationContext)
         repositoryInstance = repo
         repo
     }

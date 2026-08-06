@@ -12,10 +12,13 @@ enum class RepeatPolicy {
 }
 
 /**
- * §6.3 Codec Verification Status.
+ * §6.3 Codec Verification Status — honest states per dictamen §7.
+ *
+ * Only UNIT_SHAPE_VALIDATED is claimed until decoder round-trip and HIL proof exist.
  */
 enum class CodecVerificationStatus {
     EXPERIMENTAL,
+    UNIT_SHAPE_VALIDATED,
     GOLDEN_VECTOR_VERIFIED,
     DECODER_ROUNDTRIP_VERIFIED,
     HIL_VERIFIED,
@@ -23,7 +26,18 @@ enum class CodecVerificationStatus {
 }
 
 /**
- * §6.3 Codec Specification Metadata.
+ * §6.3 Protocol variant — preserves SIRC12/15/20, NEC variants, RC5x, etc.
+ */
+data class ProtocolVariant(
+    val variantId: String,
+    val bits: Int,
+    val addressBits: Int,
+    val commandBits: Int,
+    val description: String
+)
+
+/**
+ * §6.3 Codec Specification Metadata — now includes variants.
  */
 data class CodecSpec(
     val codecId: String,
@@ -33,15 +47,25 @@ data class CodecSpec(
     val carrierHzRange: IntRange,
     val repeatPolicy: RepeatPolicy,
     val status: CodecVerificationStatus,
-    val goldenVectorCount: Int
+    val goldenVectorCount: Int,
+    val variants: List<ProtocolVariant> = emptyList()
 )
+
+/**
+ * Result of resolving a codec from the catalog.
+ */
+sealed interface CodecResolution {
+    data class Resolved(val codec: CodecSpec, val variant: ProtocolVariant? = null) : CodecResolution
+    data class Unsupported(val codecId: String, val reason: String) : CodecResolution
+    data class Blocked(val codec: CodecSpec, val reason: String) : CodecResolution
+}
 
 /**
  * §6.3 Protocol Codec Registry.
  *
- * Authoritative registry of supported IR protocol codecs. Codecs that have not passed
- * physical HIL or golden vector tests are marked [CodecVerificationStatus.CODEC_BLOCKED]
- * and cannot be used in production.
+ * Authoritative registry of supported IR protocol codecs.
+ * Honest verification states: only UNIT_SHAPE_VALIDATED until
+ * decoder round-trip and HIL are proven.
  */
 object ProtocolCodecRegistry {
     private val registeredCodecs = mapOf(
@@ -52,38 +76,54 @@ object ProtocolCodecRegistry {
             defaultCarrierHz = 38000,
             carrierHzRange = 36000..40000,
             repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 12
+            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+            goldenVectorCount = 12,
+            variants = listOf(
+                ProtocolVariant("NEC_32", 32, 8, 8, "Standard NEC 32-bit (address + inverse + command + inverse)"),
+                ProtocolVariant("NEC_32_EXT", 32, 8, 8, "NEC with extended address via sub-device")
+            )
         ),
         "NECx" to CodecSpec(
             codecId = "NECx",
             protocol = IrProtocol.NecExtended,
-            aliases = setOf("NECEXT", "NEC_EXTENDED"),
+            aliases = setOf("NECEXT", "NEC_EXTENDED", "NECExtended"),
             defaultCarrierHz = 38000,
             carrierHzRange = 36000..40000,
             repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 10
+            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+            goldenVectorCount = 10,
+            variants = listOf(
+                ProtocolVariant("NECx_32", 32, 16, 8, "NEC Extended 16-bit address")
+            )
         ),
         "SAMSUNG" to CodecSpec(
             codecId = "SAMSUNG",
             protocol = IrProtocol.Samsung,
-            aliases = setOf("SAMSUNG32"),
+            aliases = setOf("SAMSUNG32", "Samsung32"),
             defaultCarrierHz = 38000,
             carrierHzRange = 36000..40000,
             repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 8
+            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+            goldenVectorCount = 8,
+            variants = listOf(
+                ProtocolVariant("SAMSUNG_32", 32, 8, 8, "Samsung 32-bit standard"),
+                ProtocolVariant("SAMSUNG_20", 20, 5, 8, "Samsung 20-bit short")
+            )
         ),
         "SIRC" to CodecSpec(
             codecId = "SIRC",
             protocol = IrProtocol.SonySirc,
-            aliases = setOf("SONY", "SIRC12", "SIRC15", "SIRC20"),
+            aliases = setOf("SONY", "SonySirc"),
             defaultCarrierHz = 40000,
             carrierHzRange = 38000..42000,
             repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 6
+            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+            goldenVectorCount = 6,
+            variants = listOf(
+                ProtocolVariant("SIRC_12", 12, 5, 7, "SIRC 12-bit (address 5, command 7)"),
+                ProtocolVariant("SIRC_15", 15, 8, 7, "SIRC 15-bit (address 8, command 7)"),
+                ProtocolVariant("SIRC_20", 20, 5, 7, "SIRC 20-bit extended (5-bit address, 8-bit sub, 7-bit command)")
+            )
         ),
         "RC5" to CodecSpec(
             codecId = "RC5",
@@ -92,36 +132,78 @@ object ProtocolCodecRegistry {
             defaultCarrierHz = 36000,
             carrierHzRange = 35000..38000,
             repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 5
+            status = CodecVerificationStatus.EXPERIMENTAL,
+            goldenVectorCount = 5,
+            variants = listOf(
+                ProtocolVariant("RC5_14", 14, 5, 6, "RC5 standard 14-bit (1 start + 1 toggle + 5 addr + 6 cmd)"),
+                ProtocolVariant("RC5X_16", 16, 5, 8, "RC5X extended 16-bit")
+            )
         ),
         "RC6" to CodecSpec(
             codecId = "RC6",
             protocol = IrProtocol.Rc6,
-            aliases = setOf("RC6_0"),
+            aliases = setOf("RC6_0", "RC6Mode0"),
             defaultCarrierHz = 36000,
             carrierHzRange = 35000..38000,
             repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 4
+            status = CodecVerificationStatus.EXPERIMENTAL,
+            goldenVectorCount = 4,
+            variants = listOf(
+                ProtocolVariant("RC6_16", 16, 8, 8, "RC6 Mode 0 standard 16-bit"),
+                ProtocolVariant("RC6_20", 20, 16, 8, "RC6 Mode 0 extended 20-bit")
+            )
         ),
         "KASEIKYO" to CodecSpec(
             codecId = "KASEIKYO",
             protocol = IrProtocol.Kaseikyo,
-            aliases = setOf("PANASONIC"),
+            aliases = setOf("PANASONIC", "Panasonic"),
             defaultCarrierHz = 38000,
             carrierHzRange = 36000..40000,
             repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED,
-            goldenVectorCount = 4
+            status = CodecVerificationStatus.EXPERIMENTAL,
+            goldenVectorCount = 4,
+            variants = listOf(
+                ProtocolVariant("KASEIKYO_48", 48, 16, 8, "Kaseikyo/Panasonic 48-bit standard")
+            )
         )
     )
 
+    /**
+     * Get codec by ID — resolves case-insensitively and via aliases.
+     */
     fun getCodec(codecId: String): CodecSpec? {
         val key = codecId.trim().uppercase()
-        return registeredCodecs[key] ?: registeredCodecs.values.firstOrNull { key in it.aliases }
+        return registeredCodecs[key]
+            ?: registeredCodecs.values.firstOrNull { spec ->
+                key in spec.aliases.map { it.uppercase() }
+            }
     }
 
+    /**
+     * Resolve a codec with variant detection. Returns [CodecResolution] sealed type.
+     * Zero silent NEC fallback.
+     */
+    fun resolve(codecId: String, variantHint: String? = null): CodecResolution {
+        val spec = getCodec(codecId)
+            ?: return CodecResolution.Unsupported(codecId, "Codec '$codecId' is not registered.")
+
+        if (spec.status == CodecVerificationStatus.CODEC_BLOCKED) {
+            return CodecResolution.Blocked(spec, "Codec '${spec.codecId}' is blocked for production use.")
+        }
+
+        val variant = variantHint?.let { hint ->
+            spec.variants.firstOrNull { v ->
+                v.variantId.equals(hint, ignoreCase = true) ||
+                v.description.contains(hint, ignoreCase = true)
+            }
+        } ?: spec.variants.firstOrNull()
+
+        return CodecResolution.Resolved(spec, variant)
+    }
+
+    /**
+     * Check if a codec can be used in production transmission.
+     */
     fun isCodecTransmittable(codecId: String): Boolean {
         val codec = getCodec(codecId) ?: return false
         return codec.status != CodecVerificationStatus.CODEC_BLOCKED

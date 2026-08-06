@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -37,9 +36,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.elysium.nexus.core.device.DeviceCatalog
-import com.elysium.nexus.core.device.DeviceTemplate
-import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
@@ -50,15 +46,15 @@ import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonStatusPill
 
 /**
- * Screen showing all installed/saved IR profiles ("Mis Controles").
+ * §3/§8 "Mis Controles" screen.
  *
- * This screen is the entry point for retrieving persisted profiles
- * after application restarts or process force-stops.
+ * §3: Profile selection navigates by profileId ONLY.
+ * No DeviceTemplate or InstalledIrProfile object transport.
  */
 @Composable
 fun InstalledProfilesScreen(
     onBack: () -> Unit,
-    onProfileSelected: (DeviceTemplate, InstalledIrProfile) -> Unit,
+    onProfileSelected: (profileId: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -67,98 +63,43 @@ fun InstalledProfilesScreen(
     var showHelp by remember { mutableStateOf(false) }
 
     ResponsiveContainer(modifier = modifier) { info ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            // Top bar
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                NeonChip(
-                    label = "Atrás",
-                    onClick = onBack,
-                    accent = ElysiumColors.NeonPurple,
-                    icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
-                )
+                NeonChip(label = "Atrás", onClick = onBack, accent = ElysiumColors.NeonPurple, icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) })
                 Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(ElysiumColors.NeonPurple.copy(alpha = 0.6f))
-                        .clickable { showHelp = true },
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonPurple.copy(alpha = 0.6f)).clickable { showHelp = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Filled.HelpOutline,
-                        contentDescription = "Ayuda",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Icon(Icons.Filled.HelpOutline, contentDescription = "Ayuda", tint = Color.White, modifier = Modifier.size(22.dp))
                 }
             }
 
-            // Hero Card
             NeonHeroCard(
                 title = "Mis Controles",
                 subtitle = "${profiles.size} controles configurados",
                 accent = ElysiumColors.NeonCyan,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 4.dp),
-                statusChips = {
-                    NeonStatusPill(
-                        label = "Persistente",
-                        color = ElysiumColors.NeonGreen
-                    )
-                }
+                modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 4.dp),
+                statusChips = { NeonStatusPill(label = "Persistente", color = ElysiumColors.NeonGreen) }
             )
 
             if (profiles.isEmpty()) {
-                NeonCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = info.sidePadding, vertical = 16.dp),
-                    accent = ElysiumColors.NeonOrange,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
-                ) {
+                NeonCard(modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 16.dp), accent = ElysiumColors.NeonOrange, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "No tienes controles guardados",
-                            style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold),
-                            color = ElysiumColors.NeonOrange
-                        )
-                        Text(
-                            text = "Para agregar un control, ve a Controles de TV, selecciona tu marca y completa el asistente de conexión.",
-                            style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-                            color = ElysiumColors.OnSurface
-                        )
+                        Text("No tienes controles guardados", style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.NeonOrange)
+                        Text("Ve a Controles de TV, selecciona tu marca y completa el asistente.", style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp), color = ElysiumColors.OnSurface)
                     }
                 }
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = info.sidePadding),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     profiles.forEach { profile ->
-                        val template = remember(profile) {
-                            DeviceCatalog.all.firstOrNull { it.brand.equals(profile.brand, ignoreCase = true) }
-                                ?: DeviceCatalog.byId("tv-universal-generic")
-                                ?: DeviceCatalog.all.first()
-                        }
-
                         ProfileCard(
                             profile = profile,
-                            template = template,
-                            onClick = { onProfileSelected(template, profile) },
+                            onClick = { onProfileSelected(profile.id) },
                             onDelete = {
                                 repo.deleteProfile(profile.id)
                                 profiles = repo.getAllProfiles()
@@ -167,7 +108,6 @@ fun InstalledProfilesScreen(
                     }
                 }
             }
-
             Spacer(modifier = Modifier.height(48.dp))
         }
     }
@@ -175,14 +115,9 @@ fun InstalledProfilesScreen(
     if (showHelp) {
         HelpCard(
             title = "Ayuda — Mis Controles",
-            whatIsThis = "Esta pantalla muestra los controles remotos IR que has " +
-                "configurado y guardado previamente.",
-            howToUse = listOf(
-                "Toca cualquier control para abrirlo y transmitir inmediatamente.",
-                "Los controles guardados sobreviven al cierre de la aplicación.",
-                "Usa el botón de bote de basura si deseas eliminar un perfil."
-            ),
-            tip = "Los signalIds guardados son comprobados con hash de seguridad (SHA-256) antes de transmitir.",
+            whatIsThis = "Controles remotos IR configurados y guardados.",
+            howToUse = listOf("Toca un control para abrirlo.", "Los controles sobreviven al cierre de la app.", "Usa el bote de basura para eliminar."),
+            tip = "Los signalIds se verifican con SHA-256 antes de transmitir.",
             onDismiss = { showHelp = false }
         )
     }
@@ -190,78 +125,25 @@ fun InstalledProfilesScreen(
 
 @Composable
 private fun ProfileCard(
-    profile: InstalledIrProfile,
-    template: DeviceTemplate,
+    profile: com.elysium.nexus.core.device.InstalledIrProfile,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    NeonCard(
-        modifier = modifier.clickable(onClick = onClick),
-        accent = ElysiumColors.NeonCyan,
-        cornerRadius = 14.dp,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(ElysiumColors.NeonCyan.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.LiveTv,
-                        contentDescription = null,
-                        tint = ElysiumColors.NeonCyan,
-                        modifier = Modifier.size(24.dp)
-                    )
+    NeonCard(modifier = modifier.clickable(onClick = onClick), accent = ElysiumColors.NeonCyan, cornerRadius = 14.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
+                Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonCyan.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.LiveTv, contentDescription = null, tint = ElysiumColors.NeonCyan, modifier = Modifier.size(24.dp))
                 }
-
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = profile.displayName,
-                        style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold),
-                        color = ElysiumColors.OnSurface
-                    )
-                    Text(
-                        text = "${profile.brand} · ${profile.commands.size} botones · ${profile.verificationStatus}",
-                        style = TextStyle(fontSize = 12.sp),
-                        color = ElysiumColors.OnSurfaceMuted
-                    )
-                    Text(
-                        text = "codeSetId: ${profile.codeSetId.take(12)}...",
-                        style = TextStyle(fontSize = 10.sp),
-                        color = ElysiumColors.NeonCyan
-                    )
+                    Text(profile.displayName, style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.OnSurface)
+                    Text("${profile.brand} · ${profile.commands.size} botones · ${profile.verificationStatus}", style = TextStyle(fontSize = 12.sp), color = ElysiumColors.OnSurfaceMuted)
+                    Text("codeSetId: ${profile.codeSetId.take(12)}...", style = TextStyle(fontSize = 10.sp), color = ElysiumColors.NeonCyan)
                 }
             }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.Red.copy(alpha = 0.2f))
-                        .clickable { onDelete() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Eliminar",
-                        tint = Color.Red,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color.Red.copy(alpha = 0.2f)).clickable { onDelete() }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = Color.Red, modifier = Modifier.size(18.dp))
             }
         }
     }

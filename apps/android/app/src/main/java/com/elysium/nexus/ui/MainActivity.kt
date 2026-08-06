@@ -512,8 +512,7 @@ class MainActivity : ComponentActivity() {
                                 onProfileInstalled = { installedProfile ->
                                     connectedDeviceFlow.value = current.template
                                     navStack.value = navStack.value.dropLast(1) + HubDestination.Control(
-                                        template = current.template,
-                                        profile = installedProfile
+                                        profileId = installedProfile.id
                                     )
                                 },
                                 onTryOther = { navStack.value = navStack.value.dropLast(1) },
@@ -524,11 +523,9 @@ class MainActivity : ComponentActivity() {
                     }
                     is HubDestination.InstalledProfiles -> com.elysium.nexus.ui.hub.InstalledProfilesScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) },
-                        onProfileSelected = { template, profile ->
+                        onProfileSelected = { profileId ->
                             navStack.value = navStack.value.dropLast(1) + HubDestination.Control(
-                                template = template,
-                                profile = profile,
-                                profileId = profile.id
+                                profileId = profileId
                             )
                         }
                     )
@@ -536,9 +533,7 @@ class MainActivity : ComponentActivity() {
                         val ir = irTransmitter
                         if (ir != null) {
                             TvControlScreen(
-                                template = current.template,
-                                profile = current.profile,
-                                profileId = current.profileId ?: current.profile?.id,
+                                profileId = current.profileId,
                                 onBack = { navStack.value = navStack.value.dropLast(1) },
                                 irTransmitter = ir,
                                 hasEmitter = ir.hasEmitter()

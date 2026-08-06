@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +71,6 @@ import com.elysium.nexus.core.device.DeviceButton
 import com.elysium.nexus.core.device.DeviceTemplate
 import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
-import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.EncodeResult
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
@@ -85,23 +85,21 @@ import com.elysium.nexus.ui.theme.NeonCard
 import com.elysium.nexus.ui.theme.NeonChip
 import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonStatusPill
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "ElysiumNexus.TvControlScreen"
 
 /**
- * Production TvControlScreen driven strictly by [InstalledIrProfile].
+ * §3/§20/§21/§22 Authoritative TvControlScreen.
  *
- * Resolves physical signals from the winner profile's command bindings map.
- * DeviceTemplate is used ONLY for visual layout buttons. Physical codes are NEVER
- * derived from DeviceTemplate.
+ * §3: Loads profile from Room by profileId. No object transport.
+ * §20: Singleton catalog repository. Not created per-button.
+ * §21: Fingerprint verification before every transmission.
+ * §22: Button grid generated from profile bindings, NOT from DeviceTemplate.
  */
 @Composable
 fun TvControlScreen(
-    template: DeviceTemplate,
-    profile: InstalledIrProfile? = null,
-    profileId: String? = null,
+    profileId: String,
     onBack: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasEmitter: Boolean,
@@ -113,184 +111,154 @@ fun TvControlScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    val activeProfile = remember(profile, profileId) {
-        profile ?: profileId?.let { id -> InstalledIrProfileRepository(context).getProfile(id) }
+    // §3 Load profile from Room by profileId — single source of truth
+    var activeProfile by remember { mutableStateOf<InstalledIrProfile?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(profileId) {
+        isLoading = true
+        errorMessage = null
+        try {
+            val repo = InstalledIrProfileRepository(context)
+            activeProfile = repo.getProfileSuspend(profileId)
+            if (activeProfile == null) {
+                errorMessage = "Perfil $profileId no encontrado en Room"
+                Log.e(TAG, "Profile $profileId not found in Room")
+            }
+        } catch (e: Exception) {
+            errorMessage = "Error cargando perfil: ${e.message}"
+            Log.e(TAG, "Failed to load profile $profileId: ${e.message}")
+        }
+        isLoading = false
     }
 
-    // Singleton catalog repository — ONE instance, not per-button
-    val catalogRepo = remember { IrCatalogRepository(context) }
+    // §20 Singleton catalog repository
+    val catalogRepo = remember { IrCatalogRepository.getInstance(context) }
+
+    // Resolve a fallback DeviceTemplate from the profile's brand
+    val fallbackTemplate = remember(activeProfile) {
+        activeProfile?.let { profile ->
+            com.elysium.nexus.core.device.DeviceCatalog.all.firstOrNull {
+                it.brand.equals(profile.brand, ignoreCase = true)
+            } ?: com.elysium.nexus.core.device.DeviceCatalog.byId("tv-universal-generic")
+                ?: com.elysium.nexus.core.device.DeviceCatalog.all.first()
+        }
+    }
+
+    // §22 Generate buttons from profile bindings, NOT from DeviceTemplate
+    val effectiveButtons = remember(activeProfile, fallbackTemplate) {
+        if (activeProfile != null && activeProfile!!.commands.isNotEmpty()) {
+            activeProfile!!.commands.keys.mapNotNull { action ->
+                fallbackTemplate?.buttons?.firstOrNull { mapButtonToIrAction(it.id) == action }
+                    ?: DeviceButton(
+                        id = action.name.lowercase(),
+                        labelEs = action.name.replace("_", " "),
+                        labelEn = action.name.replace("_", " "),
+                        iconHint = action.name.lowercase(),
+                        commandCode = 0
+                    )
+            }
+        } else {
+            fallbackTemplate?.buttons ?: emptyList()
+        }
+    }
 
     ResponsiveContainer(modifier = modifier) { info ->
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // === TOP BAR ===========================================
+        Column(modifier = Modifier.fillMaxSize()) {
+            // === TOP BAR ===
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                NeonChip(
-                    label = "Atrás",
-                    onClick = onBack,
-                    accent = ElysiumColors.NeonPurple,
-                    icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
-                )
+                NeonChip(label = "Atrás", onClick = onBack, accent = ElysiumColors.NeonPurple, icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) })
                 if (transmitStatusText != null) {
-                    NeonStatusPill(
-                        label = transmitStatusText!!,
-                        color = if (isStatusError) ElysiumColors.NeonOrange else ElysiumColors.NeonGreen
-                    )
+                    NeonStatusPill(label = transmitStatusText!!, color = if (isStatusError) ElysiumColors.NeonOrange else ElysiumColors.NeonGreen)
                 }
                 Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(ElysiumColors.NeonPurple.copy(alpha = 0.6f))
-                        .clickable { showHelp = true },
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonPurple.copy(alpha = 0.6f)).clickable { showHelp = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Filled.HelpOutline,
-                        contentDescription = "Ayuda",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Icon(Icons.Filled.HelpOutline, contentDescription = "Ayuda", tint = Color.White, modifier = Modifier.size(22.dp))
                 }
             }
 
-            // === HERO CARD =========================================
-            NeonHeroCard(
-                title = activeProfile?.brand ?: template.brand,
-                subtitle = activeProfile?.displayName ?: template.model,
-                accent = ElysiumColors.NeonGreen,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 4.dp),
-                statusChips = {
-                    NeonStatusPill(
-                        label = if (activeProfile != null) "Perfil Instalado (Room DB)" else "Perfil Temporal",
-                        color = if (activeProfile != null) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
-                    )
-                    if (hasEmitter) {
-                        NeonStatusPill(
-                            label = "IR listo",
-                            color = ElysiumColors.NeonGreen
-                        )
-                    } else {
-                        NeonStatusPill(
-                            label = "Sin emisor",
-                            color = ElysiumColors.NeonOrange
-                        )
+            when {
+                isLoading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(color = ElysiumColors.NeonCyan)
                     }
                 }
-            )
-
-            // === TIP STRIP =========================================
-            NeonCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = info.sidePadding, vertical = 4.dp),
-                accent = ElysiumColors.NeonOrange,
-                cornerRadius = 12.dp,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = ElysiumColors.NeonOrange,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = "Apunta el emisor superior al ${activeProfile?.brand ?: template.brand} para enviar cada comando del perfil.",
-                        style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-                        color = ElysiumColors.OnSurface
-                    )
-                }
-            }
-
-            // === BUTTON GRID =======================================
-            val columns = when (info.size) {
-                com.elysium.nexus.ui.responsive.ScreenSize.Compact -> 4
-                com.elysium.nexus.ui.responsive.ScreenSize.Medium -> 5
-                com.elysium.nexus.ui.responsive.ScreenSize.Expanded -> 6
-                com.elysium.nexus.ui.responsive.ScreenSize.Large -> 7
-            }
-
-            // Generate buttons from profile bindings when available,
-            // fall back to template buttons for visual layout only
-            val effectiveButtons = remember(activeProfile, template) {
-                if (activeProfile != null && activeProfile.commands.isNotEmpty()) {
-                    // Build buttons from the profile's real bindings
-                    activeProfile.commands.keys.mapNotNull { action ->
-                        template.buttons.firstOrNull { mapButtonToIrAction(it.id) == action }
-                            ?: DeviceButton(
-                                id = action.name.lowercase(),
-                                labelEs = action.name.replace("_", " "),
-                                labelEn = action.name.replace("_", " "),
-                                iconHint = action.name.lowercase(),
-                                commandCode = 0
-                            )
+                errorMessage != null -> {
+                    NeonCard(modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 16.dp), accent = ElysiumColors.NeonOrange, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Error", style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.NeonOrange)
+                            Text(errorMessage!!, style = TextStyle(fontSize = 13.sp), color = ElysiumColors.OnSurface)
+                            NeonChip(label = "Volver", onClick = onBack, accent = ElysiumColors.NeonPurple, modifier = Modifier.fillMaxWidth())
+                        }
                     }
-                } else {
-                    template.buttons
                 }
-            }
+                activeProfile != null -> {
+                    val profile = activeProfile!!
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = info.sidePadding, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
-            ) {
-                items(effectiveButtons) { button ->
-                    ControlButton(
-                        button = button,
-                        onClick = {
-                            scope.launch {
-                                val result = sendProfileCommand(catalogRepo = catalogRepo, transmitter = irTransmitter, profile = activeProfile, template = template, button = button)
-                                when (result) {
-                                    is IrTransmitResult.Success -> {
-                                        isStatusError = false
-                                        transmitStatusText = "Transmitido: ${button.labelEs}"
-                                    }
-                                    is IrTransmitResult.NoEmitter -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Sin emisor IR"
-                                    }
-                                    is IrTransmitResult.PermissionDenied -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Permiso denegado"
-                                    }
-                                    is IrTransmitResult.UnsupportedCarrier -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Frecuencia no soportada"
-                                    }
-                                    is IrTransmitResult.InvalidPattern -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Patrón inválido: ${result.reason}"
-                                    }
-                                    is IrTransmitResult.Busy -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Emisor ocupado"
-                                    }
-                                    is IrTransmitResult.PlatformFailure -> {
-                                        isStatusError = true
-                                        transmitStatusText = "Error hardware: ${result.cause.message}"
-                                    }
-                                }
-                            }
+                    // === HERO CARD ===
+                    NeonHeroCard(
+                        title = profile.brand,
+                        subtitle = profile.displayName,
+                        accent = ElysiumColors.NeonGreen,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 4.dp),
+                        statusChips = {
+                            NeonStatusPill(label = "Room DB", color = ElysiumColors.NeonGreen)
+                            NeonStatusPill(label = "${profile.commands.size} comandos", color = ElysiumColors.NeonCyan)
+                            if (hasEmitter) NeonStatusPill(label = "IR listo", color = ElysiumColors.NeonGreen)
+                            else NeonStatusPill(label = "Sin emisor", color = ElysiumColors.NeonOrange)
                         }
                     )
+
+                    // === TIP ===
+                    NeonCard(modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 4.dp), accent = ElysiumColors.NeonOrange, cornerRadius = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Info, contentDescription = null, tint = ElysiumColors.NeonOrange, modifier = Modifier.size(20.dp))
+                            Text("Apunta el emisor superior al ${profile.brand} para enviar cada comando.", style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp), color = ElysiumColors.OnSurface)
+                        }
+                    }
+
+                    // === BUTTON GRID ===
+                    val columns = when (info.size) {
+                        com.elysium.nexus.ui.responsive.ScreenSize.Compact -> 4
+                        com.elysium.nexus.ui.responsive.ScreenSize.Medium -> 5
+                        com.elysium.nexus.ui.responsive.ScreenSize.Expanded -> 6
+                        com.elysium.nexus.ui.responsive.ScreenSize.Large -> 7
+                    }
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(columns),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = info.sidePadding, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
+                    ) {
+                        items(effectiveButtons) { button ->
+                            ControlButton(
+                                button = button,
+                                onClick = {
+                                    scope.launch {
+                                        val result = sendProfileCommand(catalogRepo, irTransmitter, profile, button)
+                                        when (result) {
+                                            is IrTransmitResult.Success -> { isStatusError = false; transmitStatusText = "Enviado: ${button.labelEs}" }
+                                            is IrTransmitResult.NoEmitter -> { isStatusError = true; transmitStatusText = "Sin emisor IR" }
+                                            is IrTransmitResult.PermissionDenied -> { isStatusError = true; transmitStatusText = "Permiso denegado" }
+                                            is IrTransmitResult.UnsupportedCarrier -> { isStatusError = true; transmitStatusText = "Frecuencia no soportada" }
+                                            is IrTransmitResult.InvalidPattern -> { isStatusError = true; transmitStatusText = "Error: ${result.reason}" }
+                                            is IrTransmitResult.Busy -> { isStatusError = true; transmitStatusText = "Emisor ocupado" }
+                                            is IrTransmitResult.PlatformFailure -> { isStatusError = true; transmitStatusText = "Error Android" }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -298,32 +266,20 @@ fun TvControlScreen(
 
     if (showHelp) {
         HelpCard(
-            title = "Control ${profile?.brand ?: template.brand}",
-            whatIsThis = "Superficie de control Infrarroja optimizada driven por perfiles persistentes.",
-            howToUse = listOf(
-                "Apunta la parte superior del teléfono hacia el receptor IR del equipo.",
-                "Toca cualquier botón para enviar la señal correspondiente.",
-                "Las señales se ejecutan directamente desde el catálogo SQLite instalado."
-            ),
-            tip = "Mantén la vista directa sin obstáculos entre el emisor y el sensor del equipo.",
+            title = "Control ${activeProfile?.brand ?: ""}",
+            whatIsThis = "Superficie de control IR basada en perfiles persistentes de Room.",
+            howToUse = listOf("Apunta al sensor IR.", "Toca un botón para enviar la señal.", "Las señales se ejecutan desde el catálogo SQLite."),
+            tip = "Mantén vista directa entre emisor y sensor.",
             onDismiss = { showHelp = false }
         )
     }
 }
 
 @Composable
-private fun ControlButton(
-    button: DeviceButton,
-    onClick: () -> Unit
-) {
+private fun ControlButton(button: DeviceButton, onClick: () -> Unit) {
     var isPressed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1.0f,
-        animationSpec = tween(durationMillis = 100),
-        label = "btn_scale"
-    )
-
+    val scale by animateFloatAsState(targetValue = if (isPressed) 0.90f else 1.0f, animationSpec = tween(durationMillis = 100), label = "btn_scale")
     val icon = buttonIcon(button.id)
     val color = when (button.iconHint) {
         "power" -> ElysiumColors.NeonOrange
@@ -332,48 +288,16 @@ private fun ControlButton(
         "nav" -> ElysiumColors.NeonPurple
         else -> ElysiumColors.NeonCyan
     }
-
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1.0f)
-            .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        color.copy(alpha = 0.25f),
-                        color.copy(alpha = 0.08f)
-                    )
-                )
-            )
-            .clickable {
-                isPressed = true
-                onClick()
-                scope.launch {
-                    delay(120)
-                    isPressed = false
-                }
-            },
+        modifier = Modifier.fillMaxWidth().aspectRatio(1.0f).scale(scale).clip(RoundedCornerShape(16.dp))
+            .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.25f), color.copy(alpha = 0.08f))))
+            .clickable { isPressed = true; onClick(); scope.launch { kotlinx.coroutines.delay(120); isPressed = false } },
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = button.labelEs,
-                tint = color,
-                modifier = Modifier.size(24.dp)
-            )
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = button.labelEs, tint = color, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = button.labelEs,
-                style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                color = ElysiumColors.OnSurface,
-                maxLines = 1
-            )
+            Text(button.labelEs, style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.OnSurface, maxLines = 1)
         }
     }
 }
@@ -435,41 +359,36 @@ private fun mapButtonToIrAction(buttonId: String): IrAction? = when (buttonId) {
     else -> null
 }
 
+/**
+ * §21 Authoritative command sending — fingerprint verification before every transmit.
+ */
 private suspend fun sendProfileCommand(
     catalogRepo: IrCatalogRepository,
     transmitter: AndroidIrTransmitter,
-    profile: InstalledIrProfile?,
-    template: DeviceTemplate,
+    profile: InstalledIrProfile,
     button: DeviceButton
 ): IrTransmitResult {
     val action = mapButtonToIrAction(button.id)
-    if (profile == null || action == null) {
-        return IrTransmitResult.InvalidPattern("Action ${button.labelEs} not configured in profile")
-    }
+        ?: return IrTransmitResult.InvalidPattern("Acción '${button.labelEs}' no configurada")
 
     val binding = profile.commands[action]
-        ?: return IrTransmitResult.InvalidPattern("Action $action not mapped for profile ${profile.id}")
+        ?: return IrTransmitResult.InvalidPattern("Acción $action no mapeada en perfil ${profile.id}")
 
     val signal = catalogRepo.getSignal(binding.signalId)
-        ?: return IrTransmitResult.InvalidPattern("Signal ${binding.signalId} missing from SQLite catalog")
+        ?: return IrTransmitResult.InvalidPattern("Signal ${binding.signalId} no encontrado en catálogo SQLite")
 
-    // §21 Fingerprint verification: ensure the signal hasn't changed since installation
+    // §21 Fingerprint verification
     val actualFingerprint = IrProbeEngine.fingerprintSignal(signal)
     if (actualFingerprint != binding.physicalFingerprint) {
-        Log.e(TAG, "FINGERPRINT MISMATCH for action=$action, signalId=${binding.signalId}: " +
-            "expected=${binding.physicalFingerprint}, actual=$actualFingerprint. " +
-            "Catalog may have been updated. Refusing to transmit.")
-        return IrTransmitResult.InvalidPattern(
-            "Fingerprint mismatch for $action — profile may need reinstallation"
-        )
+        Log.e(TAG, "FINGERPRINT MISMATCH action=$action signalId=${binding.signalId}: expected=${binding.physicalFingerprint}, actual=$actualFingerprint")
+        return IrTransmitResult.InvalidPattern("Fingerprint mismatch para $action — reinstalar perfil")
     }
 
     val encodeResult = IrProtocol.encode(signal)
     return if (encodeResult is EncodeResult.Success) {
-        Log.d(TAG, "Transmitting Authoritative Profile Signal action=$action, signalId=${binding.signalId}, " +
-            "codeSetId=${profile.codeSetId}, fingerprint=${actualFingerprint.take(16)}...")
+        Log.d(TAG, "Transmitting action=$action signalId=${binding.signalId} codeSetId=${profile.codeSetId}")
         transmitter.transmit(encodeResult.waveform)
     } else {
-        IrTransmitResult.InvalidPattern("Failed to encode signal for action $action")
+        IrTransmitResult.InvalidPattern("Error codificando señal para $action")
     }
 }

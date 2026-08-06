@@ -28,7 +28,7 @@ class DeviceCommandResolver(
     private val context: Context
 ) {
     private val profileRepository = InstalledIrProfileRepository(context)
-    private val catalogRepository = IrCatalogRepository(context)
+    private val catalogRepository = IrCatalogRepository.getInstance(context)
 
     suspend fun resolve(
         deviceId: DeviceId,

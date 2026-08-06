@@ -34,10 +34,23 @@ private data class CodeSetCommandsResult(
  * and [signals] tables.
  * Guaranteed: A single [IrCodeSet] contains ALL command bindings belonging to that remote
  * with exact database [signalId]s. Zero manufactured signal IDs.
+ *
+ * Thread-safe singleton — one read-only SQLite connection shared across the process.
  */
-class IrCatalogRepository(
+class IrCatalogRepository private constructor(
     private val context: Context
 ) : IrCatalog {
+
+    companion object {
+        @Volatile
+        private var instance: IrCatalogRepository? = null
+
+        fun getInstance(context: Context): IrCatalogRepository {
+            return instance ?: synchronized(this) {
+                instance ?: IrCatalogRepository(context.applicationContext).also { instance = it }
+            }
+        }
+    }
 
     private fun getDatabase(): SQLiteDatabase {
         val manager = IrCatalogDatabaseManager.getInstance(context)
