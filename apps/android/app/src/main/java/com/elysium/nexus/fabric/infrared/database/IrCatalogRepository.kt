@@ -9,6 +9,7 @@ import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
+import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,75 +17,41 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.Inflater
 
-private const val TAG = "ElysiumNexus.IrCatalog"
-private const val DB_ASSET = "ir/ir_catalog.db"
+private const val TAG = "ElysiumNexus.IrCatalogV4"
 private const val MAX_PATTERN_SLICES = 4096
-private const val MAX_PATTERN_BYTES = MAX_PATTERN_SLICES * 4
 
 /**
- * The §21 Production SQLite IR Catalog Repository.
+ * §2 Canonical Schema v4 SQLite IR Catalog Repository.
  *
- * Implements [IrCatalog]. Reads precompiled `ir_catalog.db` from Android assets,
- * copies it atomically with integrity checks to local cache, and queries candidate
- * [IrCodeSet]s for [IrProbeEngine].
- *
- * Local-first: 0 network calls required.
+ * Provides authoritative query access to Schema v4 [code_sets], [command_bindings],
+ * and [signals] tables.
+ * Guaranteed: A single [IrCodeSet] contains ALL command bindings belonging to that remote.
  */
 class IrCatalogRepository(
     private val context: Context
 ) : IrCatalog {
-    private var db: SQLiteDatabase? = null
 
-    /**
-     * Atomically copy database from assets to cache directory with integrity verification.
-     */
-    private fun ensureDb(): SQLiteDatabase {
-        db?.let { if (it.isOpen) return it }
-
-        val dbFile = File(context.cacheDir, "ir_catalog.db")
-        val tmpFile = File(context.cacheDir, "ir_catalog.db.tmp")
-
+    private fun getDatabase(): SQLiteDatabase {
+        val manager = IrCatalogDatabaseManager.getInstance(context)
+        val dbFile = manager.databaseFile
         if (!dbFile.exists() || dbFile.length() == 0L) {
-            Log.d(TAG, "Copying ir_catalog.db atomically from assets...")
-            tmpFile.delete()
-
-            context.assets.open(DB_ASSET).use { input ->
-                tmpFile.outputStream().use { output ->
-                    input.copyTo(output, bufferSize = 16384)
-                }
+            // Install database atomically
+            val assetManager = context.assets
+            val targetDir = manager.targetDirectory
+            val tmpFile = File(targetDir, "ir_catalog.db.tmp")
+            assetManager.open("ir/ir_catalog.db").use { input ->
+                tmpFile.outputStream().use { output -> input.copyTo(output) }
             }
-
-            // Verify integrity of tmp DB before making it active
-            val testDb = SQLiteDatabase.openDatabase(
-                tmpFile.absolutePath,
-                null,
-                SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
-            )
-            val isOk = testDb.rawQuery("PRAGMA quick_check", null).use { cursor ->
-                cursor.moveToFirst() && cursor.getString(0).equals("ok", ignoreCase = true)
-            }
-            testDb.close()
-
-            if (!isOk) {
-                tmpFile.delete()
-                throw IllegalStateException("Asset ir_catalog.db failed SQLite integrity check")
-            }
-
-            // Atomic rename
             if (!tmpFile.renameTo(dbFile)) {
                 tmpFile.copyTo(dbFile, overwrite = true)
                 tmpFile.delete()
             }
-            Log.d(TAG, "Successfully initialized active ir_catalog.db (${dbFile.length()} bytes)")
         }
-
-        val database = SQLiteDatabase.openDatabase(
+        return SQLiteDatabase.openDatabase(
             dbFile.absolutePath,
             null,
             SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
         )
-        db = database
-        return database
     }
 
     override suspend fun getCandidatesForBrand(
@@ -92,237 +59,281 @@ class IrCatalogRepository(
         deviceType: String,
         action: IrAction
     ): List<IrCodeSet> = withContext(Dispatchers.IO) {
-        val database = ensureDb()
-        val actionName = action.name
+        val database = getDatabase()
+        val actionKey = action.name
         val results = mutableListOf<IrCodeSet>()
 
-        // ─── 1. Encoded Commands ─────────────────────────────────────
-        val encodedQuery = """
-            SELECT ce.id, ce.action, ce.protocol, ce.carrier_hz, ce.address,
-                   ce.sub_device, ce.command, ce.fingerprint,
-                   b.name AS brand_name, r.model, r.remote_model,
-                   s.name AS source_name, s.license
-            FROM commands_encoded ce
-            JOIN remotes r ON ce.remote_id = r.id
+        val query = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id
+            FROM code_sets cs
+            JOIN remotes r ON cs.remote_id = r.id
             JOIN brands b ON r.brand_id = b.id
             JOIN device_types dt ON r.device_type_id = dt.id
-            JOIN sources s ON r.source_id = s.id
-            WHERE b.name LIKE ? AND ce.action = ?
-              AND s.production_enabled = 1
-            ORDER BY r.id
-            LIMIT 500
+            JOIN source_revisions sr ON cs.source_revision_id = sr.id
+            JOIN sources s ON sr.source_id = s.id
+            JOIN command_bindings cb ON cb.code_set_id = cs.id
+            JOIN actions a ON cb.action_id = a.id
+            WHERE (b.display_name LIKE ? OR b.normalized_name LIKE ?)
+              AND a.canonical_key = ?
+              AND s.production_approved = 1
+            GROUP BY cs.id
+            ORDER BY cs.id
+            LIMIT 200
         """.trimIndent()
 
-        database.rawQuery(encodedQuery, arrayOf("%$brand%", actionName)).use { cursor ->
+        val brandArg = "%${brand.trim()}%"
+        database.rawQuery(query, arrayOf(brandArg, brandArg, actionKey)).use { cursor ->
             while (cursor.moveToNext()) {
-                val ceId = cursor.getInt(0)
-                val proto = cursor.getString(2) ?: "NEC"
+                val csId = cursor.getString(0)
+                val brandName = cursor.getString(1) ?: brand
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+
+                // Fetch ALL command bindings for this complete Code Set
+                val allBindings = getCommandsForCodeSetInternal(database, csId)
+                if (allBindings.isNotEmpty()) {
+                    results.add(
+                        IrCodeSet(
+                            id = csId,
+                            brand = brandName,
+                            modelPatterns = setOf(remoteModel),
+                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                            commands = allBindings,
+                            provenance = CodeProvenance(
+                                sourceName = sourceName,
+                                sourceUrl = "",
+                                licenseSpdx = licenseSpdx
+                            ),
+                            verification = VerificationStatus.UNVERIFIED
+                        )
+                    )
+                }
+            }
+        }
+
+        database.close()
+        Log.d(TAG, "getCandidatesForBrand(brand=$brand, action=$actionKey): ${results.size} multi-command Code Sets from Schema v4")
+        results
+    }
+
+    private fun getCommandsForCodeSetInternal(
+        database: SQLiteDatabase,
+        codeSetId: String
+    ): Map<IrAction, IrSignal> {
+        val commands = mutableMapOf<IrAction, IrSignal>()
+
+        val query = """
+            SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
+                   sig.address_value, sig.sub_device_value, sig.command_value,
+                   sig.pattern_blob
+            FROM command_bindings cb
+            JOIN actions a ON cb.action_id = a.id
+            JOIN signals sig ON cb.signal_id = sig.id
+            WHERE cb.code_set_id = ?
+        """.trimIndent()
+
+        database.rawQuery(query, arrayOf(codeSetId)).use { cursor ->
+            while (cursor.moveToNext()) {
+                val actionStr = cursor.getString(0)
+                val encodingType = cursor.getString(1)
+                val codecId = cursor.getString(2) ?: "NEC"
                 val carrierHz = cursor.getInt(3)
                 val address = cursor.getInt(4)
                 val subDevice = cursor.getInt(5)
                 val command = cursor.getInt(6)
-                val brandName = cursor.getString(8) ?: brand
-                val model = cursor.getString(9) ?: ""
-                val remoteModel = cursor.getString(10) ?: ""
-                val sourceName = cursor.getString(11) ?: ""
-                val license = cursor.getString(12) ?: ""
+                val blob = cursor.getBlob(7)
 
-                val irProtocol = mapProtocol(proto)
-                val signal: IrSignal = IrSignal.Encoded(
-                    carrierHz = carrierHz,
-                    protocol = irProtocol,
-                    address = address,
-                    subDevice = if (subDevice >= 0) subDevice else null,
-                    command = command
-                )
+                val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
-                results.add(
-                    IrCodeSet(
-                        id = "cat-enc-$ceId",
-                        brand = brandName,
-                        modelPatterns = setOf(model),
-                        remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
-                        commands = mapOf(action to signal),
-                        provenance = CodeProvenance(
-                            sourceName = sourceName,
-                            sourceUrl = "",
-                            licenseSpdx = license
-                        ),
-                        verification = VerificationStatus.UNVERIFIED
+                val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
+                    val codecSpec = ProtocolCodecRegistry.getCodec(codecId)
+                    val protocol = codecSpec?.protocol ?: IrProtocol.Nec
+                    IrSignal.Encoded(
+                        carrierHz = carrierHz,
+                        protocol = protocol,
+                        address = address,
+                        subDevice = if (subDevice >= 0) subDevice else null,
+                        command = command
                     )
-                )
+                } else if (encodingType == "RAW" && blob != null) {
+                    val pattern = decompressPattern(blob)
+                    if (pattern != null && pattern.all { it > 0 }) {
+                        IrSignal.Raw(carrierHz = carrierHz, patternUs = pattern)
+                    } else null
+                } else null
+
+                if (signal != null) {
+                    commands[irAction] = signal
+                }
             }
         }
 
-        // ─── 2. Raw Commands ─────────────────────────────────────────
-        val rawQuery = """
-            SELECT cr.id, cr.action, cr.carrier_hz, cr.pattern_blob,
-                   cr.duration_us, cr.fingerprint,
-                   b.name AS brand_name, r.model, r.remote_model,
-                   s.name AS source_name, s.license
-            FROM commands_raw cr
-            JOIN remotes r ON cr.remote_id = r.id
-            JOIN brands b ON r.brand_id = b.id
-            JOIN device_types dt ON r.device_type_id = dt.id
-            JOIN sources s ON r.source_id = s.id
-            WHERE b.name LIKE ? AND cr.action = ?
-              AND s.production_enabled = 1
-            ORDER BY r.id
-            LIMIT 500
+        return commands
+    }
+
+    override suspend fun getSignal(signalId: String): IrSignal? = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        var resultSignal: IrSignal? = null
+
+        val query = """
+            SELECT encoding_type, codec_id, carrier_hz, address_value,
+                   sub_device_value, command_value, pattern_blob
+            FROM signals
+            WHERE id = ?
         """.trimIndent()
 
-        database.rawQuery(rawQuery, arrayOf("%$brand%", actionName)).use { cursor ->
-            while (cursor.moveToNext()) {
-                val crId = cursor.getInt(0)
+        database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+            if (cursor.moveToFirst()) {
+                val encodingType = cursor.getString(0)
+                val codecId = cursor.getString(1) ?: "NEC"
                 val carrierHz = cursor.getInt(2)
-                val blobBytes = cursor.getBlob(3) ?: continue
-                val brandName = cursor.getString(6) ?: brand
-                val model = cursor.getString(7) ?: ""
-                val remoteModel = cursor.getString(8) ?: ""
-                val sourceName = cursor.getString(9) ?: ""
-                val license = cursor.getString(10) ?: ""
+                val address = cursor.getInt(3)
+                val subDevice = cursor.getInt(4)
+                val command = cursor.getInt(5)
+                val blob = cursor.getBlob(6)
 
-                val pattern = decompressPattern(blobBytes) ?: continue
-
-                // Strict validation: all durations must be > 0 and carrier in valid range
-                if (pattern.any { it <= 0 } || carrierHz <= 0) continue
-
-                val signal: IrSignal = IrSignal.Raw(
-                    carrierHz = carrierHz,
-                    patternUs = pattern
-                )
-
-                results.add(
-                    IrCodeSet(
-                        id = "cat-raw-$crId",
-                        brand = brandName,
-                        modelPatterns = setOf(model),
-                        remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
-                        commands = mapOf(action to signal),
-                        provenance = CodeProvenance(
-                            sourceName = sourceName,
-                            sourceUrl = "",
-                            licenseSpdx = license
-                        ),
-                        verification = VerificationStatus.UNVERIFIED
+                if (encodingType == "PARAMETRIC") {
+                    val codecSpec = ProtocolCodecRegistry.getCodec(codecId)
+                    val protocol = codecSpec?.protocol ?: IrProtocol.Nec
+                    resultSignal = IrSignal.Encoded(
+                        carrierHz = carrierHz,
+                        protocol = protocol,
+                        address = address,
+                        subDevice = if (subDevice >= 0) subDevice else null,
+                        command = command
                     )
-                )
+                } else if (encodingType == "RAW" && blob != null) {
+                    val pattern = decompressPattern(blob)
+                    if (pattern != null && pattern.all { it > 0 }) {
+                        resultSignal = IrSignal.Raw(carrierHz = carrierHz, patternUs = pattern)
+                    }
+                }
             }
         }
 
-        Log.d(TAG, "getCandidatesForBrand(brand=$brand, action=$actionName): ${results.size} candidates from SQLite")
-        results
+        database.close()
+        resultSignal
     }
 
     override suspend fun searchBrands(query: String): List<String> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val database = ensureDb()
+        val database = getDatabase()
         val results = mutableListOf<String>()
 
         database.rawQuery(
-            "SELECT DISTINCT name FROM brands WHERE name LIKE ? ORDER BY name LIMIT 50",
-            arrayOf("%$query%")
+            "SELECT DISTINCT display_name FROM brands WHERE display_name LIKE ? OR normalized_name LIKE ? ORDER BY display_name LIMIT 50",
+            arrayOf("%$query%", "%${query.lowercase()}%")
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 results.add(cursor.getString(0))
             }
         }
+        database.close()
         results
     }
 
     override suspend fun searchDevices(query: String): List<DeviceSearchResult> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val database = ensureDb()
+        val database = getDatabase()
         val results = mutableListOf<DeviceSearchResult>()
 
         val searchQuery = """
-            SELECT DISTINCT b.name, dt.name, r.model, r.remote_model, s.name
+            SELECT r.id, b.display_name, dt.canonical_name, r.display_remote_model, s.display_name
             FROM remotes r
             JOIN brands b ON r.brand_id = b.id
             JOIN device_types dt ON r.device_type_id = dt.id
-            JOIN sources s ON r.source_id = s.id
-            WHERE (b.name LIKE ? OR r.model LIKE ? OR r.remote_model LIKE ?)
-              AND s.production_enabled = 1
-            ORDER BY b.name, r.model
+            JOIN source_files sf ON r.source_file_id = sf.id
+            JOIN source_revisions sr ON sf.source_revision_id = sr.id
+            JOIN sources s ON sr.source_id = s.id
+            WHERE (b.display_name LIKE ? OR r.display_remote_model LIKE ?)
+              AND s.production_approved = 1
             LIMIT 100
         """.trimIndent()
 
         val q = "%$query%"
-        database.rawQuery(searchQuery, arrayOf(q, q, q)).use { cursor ->
+        database.rawQuery(searchQuery, arrayOf(q, q)).use { cursor ->
             while (cursor.moveToNext()) {
-                results.add(DeviceSearchResult(
-                    id = "${cursor.getString(0)}_${cursor.getString(2)}",
-                    brand = cursor.getString(0),
-                    model = cursor.getString(2) ?: "",
-                    category = cursor.getString(1) ?: "Miscellaneous",
-                    remoteModel = cursor.getString(3) ?: "",
-                    source = cursor.getString(4) ?: ""
-                ))
+                results.add(
+                    DeviceSearchResult(
+                        id = cursor.getString(0),
+                        brand = cursor.getString(1),
+                        model = cursor.getString(3) ?: "",
+                        category = cursor.getString(2) ?: "TV",
+                        remoteModel = cursor.getString(3) ?: "",
+                        source = cursor.getString(4) ?: "Elysium Data Fabric"
+                    )
+                )
             }
         }
+        database.close()
         results
     }
 
     override suspend fun getStats(): CatalogStats = withContext(Dispatchers.IO) {
-        val database = ensureDb()
+        val database = getDatabase()
         var brands = 0; var types = 0; var remotes = 0
-        var encoded = 0; var raw = 0; var protocols = 0
+        var codeSets = 0; var signals = 0; var bindings = 0
 
         database.rawQuery("SELECT COUNT(*) FROM brands", null).use { if (it.moveToFirst()) brands = it.getInt(0) }
         database.rawQuery("SELECT COUNT(*) FROM device_types", null).use { if (it.moveToFirst()) types = it.getInt(0) }
         database.rawQuery("SELECT COUNT(*) FROM remotes", null).use { if (it.moveToFirst()) remotes = it.getInt(0) }
-        database.rawQuery("SELECT COUNT(*) FROM commands_encoded", null).use { if (it.moveToFirst()) encoded = it.getInt(0) }
-        database.rawQuery("SELECT COUNT(*) FROM commands_raw", null).use { if (it.moveToFirst()) raw = it.getInt(0) }
-        database.rawQuery("SELECT COUNT(*) FROM protocols", null).use { if (it.moveToFirst()) protocols = it.getInt(0) }
+        database.rawQuery("SELECT COUNT(*) FROM code_sets", null).use { if (it.moveToFirst()) codeSets = it.getInt(0) }
+        database.rawQuery("SELECT COUNT(*) FROM signals", null).use { if (it.moveToFirst()) signals = it.getInt(0) }
+        database.rawQuery("SELECT COUNT(*) FROM command_bindings", null).use { if (it.moveToFirst()) bindings = it.getInt(0) }
+        database.close()
 
-        CatalogStats(brands, types, remotes, encoded, raw, encoded + raw, protocols)
+        CatalogStats(brands, types, remotes, codeSets, signals, bindings, 7)
     }
 
-    fun close() {
-        db?.close()
-        db = null
+    private fun mapActionKeyToIrAction(actionKey: String): IrAction? = try {
+        IrAction.valueOf(actionKey)
+    } catch (e: Exception) {
+        when (actionKey) {
+            "POWER_TOGGLE", "POWER" -> IrAction.POWER_TOGGLE
+            "POWER_ON" -> IrAction.POWER_ON
+            "POWER_OFF" -> IrAction.POWER_OFF
+            "VOLUME_UP", "VOL_UP" -> IrAction.VOLUME_UP
+            "VOLUME_DOWN", "VOL_DN" -> IrAction.VOLUME_DOWN
+            "MUTE" -> IrAction.MUTE
+            "CHANNEL_UP", "CH_UP" -> IrAction.CHANNEL_UP
+            "CHANNEL_DOWN", "CH_DN" -> IrAction.CHANNEL_DOWN
+            "INPUT", "SOURCE" -> IrAction.INPUT
+            "MENU" -> IrAction.MENU
+            "OK", "ENTER" -> IrAction.OK
+            "UP" -> IrAction.UP
+            "DOWN" -> IrAction.DOWN
+            "LEFT" -> IrAction.LEFT
+            "RIGHT" -> IrAction.RIGHT
+            "BACK", "RETURN" -> IrAction.BACK
+            "HOME" -> IrAction.HOME
+            "PLAY" -> IrAction.PLAY
+            "PAUSE" -> IrAction.PAUSE
+            "STOP" -> IrAction.STOP
+            else -> null
+        }
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────
-
-    private fun mapProtocol(proto: String): IrProtocol = when {
-        proto.startsWith("NEC", ignoreCase = true) -> IrProtocol.Nec
-        proto.startsWith("Samsung", ignoreCase = true) -> IrProtocol.Samsung
-        proto.startsWith("SIRC", ignoreCase = true) || proto.startsWith("Sony", ignoreCase = true) -> IrProtocol.SonySirc
-        proto.startsWith("RC5", ignoreCase = true) -> IrProtocol.Rc5
-        proto.startsWith("RC6", ignoreCase = true) -> IrProtocol.Rc6
-        proto.startsWith("Kaseikyo", ignoreCase = true) || proto.startsWith("Panasonic", ignoreCase = true) -> IrProtocol.Kaseikyo
-        proto.startsWith("NECx", ignoreCase = true) || proto.startsWith("NECext", ignoreCase = true) -> IrProtocol.NecExtended
-        else -> IrProtocol.Nec
-    }
-
-    /**
-     * Safely decompress zlib-compressed binary blob to IntArray of microsecond durations.
-     * Enforces slice limits to prevent OOM/DoS.
-     */
     private fun decompressPattern(blob: ByteArray): IntArray? {
         return try {
             val inflater = Inflater()
             inflater.setInput(blob)
-            val output = ByteArray(MAX_PATTERN_BYTES)
+            val output = ByteArray(MAX_PATTERN_SLICES * 4)
             val decompressedLen = inflater.inflate(output)
             inflater.end()
 
             if (decompressedLen <= 0 || decompressedLen % 4 != 0) return null
             val count = decompressedLen / 4
-            if (count !in 2..MAX_PATTERN_SLICES) return null
-
-            val buffer = ByteBuffer.wrap(output, 0, decompressedLen)
-                .order(ByteOrder.LITTLE_ENDIAN)
+            val buffer = ByteBuffer.wrap(output, 0, decompressedLen).order(ByteOrder.LITTLE_ENDIAN)
             val result = IntArray(count)
             for (i in 0 until count) {
                 val valUs = buffer.getInt()
-                if (valUs <= 0) return null // All slice durations must be strictly positive
+                if (valUs <= 0) return null
                 result[i] = valUs
             }
             result
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to decompress pattern blob: ${e.message}")
             null
         }
     }
