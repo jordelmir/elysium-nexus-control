@@ -1,22 +1,23 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "profile": "production",
-  "generatedAtUtc": "2026-08-06T15:45:00Z",
-  "pipelineVersion": "0.3.0-production-candidate",
-  "databaseSha256": "7f06b0ec0e8b6a2aa0934930fe62edcb1ab52c213e42b6766cf24917ee515e44",
-  "databaseSizeBytes": 27910144,
-  "canonicalContentSha256": "7f06b0ec0e8b6a2aa0934930fe62edcb1ab52c213e42b6766cf24917ee515e44",
+  "generatedAtUtc": "2026-08-06T17:20:00Z",
+  "pipelineVersion": "0.4.0-ir-real-rc1",
+  "databaseSha256": "ab74671f0c220b21eb9f052a172a2eb1457e22ad7dea2c466b2ae788cde63764",
+  "canonicalContentSha256": "8e75385dfc41e2a06944eb3a9397edea2db37f59016cdf1cc66cebeaf08dc936",
+  "databaseSizeBytes": 19730432,
   "counts": {
-    "brands": 915,
-    "deviceTypes": 37,
-    "remotes": 2394,
-    "encodedCommands": 27852,
-    "rawCommands": 80829,
-    "totalCommands": 108681,
-    "protocols": 219
-  },
-  "integrity": {
-    "pragmaQuickCheck": "ok",
-    "foreignKeyErrors": 0
+    "sources": 5,
+    "source_revisions": 5,
+    "source_files": 1957,
+    "brands": 807,
+    "device_types": 45,
+    "device_models": 0,
+    "remotes": 1957,
+    "code_sets": 1957,
+    "actions": 6762,
+    "signals": 15479,
+    "command_bindings": 35998,
+    "code_set_models": 0
   }
 }

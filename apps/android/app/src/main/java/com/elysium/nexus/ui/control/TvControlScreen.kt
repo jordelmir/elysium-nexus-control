@@ -413,37 +413,22 @@ private suspend fun sendProfileCommand(
     button: DeviceButton
 ): IrTransmitResult {
     val action = mapButtonToIrAction(button.id)
-    
-    if (profile != null && action != null) {
-        val binding = profile.commands[action]
-        if (binding != null) {
-            val repo = IrCatalogRepository(context)
-            val candidates = repo.getCandidatesForBrand(profile.brand, profile.deviceType, action)
-            val matchedCandidate = candidates.firstOrNull { it.id == profile.codeSetId }
-                ?: candidates.firstOrNull { cs ->
-                    cs.commands[action]?.let { IrProtocol.encode(it) } != null
-                }
-            val signal = matchedCandidate?.commands?.get(action)
-            if (signal != null) {
-                val encodeResult = IrProtocol.encode(signal)
-                if (encodeResult is EncodeResult.Success) {
-                    Log.d(TAG, "Transmitting Installed Profile Command action=$action for codeSetId=${profile.codeSetId}")
-                    return transmitter.transmit(encodeResult.waveform)
-                }
-            }
-        }
+    if (profile == null || action == null) {
+        return IrTransmitResult.InvalidPattern("Action ${button.labelEs} not configured in profile")
     }
 
-    val fallbackSignal = IrSignal.Encoded(
-        carrierHz = template.protocol.carrierHz,
-        protocol = template.protocol,
-        address = template.deviceAddress,
-        command = button.commandCode
-    )
-    val encodeResult = IrProtocol.encode(fallbackSignal)
+    val binding = profile.commands[action]
+        ?: return IrTransmitResult.InvalidPattern("Action $action not mapped for profile ${profile.id}")
+
+    val repo = IrCatalogRepository(context)
+    val signal = repo.getSignal(binding.signalId)
+        ?: return IrTransmitResult.InvalidPattern("Signal ${binding.signalId} missing from SQLite catalog")
+
+    val encodeResult = IrProtocol.encode(signal)
     return if (encodeResult is EncodeResult.Success) {
+        Log.d(TAG, "Transmitting Authoritative Profile Signal action=$action, signalId=${binding.signalId}, codeSetId=${profile.codeSetId}")
         transmitter.transmit(encodeResult.waveform)
     } else {
-        IrTransmitResult.InvalidPattern("Failed to encode protocol ${template.protocol}")
+        IrTransmitResult.InvalidPattern("Failed to encode signal for action $action")
     }
 }
