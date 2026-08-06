@@ -12,6 +12,7 @@ import com.elysium.nexus.fabric.adapter.ReadResult
 import com.elysium.nexus.fabric.adapter.ScanResult
 import com.elysium.nexus.fabric.adapter.WriteResult
 import com.elysium.nexus.fabric.canonical.Capability
+import com.elysium.nexus.fabric.canonical.ClimateMode
 import com.elysium.nexus.fabric.canonical.ConnectivityState
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
@@ -19,23 +20,14 @@ import com.elysium.nexus.fabric.canonical.DeviceTwin
 import com.elysium.nexus.fabric.canonical.DeviceType
 import com.elysium.nexus.fabric.canonical.Protocol
 import com.elysium.nexus.fabric.canonical.ProtocolBinding
+import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.fabric.infrared.IrTransmitResult
 import com.elysium.nexus.fabric.infrared.IrWaveform
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Infrared adapter.
- *
- * Transmits IR commands via the phone's IR
- * blaster (if present) or the Nexus Hub's
- * IR transmitter.
- *
- * Phase ULT.10 — wired to [AndroidIrTransmitter].
- * The adapter now encodes and transmits real IR
- * commands when the device has a working emitter.
- */
 class InfraredAdapter(
     private val context: Context? = null
 ) : DeviceAdapter {
@@ -48,7 +40,10 @@ class InfraredAdapter(
         Capability.MediaTransport,
         Capability.Volume,
         Capability.Channel,
-        Capability.InputSource
+        Capability.InputSource,
+        Capability.TargetTemperature,
+        Capability.FanSpeed,
+        Capability.Mode
     )
 
     private val _state = MutableStateFlow(AdapterState.Idle)
@@ -72,8 +67,6 @@ class InfraredAdapter(
     }
 
     override suspend fun scan(timeoutMs: Long): ScanResult {
-        // If no transmitter is available, report
-        // scan unavailable (stub mode).
         if (transmitter == null) {
             return ScanResult.Error(
                 ErrorCode.HardwareUnavailable,
@@ -131,14 +124,14 @@ class InfraredAdapter(
                         "Cannot encode IR command for protocol ${state.protocolName}."
                     )
                 }
-                val sent = tx.transmit(waveform)
-                if (sent) {
+                val transmitResult = tx.transmit(waveform)
+                if (transmitResult is IrTransmitResult.Success) {
                     Log.i(TAG, "IR transmitted: ${state.protocolName} addr=${state.address} cmd=${state.command}")
                     WriteResult.Ok(reportedState = state)
                 } else {
                     WriteResult.Error(
                         ErrorCode.HardwareUnavailable,
-                        "IR transmit failed (carrier out of range or queue full)."
+                        "IR transmit failed ($transmitResult)."
                     )
                 }
             }
@@ -158,7 +151,93 @@ class InfraredAdapter(
             "SIRC", "SONY_SIRC" -> IrWaveform.encodeSonySirc(state.address, state.command)
             "SAMSUNG" -> IrWaveform.encodeSamsung(state.address, state.command)
             "KASEIKYO", "PANASONIC" -> IrWaveform.encodeKaseikyo(state.address, state.command)
+            "DAIKIN" -> IrWaveform.encodeDaikin(
+                address = state.address,
+                powerOn = state.extras["on"]?.toBoolean() ?: true,
+                temperatureCelsius = state.extras["temp"]?.toIntOrNull()?.coerceIn(16, 32) ?: 25,
+                mode = if (state.extras["mode"]?.uppercase() == "HEAT") 1 else 0,
+                fanSpeed = state.extras["fan"]?.toIntOrNull()?.coerceIn(0, 3) ?: 0
+            )
+            "GREE" -> IrWaveform.encodeGree(
+                address = state.address and 0xF,
+                powerOn = state.extras["on"]?.toBoolean() ?: true,
+                temperatureCelsius = state.extras["temp"]?.toIntOrNull()?.coerceIn(16, 30) ?: 25,
+                mode = if (state.extras["mode"]?.uppercase() == "HEAT") 1 else 0,
+                fanSpeed = state.extras["fan"]?.toIntOrNull()?.coerceIn(0, 3) ?: 0
+            )
+            "MIDEA" -> IrWaveform.encodeMidea(
+                address = state.address,
+                powerOn = state.extras["on"]?.toBoolean() ?: true,
+                temperatureCelsius = state.extras["temp"]?.toIntOrNull()?.coerceIn(17, 30) ?: 25,
+                mode = if (state.extras["mode"]?.uppercase() == "HEAT") 1 else 0,
+                fanSpeed = state.extras["fan"]?.toIntOrNull()?.coerceIn(0, 3) ?: 0
+            )
+            "MITSUBISHI" -> IrWaveform.encodeMitsubishi(
+                address = state.address,
+                powerOn = state.extras["on"]?.toBoolean() ?: true,
+                temperatureCelsius = state.extras["temp"]?.toIntOrNull()?.coerceIn(16, 31) ?: 25,
+                mode = if (state.extras["mode"]?.uppercase() == "HEAT") 1 else 0,
+                fanSpeed = state.extras["fan"]?.toIntOrNull()?.coerceIn(0, 4) ?: 0
+            )
             else -> null
+        }
+    }
+
+    /**
+     * Translate a [UniversalAction] into a [DeviceState.IrCommand]
+     * for IR transmission. Maps canonical actions to IR protocol
+     * commands using NEC as the default protocol.
+     */
+    override fun translateAction(action: UniversalAction): DeviceState? {
+        return when (action) {
+            is UniversalAction.PowerOn, is UniversalAction.PowerOff, is UniversalAction.PowerToggle ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x45)
+            is UniversalAction.VolumeUp ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x44)
+            is UniversalAction.VolumeDown ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x43)
+            is UniversalAction.Mute ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x46)
+            is UniversalAction.ChannelUp ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x40)
+            is UniversalAction.ChannelDown ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x41)
+            is UniversalAction.InputSelect ->
+                DeviceState.IrCommand(protocolName = "NEC", address = 0, command = 0x42)
+            is UniversalAction.SetTemperature ->
+                DeviceState.IrCommand(
+                    protocolName = "DAIKIN",
+                    address = 0, command = 0,
+                    extras = mapOf(
+                        "temp" to action.targetCelsius.toInt().toString(),
+                        "mode" to if (action.mode == ClimateMode.Cool) "COOL" else "HEAT",
+                        "fan" to "0",
+                        "on" to "true"
+                    )
+                )
+            is UniversalAction.SetMode ->
+                DeviceState.IrCommand(
+                    protocolName = "DAIKIN",
+                    address = 0, command = 0,
+                    extras = mapOf(
+                        "temp" to "25",
+                        "mode" to action.mode.name.uppercase(),
+                        "fan" to "0",
+                        "on" to (action.mode != ClimateMode.Off).toString()
+                    )
+                )
+            is UniversalAction.SetFanSpeed ->
+                DeviceState.IrCommand(
+                    protocolName = "DAIKIN",
+                    address = 0, command = 0,
+                    extras = mapOf(
+                        "temp" to "25",
+                        "mode" to "COOL",
+                        "fan" to (action.level * 3).toInt().toString(),
+                        "on" to "true"
+                    )
+                )
+            else -> null // Navigation, Media, Custom not supported via IR defaults
         }
     }
 

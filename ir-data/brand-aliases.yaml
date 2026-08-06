@@ -1,0 +1,20 @@
+# Brand Aliases Mapping for Canonical Brand Normalization
+LG:
+  - "LG Electronics"
+  - "LG Corp"
+  - "GoldStar"
+SAMSUNG:
+  - "Samsung Electronics"
+  - "SAMSUNG_TV"
+SONY:
+  - "Sony Corporation"
+  - "SONY_AUDIO"
+PANASONIC:
+  - "Panasonic Corporation"
+  - "National"
+  - "Matsushita"
+DAIKIN:
+  - "Daikin Industries"
+SANKEY:
+  - "Sankey Electronics"
+  - "Sankey Japan"

@@ -1,0 +1,18 @@
+# License Policy Rules for IR Ingestion
+sources:
+  flipper-irdb:
+    license: "CC0-1.0"
+    boundaryCommit: "2319685"
+    policy: "QUARANTINE_PRE_BOUNDARY"
+  smartir:
+    license: "MIT"
+    policy: "ACCEPT_ALL"
+  probonopd-irdb:
+    license: "LicenseRef-IRDB-CUSTOM"
+    policy: "REQUIRE_APPROVAL_GATE"
+  radioxoma-infrared:
+    license: "MIT"
+    policy: "ACCEPT_ALL"
+  harctoolbox-irp-protocols:
+    license: "Public Domain"
+    policy: "ACCEPT_DATA_ONLY"

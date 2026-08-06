@@ -1,0 +1,50 @@
+# Action Aliases Mapping for Canonical Normalization
+VOLUME_UP:
+  - "vol_up"
+  - "vol up"
+  - "volume +"
+  - "volume+"
+  - "volumeup"
+  - "volume_up"
+  - "vol+"
+VOLUME_DOWN:
+  - "vol_dn"
+  - "vol_down"
+  - "volume -"
+  - "vol-"
+  - "volumedown"
+  - "vol-"
+POWER_TOGGLE:
+  - "power"
+  - "power toggle"
+  - "standby"
+  - "pwr"
+  - "power_toggle"
+POWER_ON:
+  - "power_on"
+  - "power on"
+  - "on"
+POWER_OFF:
+  - "power_off"
+  - "power off"
+  - "off"
+MUTE:
+  - "mute"
+  - "muting"
+  - "sound_mute"
+CHANNEL_UP:
+  - "ch_up"
+  - "ch+"
+  - "channel_up"
+  - "channel +"
+CHANNEL_DOWN:
+  - "ch_dn"
+  - "ch-"
+  - "channel_down"
+  - "channel -"
+INPUT:
+  - "input"
+  - "input source"
+  - "source"
+  - "av"
+  - "hdmi"

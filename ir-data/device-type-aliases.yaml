@@ -1,0 +1,19 @@
+# Device Type Aliases Mapping
+Television:
+  - "TV"
+  - "TVs"
+  - "SmartTV"
+  - "Television"
+AirConditioner:
+  - "AC"
+  - "ACs"
+  - "Air Conditioner"
+  - "Climate"
+Soundbar:
+  - "Soundbar"
+  - "SoundBars"
+  - "Speakers"
+  - "Audio"
+Projector:
+  - "Projector"
+  - "Projectors"

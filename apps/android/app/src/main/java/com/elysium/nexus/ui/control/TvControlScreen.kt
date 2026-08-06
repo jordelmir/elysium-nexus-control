@@ -1,31 +1,23 @@
 package com.elysium.nexus.ui.control
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,20 +30,18 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Numbers
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
@@ -72,14 +62,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elysium.nexus.core.device.DeviceButton
 import com.elysium.nexus.core.device.DeviceTemplate
+import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.fabric.infrared.EncodeResult
 import com.elysium.nexus.fabric.infrared.IrProtocol
-import com.elysium.nexus.fabric.infrared.IrWaveform
+import com.elysium.nexus.fabric.infrared.IrTransmitResult
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -90,43 +81,6 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * The control surface — the bottom of the §15
- * hierarchy.
- *
- * The user connected a device (e.g. a Samsung TV).
- * This screen shows every button on the device's
- * remote. The user taps a button to send the IR
- * command.
- *
- * The layout is a **responsive grid**:
- *
- *  - On a phone in portrait, the grid is 4
- *    columns.
- *  - On a phone in landscape / small tablet, the
- *    grid is 6 columns.
- *  - On a larger screen, the grid is 8 columns.
- *
- * The buttons are sized to **fill the column** —
- * they don't have a fixed pixel size. The
- * [androidx.compose.foundation.lazy.grid.LazyVerticalGrid]
- * handles the layout.
- *
- * Each button has:
- *
- *  - An **icon** (the semantic icon, e.g. power,
- *    volume up).
- *  - A **label** (the button name in Spanish /
- *    English, the larger of the two).
- *  - A **press animation** (scale to 0.94x on
- *    press, back to 1.0x on release).
- *  - A **ripple / glow** on press.
- *
- * Tapping the button sends the corresponding IR
- * command via [AndroidIrTransmitter]. The user
- * sees a brief "transmitting" animation while the
- * IR blast is in flight.
- */
 @Composable
 fun TvControlScreen(
     template: DeviceTemplate,
@@ -136,8 +90,10 @@ fun TvControlScreen(
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
-    var lastButtonLabel by remember { mutableStateOf<String?>(null) }
+    var transmitStatusText by remember { mutableStateOf<String?>(null) }
+    var isStatusError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
             modifier = Modifier.fillMaxSize()
@@ -159,10 +115,10 @@ fun TvControlScreen(
                     accent = ElysiumColors.NeonPurple,
                     icon = { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
                 )
-                if (lastButtonLabel != null) {
+                if (transmitStatusText != null) {
                     NeonStatusPill(
-                        label = "Enviado: $lastButtonLabel",
-                        color = ElysiumColors.NeonGreen
+                        label = transmitStatusText!!,
+                        color = if (isStatusError) ElysiumColors.NeonOrange else ElysiumColors.NeonGreen
                     )
                 }
                 Box(
@@ -181,6 +137,7 @@ fun TvControlScreen(
                     )
                 }
             }
+
             // === HERO CARD =========================================
             NeonHeroCard(
                 title = template.brand,
@@ -191,26 +148,24 @@ fun TvControlScreen(
                     .padding(horizontal = info.sidePadding, vertical = 4.dp),
                 statusChips = {
                     NeonStatusPill(
-                        label = "Conectado",
-                        color = ElysiumColors.NeonGreen
+                        label = "Perfil Activo",
+                        color = ElysiumColors.NeonCyan
                     )
                     if (hasEmitter) {
                         NeonStatusPill(
                             label = "IR listo",
-                            color = ElysiumColors.NeonCyan
+                            color = ElysiumColors.NeonGreen
                         )
                     } else {
                         NeonStatusPill(
-                            label = "Sin IR",
+                            label = "Sin emisor",
                             color = ElysiumColors.NeonOrange
                         )
                     }
                 }
             )
+
             // === TIP STRIP =========================================
-            // A small "tip" card that tells the user
-            // "apunta el teléfono al TV" every time
-            // they come to this screen.
             NeonCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -230,22 +185,21 @@ fun TvControlScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Apunta la parte de arriba del teléfono al ${template.brand} antes de tocar.",
+                        text = "Apunta el emisor superior al ${template.brand} para enviar cada comando.",
                         style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                         color = ElysiumColors.OnSurface
                     )
                 }
             }
+
             // === BUTTON GRID =======================================
-            // The lazy vertical grid. The number of
-            // columns is responsive: 4 on phones,
-            // 6 on medium, 8 on expanded / large.
             val columns = when (info.size) {
                 com.elysium.nexus.ui.responsive.ScreenSize.Compact -> 4
                 com.elysium.nexus.ui.responsive.ScreenSize.Medium -> 5
                 com.elysium.nexus.ui.responsive.ScreenSize.Expanded -> 6
                 com.elysium.nexus.ui.responsive.ScreenSize.Large -> 7
             }
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier
@@ -262,9 +216,38 @@ fun TvControlScreen(
                     ControlButton(
                         button = button,
                         onClick = {
-                            lastButtonLabel = button.labelEs
                             scope.launch {
-                                sendButtonCommand(irTransmitter, template, button)
+                                val result = sendButtonCommand(irTransmitter, template, button)
+                                when (result) {
+                                    is IrTransmitResult.Success -> {
+                                        isStatusError = false
+                                        transmitStatusText = "Transmitido: ${button.labelEs}"
+                                    }
+                                    is IrTransmitResult.NoEmitter -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Sin emisor IR"
+                                    }
+                                    is IrTransmitResult.PermissionDenied -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Permiso denegado"
+                                    }
+                                    is IrTransmitResult.UnsupportedCarrier -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Frecuencia no soportada"
+                                    }
+                                    is IrTransmitResult.InvalidPattern -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Patrón inválido: ${result.reason}"
+                                    }
+                                    is IrTransmitResult.Busy -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Emisor ocupado"
+                                    }
+                                    is IrTransmitResult.PlatformFailure -> {
+                                        isStatusError = true
+                                        transmitStatusText = "Error hardware: ${result.cause.message}"
+                                    }
+                                }
                             }
                         }
                     )
@@ -272,47 +255,29 @@ fun TvControlScreen(
             }
         }
     }
-    // Auto-clear the "Enviado" pill after 2s
-    LaunchedEffect(lastButtonLabel) {
-        if (lastButtonLabel != null) {
+
+    LaunchedEffect(transmitStatusText) {
+        if (transmitStatusText != null) {
             delay(2000)
-            lastButtonLabel = null
+            transmitStatusText = null
         }
     }
+
     if (showHelp) {
         HelpCard(
             title = "Ayuda — Control de ${template.brand}",
-            whatIsThis = "Esta es la pantalla del control remoto. Cada botón envía una " +
-                "señal al ${template.brand} que es como si tocaras el control físico.",
+            whatIsThis = "Superficie de control remoto IR. Cada botón emite la forma de onda del protocolo configurado.",
             howToUse = listOf(
-                "Apunta la parte de arriba del teléfono a la TV.",
-                "Toca el botón que quieras (Power, Vol+, Canal, etc.).",
-                "Verás un mensaje verde 'Enviado' cuando la señal se transmita.",
-                "Para volver al inicio, toca la flecha 'Atrás' arriba a la izquierda."
+                "Apunta la parte superior del teléfono al dispositivo.",
+                "Toca cualquier botón para transmitir la señal.",
+                "Verás el estado de la transmisión en la parte superior."
             ),
-            tip = "Si la TV no responde, acércate (menos de 3 metros) y verifica " +
-                "que nada bloquee la parte de arriba del teléfono.",
+            tip = "Mantén una línea directa de visión a menos de 3 metros.",
             onDismiss = { showHelp = false }
         )
     }
 }
 
-/**
- * A single control button. The button is a 3D
- * neon card with an icon + label.
- *
- * The button is a 3D layered card with:
- *
- *  - A gradient surface (top-to-bottom).
- *  - A bottom neon border (the "this is
- *    interactive" cue).
- *  - A press scale (0.94x on press, back to 1.0x
- *    on release).
- *  - A glow halo on the active button.
- *
- * Tapping the button sends the IR command. The
- * callback is `onClick(button)`.
- */
 @Composable
 private fun ControlButton(
     button: DeviceButton,
@@ -347,9 +312,7 @@ private fun ControlButton(
                     )
                 )
             )
-            .clickable(
-                onClick = onClick
-            )
+            .clickable(onClick = onClick)
             .padding(6.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -373,7 +336,6 @@ private fun ControlButton(
                 maxLines = 1
             )
         }
-        // Bottom accent line.
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -385,15 +347,10 @@ private fun ControlButton(
 }
 
 private fun Modifier.aspectRatioForButton(button: DeviceButton): Modifier {
-    // Power / d-pad / OK get 1:1; numbers get
-    // 1.5:1 (wider, like real remote buttons).
     val ratio = if (button.layoutWeight >= 2) 1f else 1.4f
     return this.then(Modifier.aspectRatio(ratio))
 }
 
-/**
- * Map a button icon hint to a Material icon.
- */
 private fun iconForButton(hint: String): ImageVector = when (hint) {
     "power" -> Icons.Filled.PowerSettingsNew
     "input" -> Icons.Filled.Settings
@@ -427,55 +384,21 @@ private fun iconForButton(hint: String): ImageVector = when (hint) {
     else -> Icons.Filled.Keyboard
 }
 
-/**
- * Send the IR command for the tapped button.
- * The encoding depends on the device's protocol.
- */
 private suspend fun sendButtonCommand(
     transmitter: AndroidIrTransmitter,
     template: DeviceTemplate,
     button: DeviceButton
-) {
-    val waveform = when (template.protocol) {
-        IrProtocol.Nec, IrProtocol.NecExtended -> {
-            IrWaveform.encodeNec(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        IrProtocol.Samsung -> {
-            IrWaveform.encodeSamsung(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        IrProtocol.Rc5 -> {
-            IrWaveform.encodeRc5(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        IrProtocol.Rc6 -> {
-            IrWaveform.encodeRc6(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        IrProtocol.SonySirc -> {
-            IrWaveform.encodeSonySirc(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        IrProtocol.Kaseikyo -> {
-            IrWaveform.encodeKaseikyo(
-                address = template.deviceAddress,
-                command = button.commandCode
-            )
-        }
-        else -> {
-            IrWaveform.encodeNec(0, button.commandCode)
-        }
+): IrTransmitResult {
+    val signal = IrSignal.Encoded(
+        carrierHz = template.protocol.carrierHz,
+        protocol = template.protocol,
+        address = template.deviceAddress,
+        command = button.commandCode
+    )
+    val encodeResult = IrProtocol.encode(signal)
+    return if (encodeResult is EncodeResult.Success) {
+        transmitter.transmit(encodeResult.waveform)
+    } else {
+        IrTransmitResult.InvalidPattern("Failed to encode protocol ${template.protocol}")
     }
-    transmitter.transmit(waveform)
 }

@@ -1,0 +1,26 @@
+# Protocol Aliases Mapping
+NEC:
+  - "NEC1"
+  - "NEC-1"
+  - "NEC_32"
+NEC_EXTENDED:
+  - "NEC2"
+  - "NECX"
+  - "NEC_EXT"
+RC5:
+  - "RC-5"
+  - "RC5X"
+SIRC:
+  - "Sony"
+  - "Sony12"
+  - "Sony15"
+  - "Sony20"
+  - "SIRC12"
+  - "SIRC15"
+  - "SIRC20"
+SAMSUNG:
+  - "Samsung32"
+  - "SAMSUNG32"
+KASEIKYO:
+  - "Panasonic"
+  - "Kaseikyo"

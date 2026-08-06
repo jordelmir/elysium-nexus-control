@@ -3,51 +3,16 @@ package com.elysium.nexus.fabric.infrared
 import android.content.Context
 import android.hardware.ConsumerIrManager
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
- * The §6.2 Android IR transmitter.
+ * Android hardware adapter for IR pattern transmission wrapping [ConsumerIrManager].
  *
- * The transmitter wraps Android's
- * [ConsumerIrManager]. The platform
- * exposes IR transmission **only** on
- * devices that announce
- * `PackageManager.FEATURE_CONSUMER_IR`
- * (e.g. older Samsung, older LG; the
- * Honor Magic V2 lab device does not).
- *
- * The transmitter is the Android
- * adapter. The pure logic (waveform
- * encode / decode / carrier
- * validation) lives in [IrWaveform]
- * and is JVM-testeable. The transmitter
- * adds:
- *
- *  - **Capability detection** at
- *    construction: the constructor
- *    probes `FEATURE_CONSUMER_IR` and
- *    falls back to a no-op when the
- *    device has no emitter.
- *  - **Carrier validation**: the
- *    waveform's carrier is checked
- *    against the emitter's supported
- *    range. Out-of-range carriers are
- *    refused (the call is logged and
- *    a `false` is returned; the §38
- *    release-blocker discipline applies:
- *    the activity must not crash on a
- *    bad carrier).
- *  - **Queue limit**: at most one
- *    transmit is in flight at a time;
- *    concurrent calls are dropped with
- *    a warning.
- *
- * The transmitter does **not** track
- * whether the device confirmed the
- * blast. Per §6.5, an IR transmission
- * is `COMMAND_SENT` not
- * `STATE_CONFIRMED`; the caller
- * surfaces the result class to the
- * user.
+ * Implements strict capability probing (`hasIrEmitter()`), thread safety via [Mutex],
+ * asynchronous execution on [Dispatchers.IO], and typed execution outputs using [IrTransmitResult].
  */
 class AndroidIrTransmitter(context: Context) {
 
@@ -56,136 +21,105 @@ class AndroidIrTransmitter(context: Context) {
         context.applicationContext
             .getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
     } catch (e: Throwable) {
-        Log.w(tag, "ConsumerIrManager unavailable; using no-op.", e)
+        Log.w(tag, "ConsumerIrManager service acquisition failed; operating in no-op mode.", e)
         null
     }
-    private val hasEmitter: Boolean = manager != null
 
-    @Volatile
-    private var transmitInFlight: Boolean = false
+    private val hasEmitter: Boolean = try {
+        manager?.hasIrEmitter() == true
+    } catch (e: Throwable) {
+        Log.w(tag, "ConsumerIrManager.hasIrEmitter() probe failed.", e)
+        false
+    }
+
+    private val transmitMutex = Mutex()
 
     /**
-     * @return `true` if the device has a working
-     * IR emitter. The caller should hide the
-     * IR controls when the answer is `false`.
+     * @return `true` if the device has an operational IR emitter hardware component.
      */
     fun hasEmitter(): Boolean = hasEmitter
 
     /**
-     * @return the supported carrier frequency
-     * range in Hz, or `null` when the device
-     * has no emitter. The Android
-     * `ConsumerIrManager.carrierFrequencies`
-     * returns an array of disjoint ranges;
-     * we collapse them into the union
-     * [min, max] for the caller. The
-     * typical consumer IR emitter covers
-     * 30-60 kHz, so the union is usually
-     * a single range.
+     * @return List of hardware-supported carrier frequency ranges in Hz, or `emptyList()`
+     * when unavailable.
      */
-    fun carrierRange(): IntRange? {
-        val m = manager ?: return null
-        // `getCarrierFrequencies` can throw
-        // `SecurityException` if the app lacks
-        // `TRANSMIT_IR`. We catch it here (and at
-        // every other call site) so the app never
-        // crashes (Bug #ULT-3-001).
+    fun carrierRanges(): List<IntRange> {
+        val m = manager ?: return emptyList()
         val ranges = try {
             m.carrierFrequencies
         } catch (e: SecurityException) {
-            Log.w(tag, "getCarrierFrequencies denied; returning null.", e)
-            return null
+            Log.w(tag, "getCarrierFrequencies permission denied.", e)
+            return emptyList()
         } catch (e: Throwable) {
-            Log.w(tag, "getCarrierFrequencies failed; returning null.", e)
-            return null
-        } ?: return null
-        if (ranges.isEmpty()) return null
-        val min = ranges.minOf { it.minFrequency }
-        val max = ranges.maxOf { it.maxFrequency }
-        return min..max
+            Log.w(tag, "getCarrierFrequencies failed.", e)
+            return emptyList()
+        } ?: return emptyList()
+
+        return ranges.map { it.minFrequency..it.maxFrequency }
     }
 
     /**
-     * Transmit [waveform] via the device's IR
-     * emitter. Returns `true` on success,
-     * `false` on:
+     * Transmit an IR waveform.
+     * Executed asynchronously off the main thread on [Dispatchers.IO].
      *
-     *  - no emitter (the call is a no-op),
-     *  - carrier out of range,
-     *  - another transmit in flight (queue
-     *    full; the caller can retry).
-     *
-     * The function does **not** block: the
-     * call to `transmit` returns when the
-     * emitter accepts the pattern; the
-     * actual blast is paced by the emitter's
-     * own scheduler. The §6.2 "Cola de
-     * comandos limitada" is implemented by
-     * the [transmitInFlight] guard.
+     * @return [IrTransmitResult] detailing the typed result of the transmission attempt.
      */
-    fun transmit(waveform: IrWaveform): Boolean {
-        val m = manager ?: return false
-        if (!hasEmitter) return false
-        // Carrier validation. Wrapped in try/catch
-        // because `getCarrierFrequencies()` throws
-        // `SecurityException` if the
-        // `TRANSMIT_IR` permission was not granted
-        // (Bug #ULT-3-001: app crashed on first
-        // IR transmit). Per §38 the transmitter
-        // never crashes the activity.
-        val range: IntRange? = try {
-            carrierRange()
-        } catch (e: SecurityException) {
-            Log.w(tag, "Carrier range access denied; transmitting blindly.", e)
-            null
-        } catch (e: Throwable) {
-            Log.w(tag, "Carrier range probe failed; transmitting blindly.", e)
-            null
+    suspend fun transmit(waveform: IrWaveform): IrTransmitResult = withContext(Dispatchers.IO) {
+        val m = manager ?: return@withContext IrTransmitResult.NoEmitter
+        if (!hasEmitter) return@withContext IrTransmitResult.NoEmitter
+
+        // Carrier frequency range validation
+        val supportedRanges = carrierRanges()
+        if (supportedRanges.isNotEmpty()) {
+            val isSupported = supportedRanges.any { range -> waveform.carrierHz in range }
+            if (!isSupported) {
+                Log.w(tag, "Carrier ${waveform.carrierHz} Hz out of supported ranges $supportedRanges.")
+                return@withContext IrTransmitResult.UnsupportedCarrier(
+                    requestedHz = waveform.carrierHz,
+                    supportedRanges = supportedRanges
+                )
+            }
         }
-        if (range != null && waveform.carrierHz !in range) {
-            Log.w(
-                tag,
-                "Carrier ${waveform.carrierHz} Hz out of range $range; refusing to transmit."
-            )
-            return false
+
+        // Validate pattern slices strictly > 0 and total duration < 2s
+        if (waveform.pattern.isEmpty()) {
+            return@withContext IrTransmitResult.InvalidPattern("Pattern is empty.")
         }
-        // Queue limit: at most one transmit in
-        // flight at a time. The blast itself is
-        // short (a typical TV command is 30-50ms);
-        // the caller can retry the next frame.
-        if (transmitInFlight) {
-            Log.w(tag, "Transmit queue full; dropping ${waveform.pairCount}-pair waveform.")
-            return false
+        if (waveform.pattern.any { it <= 0 }) {
+            return@withContext IrTransmitResult.InvalidPattern("Pattern contains non-positive slice duration <= 0 us.")
         }
-        transmitInFlight = true
+        if (waveform.totalDurationUs >= 2_000_000L) {
+            return@withContext IrTransmitResult.InvalidPattern("Pattern total duration exceeds 2-second limit.")
+        }
+
+        if (!transmitMutex.tryLock()) {
+            Log.w(tag, "IR transmit mutex locked; dropping concurrent request.")
+            return@withContext IrTransmitResult.Busy
+        }
+
         try {
             m.transmit(waveform.carrierHz, waveform.pattern)
-            return true
+            val hash = waveform.sha256Hash()
+            Log.d(tag, "IR pattern successfully transmitted: ${waveform.carrierHz} Hz, ${waveform.totalDurationUs} us, hash=$hash")
+            return@withContext IrTransmitResult.Success(
+                carrierHz = waveform.carrierHz,
+                durationUs = waveform.totalDurationUs,
+                patternHash = hash
+            )
+        } catch (e: SecurityException) {
+            Log.w(tag, "IR transmit failed: TRANSMIT_IR permission denied.", e)
+            return@withContext IrTransmitResult.PermissionDenied
         } catch (e: Throwable) {
-            // Per §38, the transmitter never
-            // crashes the activity. The throw
-            // is logged and the call returns
-            // `false`; the caller surfaces the
-            // failure to the user.
-            Log.w(tag, "IR transmit failed: ${e.message}", e)
-            return false
+            Log.e(tag, "IR transmit exception: ${e.message}", e)
+            return@withContext IrTransmitResult.PlatformFailure(e)
         } finally {
-            // The Android emitter returns
-            // synchronously; the guard is
-            // released immediately.
-            transmitInFlight = false
+            transmitMutex.unlock()
         }
     }
 
     companion object {
         /**
-         * @return `true` when the device announces
-         * `FEATURE_CONSUMER_IR`. A convenience
-         * for the activity's "show IR controls?"
-         * decision. The actual emitter presence
-         * is also probed at construction
-         * (cheap) — `hasEmitter()` is the
-         * canonical answer.
+         * @return `true` when device announces system feature `FEATURE_CONSUMER_IR`.
          */
         fun deviceHasIr(context: Context): Boolean =
             context.packageManager.hasSystemFeature(

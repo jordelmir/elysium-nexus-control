@@ -6,6 +6,7 @@ import com.elysium.nexus.fabric.canonical.DeviceState
 import com.elysium.nexus.fabric.canonical.DeviceTwin
 import com.elysium.nexus.fabric.canonical.DeviceType
 import com.elysium.nexus.fabric.canonical.Protocol
+import com.elysium.nexus.fabric.canonical.UniversalAction
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -144,6 +145,19 @@ interface DeviceAdapter {
      * adapter is unusable.
      */
     suspend fun stop(): AdapterResult
+
+    /**
+     * Translate a [UniversalAction] into a protocol-specific
+     * [DeviceState] that can be passed to [write].
+     *
+     * Default returns null (unsupported). Adapters override
+     * to provide protocol-aware mapping.
+     *
+     * @param action the canonical action to translate.
+     * @return the protocol-specific state, or null if
+     *   this adapter cannot handle the action.
+     */
+    fun translateAction(action: UniversalAction): DeviceState? = null
 }
 
 /**

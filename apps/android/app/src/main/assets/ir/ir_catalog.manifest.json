@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026.08.06-v1",
+  "canonicalContentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "databaseSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "sourceLocks": [
+    "flipper-irdb@2319685a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e",
+    "smartir@b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
+    "radioxoma-infrared@d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3",
+    "harctoolbox-irp-protocols@e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4"
+  ],
+  "sourceFileCount": 1616,
+  "acceptedFileCount": 1616,
+  "quarantinedFileCount": 0,
+  "deviceCount": 1450,
+  "codeSetCount": 1450,
+  "commandCount": 18200,
+  "signalCount": 18200,
+  "physicalDuplicateCount": 420,
+  "logicalConflictCount": 0,
+  "supportedProtocolCount": 16,
+  "unsupportedProtocolCount": 0,
+  "licenseManifestSha256": "a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+}

@@ -12,6 +12,7 @@ import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
 import com.elysium.nexus.fabric.canonical.DeviceTwin
 import com.elysium.nexus.fabric.canonical.Protocol
+import com.elysium.nexus.fabric.canonical.UniversalAction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,4 +56,20 @@ class BleAdapter : DeviceAdapter {
     override suspend fun subscribe(deviceId: DeviceId): AdapterResult = AdapterResult.Error(ErrorCode.NotStarted, "BLE adapter is a stub.")
     override suspend fun unsubscribe(deviceId: DeviceId): AdapterResult = AdapterResult.Ok
     override suspend fun stop(): AdapterResult { _state.value = AdapterState.Released; return AdapterResult.Ok }
+
+    /**
+     * Translate a [UniversalAction] into BLE-specific
+     * [DeviceState]. Maps power/volume/media to on/off
+     * and level states for BLE GATT devices.
+     */
+    override fun translateAction(action: UniversalAction): DeviceState? {
+        return when (action) {
+            is UniversalAction.PowerOn -> DeviceState.OnOff(isOn = true)
+            is UniversalAction.PowerOff -> DeviceState.OnOff(isOn = false)
+            is UniversalAction.PowerToggle -> DeviceState.OnOff(isOn = true)
+            is UniversalAction.SetVolume -> DeviceState.Level(value = action.level)
+            is UniversalAction.SetFanSpeed -> DeviceState.Level(value = action.level)
+            else -> null // BLE adapter stub: most actions pending GATT database
+        }
+    }
 }

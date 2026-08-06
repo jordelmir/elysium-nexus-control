@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 2,
+  "generatedAtUtc": "2026-08-06T15:00:00Z",
+  "pipelineVersion": "1.0.0",
+  "stats": {
+    "brands": 1441,
+    "deviceTypes": 1499,
+    "remotes": 5623,
+    "encodedCommands": 118990,
+    "rawCommands": 80829,
+    "totalCommands": 199819,
+    "protocolDefinitions": 219,
+    "sources": 5,
+    "databaseSizeBytes": 180981760,
+    "dedupEncoded": 21216,
+    "dedupRaw": 33904,
+    "validationRejected": 7312,
+    "parseErrors": 4
+  },
+  "topBrands": [
+    {
+      "name": "Sony",
+      "remotes": 280
+    },
+    {
+      "name": "Samsung",
+      "remotes": 169
+    },
+    {
+      "name": "Philips",
+      "remotes": 138
+    },
+    {
+      "name": "LG",
+      "remotes": 131
+    },
+    {
+      "name": "Panasonic",
+      "remotes": 131
+    },
+    {
+      "name": "JVC",
+      "remotes": 128
+    },
+    {
+      "name": "Yamaha",
+      "remotes": 124
+    },
+    {
+      "name": "BnK Components",
+      "remotes": 103
+    },
+    {
+      "name": "Denon",
+      "remotes": 84
+    },
+    {
+      "name": "Marantz",
+      "remotes": 79
+    },
+    {
+      "name": "Hitachi",
+      "remotes": 68
+    },
+    {
+      "name": "Bose",
+      "remotes": 66
+    },
+    {
+      "name": "Toshiba",
+      "remotes": 65
+    },
+    {
+      "name": "Pioneer",
+      "remotes": 63
+    },
+    {
+      "name": "Kenwood",
+      "remotes": 60
+    },
+    {
+      "name": "Mitsubishi",
+      "remotes": 58
+    },
+    {
+      "name": "Aiwa",
+      "remotes": 51
+    },
+    {
+      "name": "Harman Kardon",
+      "remotes": 49
+    },
+    {
+      "name": "NEC",
+      "remotes": 49
+    },
+    {
+      "name": "Integra",
+      "remotes": 43
+    }
+  ],
+  "topDeviceTypes": [
+    {
+      "name": "AC",
+      "remotes": 518
+    },
+    {
+      "name": "TV",
+      "remotes": 493
+    },
+    {
+      "name": "AV_Receiver",
+      "remotes": 322
+    },
+    {
+      "name": "Cable_Box",
+      "remotes": 180
+    },
+    {
+      "name": "Fan",
+      "remotes": 173
+    },
+    {
+      "name": "LED_Light",
+      "remotes": 173
+    },
+    {
+      "name": "DVD_Player",
+      "remotes": 146
+    },
+    {
+      "name": "Projector",
+      "remotes": 143
+    },
+    {
+      "name": "Miscellaneous",
+      "remotes": 136
+    },
+    {
+      "name": "VCR",
+      "remotes": 121
+    },
+    {
+      "name": "CD_Player",
+      "remotes": 110
+    },
+    {
+      "name": "Soundbar",
+      "remotes": 107
+    },
+    {
+      "name": "Pre-Amplifier",
+      "remotes": 90
+    },
+    {
+      "name": "Speaker",
+      "remotes": 70
+    },
+    {
+      "name": "BluRay_Player",
+      "remotes": 64
+    }
+  ],
+  "sources": [
+    {
+      "id": "flipper-irdb",
+      "name": "Flipper-IRDB",
+      "license": "CC0-1.0",
+      "production_enabled": true,
+      "remotes": 1957,
+      "encoded_commands": 27852,
+      "raw_commands": 7798
+    },
+    {
+      "id": "irp-protocols",
+      "name": "IrpProtocols.xml",
+      "license": "Public Domain",
+      "production_enabled": true,
+      "remotes": 0,
+      "encoded_commands": 0,
+      "raw_commands": 0
+    },
+    {
+      "id": "probonopd-irdb",
+      "name": "probonopd/irdb",
+      "license": "LicenseRef-IRDB-CUSTOM",
+      "production_enabled": false,
+      "remotes": 3229,
+      "encoded_commands": 91138,
+      "raw_commands": 0
+    },
+    {
+      "id": "radioxoma-infrared",
+      "name": "radioxoma/infrared",
+      "license": "MIT",
+      "production_enabled": true,
+      "remotes": 5,
+      "encoded_commands": 0,
+      "raw_commands": 38
+    },
+    {
+      "id": "smartir",
+      "name": "SmartIR",
+      "license": "MIT",
+      "production_enabled": true,
+      "remotes": 432,
+      "encoded_commands": 0,
+      "raw_commands": 72993
+    }
+  ]
+}

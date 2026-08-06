@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "flipper-irdb",
+      "repository": "https://github.com/Lucaslhm/Flipper-IRDB.git",
+      "requestedRef": "main",
+      "license": "CC0-1.0",
+      "licenseBoundaryCommit": "2319685",
+      "productionEnabled": true,
+      "includedPaths": [
+        "TVs",
+        "ACs",
+        "SoundBars",
+        "Projectors",
+        "Streaming_Devices",
+        "Fans",
+        "Audio_and_Video_Receivers",
+        "Speakers",
+        "Monitors",
+        "DVD_Players",
+        "Blu-Ray",
+        "Cable_Boxes",
+        "LED_Lighting",
+        "Heaters",
+        "Air_Purifiers",
+        "Humidifiers",
+        "Universal_TV_Remotes"
+      ],
+      "excludedPaths": [
+        "_Converted_"
+      ]
+    },
+    {
+      "id": "smartir",
+      "repository": "https://github.com/smartHomeHub/SmartIR.git",
+      "requestedRef": "master",
+      "license": "MIT",
+      "productionEnabled": true,
+      "includedPaths": [
+        "codes/climate",
+        "codes/media_player",
+        "codes/fan",
+        "codes/light"
+      ],
+      "excludedPaths": []
+    },
+    {
+      "id": "probonopd-irdb",
+      "repository": "https://github.com/probonopd/irdb.git",
+      "requestedRef": "master",
+      "license": "LicenseRef-IRDB-CUSTOM",
+      "productionEnabled": false,
+      "includedPaths": [
+        "codes",
+        "index"
+      ],
+      "excludedPaths": []
+    },
+    {
+      "id": "radioxoma-infrared",
+      "repository": "https://github.com/radioxoma/infrared.git",
+      "requestedRef": "master",
+      "license": "MIT",
+      "productionEnabled": true,
+      "includedPaths": [],
+      "excludedPaths": []
+    },
+    {
+      "id": "harctoolbox-irp-protocols",
+      "repository": "https://github.com/bengtmartensson/IrpTransmogrifier.git",
+      "requestedRef": "master",
+      "license": "Public Domain",
+      "productionEnabled": true,
+      "includedPaths": [
+        "src/main/resources/IrpProtocols.xml",
+        "src/main/schemas/irp-protocols.xsd"
+      ],
+      "excludedPaths": []
+    }
+  ]
+}

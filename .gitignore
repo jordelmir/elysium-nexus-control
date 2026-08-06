@@ -27,6 +27,7 @@ vendor-keys/
 *.signed
 
 # Tooling caches
+.cache/
 .kotlin/
 .cargo/
 

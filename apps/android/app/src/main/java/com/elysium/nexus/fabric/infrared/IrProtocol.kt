@@ -1,38 +1,18 @@
 package com.elysium.nexus.fabric.infrared
 
+import com.elysium.nexus.core.device.IrSignal
+
+/**
+ * Result of attempting to encode an [IrSignal] into an [IrWaveform].
+ */
+sealed interface EncodeResult {
+    data class Success(val waveform: IrWaveform) : EncodeResult
+    data class UnsupportedProtocol(val protocol: IrProtocol) : EncodeResult
+    data class InvalidParameters(val reason: String) : EncodeResult
+}
+
 /**
  * The §6.4 IR protocol catalog.
- *
- * The catalog is the set of protocols the
- * Elysium Nexus IR engine knows how to
- * encode and decode. A protocol is a
- * "shape" of an IR command: carrier
- * frequency, bit-encoding (pulse-distance
- * or pulse-width), header, address,
- * command, trailer, repeat behaviour.
- *
- * The catalog is **closed**: adding a new
- * protocol is an ADR + a new `encode /
- * decode` pair in [IrWaveform]. The §6
- * spec lists NEC, NECx, RC5, RC6, SIRC,
- * Samsung, Kaseikyo, Panasonic, JVC, Sharp,
- * Denon, Pioneer, LG, Mitsubishi, Daikin,
- * Gree, Fujitsu, Toshiba, Hitachi, Midea,
- * Whirlpool, and "raw waveform fallback".
- * This iteration ships the four most
- * common (NEC, NECx, RC5, SIRC) plus the
- * raw fallback; the rest follow in
- * subsequent phases.
- *
- * ## Why a closed enum and not plugin reflection
- *
- * The protocol plugin system (per §33) is
- * the right shape for vendor-specific
- * protocols. The protocols in this enum
- * are the *universal* ones every IR
- * receiver can decode; the vendor plugins
- * extend [IrWaveform] for proprietary
- * formats.
  */
 enum class IrProtocol(
     /** Display name for the UI. */
@@ -52,33 +32,60 @@ enum class IrProtocol(
     Raw("Raw waveform", 38_000, IrEncoding.Raw);
 
     companion object {
-        /**
-         * The default carrier for the [Raw] protocol.
-         * The IR receiver will measure the actual
-         * carrier during learning (per §6.3); the
-         * default is the most common consumer IR
-         * carrier.
-         */
         const val DEFAULT_CARRIER_HZ: Int = 38_000
+
+        /**
+         * Exhaustive encoder dispatching without silent fallback to NEC.
+         * If a protocol is unsupported or parameters are invalid, returns explicit [EncodeResult].
+         */
+        fun encode(signal: IrSignal): EncodeResult = when (signal) {
+            is IrSignal.Raw -> {
+                try {
+                    val waveform = IrWaveform(
+                        carrierHz = if (signal.carrierHz in 30_000..60_000) signal.carrierHz else DEFAULT_CARRIER_HZ,
+                        pattern = signal.patternUs
+                    )
+                    EncodeResult.Success(waveform)
+                } catch (e: Throwable) {
+                    EncodeResult.InvalidParameters("Raw waveform invalid: ${e.message}")
+                }
+            }
+            is IrSignal.Encoded -> {
+                try {
+                    when (signal.protocol) {
+                        Nec -> EncodeResult.Success(
+                            IrWaveform.encodeNec(signal.address, signal.command)
+                        )
+                        NecExtended -> EncodeResult.Success(
+                            IrWaveform.encodeNecExtended(signal.address, signal.command)
+                        )
+                        Samsung -> EncodeResult.Success(
+                            IrWaveform.encodeSamsung(signal.address, signal.command)
+                        )
+                        SonySirc -> EncodeResult.Success(
+                            IrWaveform.encodeSonySirc(signal.address, signal.command)
+                        )
+                        Rc5 -> EncodeResult.Success(
+                            IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle)
+                        )
+                        Rc6 -> EncodeResult.Success(
+                            IrWaveform.encodeRc6(signal.address, signal.command, signal.toggle)
+                        )
+                        Kaseikyo -> EncodeResult.Success(
+                            IrWaveform.encodeKaseikyo(signal.address, signal.command)
+                        )
+                        Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
+                    }
+                } catch (e: Throwable) {
+                    EncodeResult.InvalidParameters("Encoder exception for ${signal.protocol}: ${e.message}")
+                }
+            }
+        }
     }
 }
 
 /**
- * The bit-encoding shape. A protocol is one
- * of three shapes:
- *
- * - [PulseDistance] (NEC, NECx, Samsung,
- *   Kaseikyo): a marker pulse + a space; the
- *   space length encodes the bit (short = 0,
- *   long = 1).
- * - [PulseWidth] (SIRC): a marker pulse + a
- *   space + a pulse; the pulse length encodes
- *   the bit (short = 0, long = 1).
- * - [Biphasic] (RC5, RC6): every bit is two
- *   equal halves; the order of the halves
- *   encodes the bit (Manchester encoding).
- * - [Raw]: no encoding; the caller passes a
- *   list of (on, off) durations in microseconds.
+ * The bit-encoding shape.
  */
 enum class IrEncoding {
     PulseDistance,
