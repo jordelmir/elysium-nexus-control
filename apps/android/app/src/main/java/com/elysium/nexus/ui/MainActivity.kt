@@ -204,6 +204,11 @@ class MainActivity : ComponentActivity() {
 
         shareLauncher = AndroidProfileShareLauncher(this)
 
+        // §6 Debug-only file telemetry — readable via
+        // `adb shell run-as com.elysium.nexus.controller cat files/elysium-ir.log`
+        // because MagicOS encrypts app-process logcat (`(HKS)`).
+        com.elysium.nexus.fabric.infrared.FileLog.initialize(this)
+
         // IR transmitter — the FAB equivalent for
         // the TV connection flow. The transmitter
         // is a no-op if the phone has no IR

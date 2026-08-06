@@ -73,7 +73,10 @@ class DeviceCommandResolver(
 
         // §4.7 FAIL CLOSED: no fallback to first profile
         val profile = profileRepository.getProfileSuspend(profileId)
-            ?: return CommandResolution.ProfileMissing(profileId)
+            ?: run {
+                com.elysium.nexus.fabric.infrared.FileLog.d("RESOLVE_MISSING profile=$profileId")
+                return CommandResolution.ProfileMissing(profileId)
+            }
 
         val irAction = mapUniversalActionToIrAction(action)
             ?: return CommandResolution.ActionNotInProfile(profileId, IrAction.POWER_TOGGLE)
@@ -86,7 +89,9 @@ class DeviceCommandResolver(
 
         // §21 Fingerprint verification at domain layer
         val actualFingerprint = IrProbeEngine.fingerprintSignal(signal)
+        com.elysium.nexus.fabric.infrared.FileLog.d("RESOLVE profile=$profileId action=$irAction signal=${binding.signalId} codeSet=${profile.codeSetId}")
         if (actualFingerprint != binding.physicalFingerprint) {
+            com.elysium.nexus.fabric.infrared.FileLog.d("RESOLVE_FP_MISMATCH profile=$profileId expected=${binding.physicalFingerprint} actual=$actualFingerprint")
             Log.e(TAG, "FINGERPRINT MISMATCH profile=$profileId action=$irAction signalId=${binding.signalId}: expected=${binding.physicalFingerprint}, actual=$actualFingerprint")
             return CommandResolution.FingerprintMismatch(
                 signalId = binding.signalId,

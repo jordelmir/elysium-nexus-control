@@ -101,15 +101,18 @@ class AndroidIrTransmitter(context: Context) {
             m.transmit(waveform.carrierHz, waveform.pattern)
             val hash = waveform.sha256Hash()
             Log.d(tag, "IR pattern successfully transmitted: ${waveform.carrierHz} Hz, ${waveform.totalDurationUs} us, hash=$hash")
+            FileLog.d("TX_OK carrier=${waveform.carrierHz}Hz duration=${waveform.totalDurationUs}us hash=$hash slices=${waveform.pattern.size}")
             return@withContext IrTransmitResult.Success(
                 carrierHz = waveform.carrierHz,
                 durationUs = waveform.totalDurationUs,
                 patternHash = hash
             )
         } catch (e: SecurityException) {
+            FileLog.d("TX_PERMISSION_DENIED")
             Log.w(tag, "IR transmit failed: TRANSMIT_IR permission denied.", e)
             return@withContext IrTransmitResult.PermissionDenied
         } catch (e: Throwable) {
+            FileLog.d("TX_EXCEPTION: ${e.message}")
             Log.e(tag, "IR transmit exception: ${e.message}", e)
             return@withContext IrTransmitResult.PlatformFailure(e)
         } finally {

@@ -197,6 +197,7 @@ fun IrConnectFlow(
             )
             currentAttempt = attempt
             currentJob = scope.launch {
+                com.elysium.nexus.fabric.infrared.FileLog.d("PROBE_TX candidate=${candidate.id} action=$action signalId=${attempt.signalId} carrierHz=${encodeResult.waveform.carrierHz}")
                 val result = irTransmitter.transmit(encodeResult.waveform)
                 // §24 Only accept result if attemptId still matches (race guard)
                 if (currentAttempt?.attemptId == attempt.attemptId) {
