@@ -17,13 +17,18 @@ import com.elysium.nexus.fabric.canonical.Protocol
 import com.elysium.nexus.fabric.canonical.ProtocolBinding
 import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.dispatch.ActionDispatcher
+import com.elysium.nexus.fabric.dispatch.CommandResolution
 import com.elysium.nexus.fabric.dispatch.DispatchResult
+import com.elysium.nexus.fabric.dispatch.IrCommandResolver
 import com.elysium.nexus.fabric.evidence.ControlEvidenceStore
 import com.elysium.nexus.fabric.evidence.EventResult
+import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.resilience.DisconnectNeutralizer
 import com.elysium.nexus.fabric.routing.RouteNegotiator
 import com.elysium.nexus.fabric.session.PermissionGate
 import com.elysium.nexus.fabric.session.SessionManager
+import com.elysium.nexus.core.device.IrAction
+import com.elysium.nexus.core.device.IrSignal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -41,6 +46,29 @@ import org.junit.Test
 class IrPlatformIntegrationTest {
 
     private val targetDeviceId = DeviceId("integration-tv-001")
+
+    // §4.7 JVM-safe fake for DeviceCommandResolver (needs an Android Context on device).
+    private fun fakeIrResolver(): IrCommandResolver = IrCommandResolver { _, action ->
+        val irAction = when (action) {
+            is UniversalAction.VolumeUp -> IrAction.VOLUME_UP
+            is UniversalAction.MediaPlay -> IrAction.PLAY
+            is UniversalAction.MediaStop -> IrAction.STOP
+            else -> null
+        } ?: return@IrCommandResolver CommandResolution.ActionNotInProfile(targetDeviceId.value, IrAction.POWER_TOGGLE)
+        CommandResolution.Resolved(
+            profileId = targetDeviceId.value,
+            codeSetId = "integration-code-set",
+            action = irAction,
+            signalId = "integration-signal-$irAction",
+            physicalSha256 = "integration-fingerprint",
+            signal = IrSignal.Encoded(
+                carrierHz = 38000,
+                protocol = IrProtocol.Nec,
+                address = 0x07,
+                command = irAction.ordinal
+            )
+        )
+    }
 
     private fun mockAdapter(protocol: Protocol): DeviceAdapter = object : DeviceAdapter {
         override val protocol: Protocol = protocol
@@ -84,7 +112,8 @@ class IrPlatformIntegrationTest {
             neutralizer = neutralizer,
             evidenceStore = evidenceStore,
             twinResolver = { id -> if (id == targetDeviceId) twin else null },
-            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) }
+            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) },
+            injectedIrResolver = fakeIrResolver()
         )
 
         // 1. Dispatch VolumeUp action

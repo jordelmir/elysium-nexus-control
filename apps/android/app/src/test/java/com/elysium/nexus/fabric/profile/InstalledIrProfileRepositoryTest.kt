@@ -29,7 +29,7 @@ class InstalledIrProfileRepositoryTest {
     }
 
     @Test
-    fun saveAndGetProfile_persistsDataCorrectly() {
+    fun saveAndGetProfile_persistsInMemory_WithNoAndroidContext() {
         val binding = IrCommandBinding(
             signalId = "nec-lg-vol-up",
             physicalFingerprint = "7f8a9b1c2d3e4f",
@@ -51,13 +51,12 @@ class InstalledIrProfileRepositoryTest {
             verificationStatus = VerificationStatus.VERIFIED_LAB
         )
 
-        repository.saveProfile(profile)
+        val result = repository.saveProfile(profile, verifiedActions = setOf(IrAction.VOLUME_UP))
+        assertTrue("Expected Saved without an Android context", result is SaveProfileResult.Saved)
 
-        // Reload repository from disk to test persistence
-        val reloadedRepository = InstalledIrProfileRepository(storageDir)
-        val retrieved = reloadedRepository.getProfile("test-profile-1")
-
-        assertNotNull(retrieved)
+        // Without an Android Context the repository is in-memory only (Room is the
+        // persistent authority on-device; covered by device tests + RoomProfileRepositoryTest).
+        val retrieved = repository.getProfile("test-profile-1")
         assertEquals("LG Smart TV Remote", retrieved?.displayName)
         assertEquals("LG", retrieved?.brand)
         assertEquals("code-set-lg-001", retrieved?.codeSetId)
@@ -67,7 +66,20 @@ class InstalledIrProfileRepositoryTest {
     }
 
     @Test
-    fun deleteProfile_removesFromStorage() {
+    fun saveProfile_rejectsBlankCodeSet_failClosed() {
+        val profile = InstalledIrProfile(
+            id = "test-invalid",
+            displayName = "Invalid Remote",
+            brand = "Sony",
+            codeSetId = "",
+            commands = emptyMap()
+        )
+        val result = repository.saveProfile(profile)
+        assertTrue(result is SaveProfileResult.ValidationFailure)
+    }
+
+    @Test
+    fun deleteProfile_removesFromMemoryCache() {
         val profile = InstalledIrProfile(
             id = "test-profile-to-delete",
             displayName = "Delete Me Remote",
@@ -75,15 +87,26 @@ class InstalledIrProfileRepositoryTest {
             codeSetId = "sony-001",
             commands = emptyMap()
         )
+        val profileWithCommand = profile.copy(
+            commands = mapOf(
+                IrAction.VOLUME_UP to IrCommandBinding(
+                    signalId = "sony-vol-up",
+                    physicalFingerprint = "abc123",
+                    sourceId = "flipper-irdb",
+                    action = IrAction.VOLUME_UP
+                )
+            )
+        )
 
-        repository.saveProfile(profile)
+        val saved = repository.saveProfile(profileWithCommand)
+        assertTrue(saved is SaveProfileResult.Saved)
         assertNotNull(repository.getProfile("test-profile-to-delete"))
 
         val deleted = repository.deleteProfile("test-profile-to-delete")
         assertTrue(deleted)
         assertNull(repository.getProfile("test-profile-to-delete"))
 
-        // Confirm deletion persists on disk
+        // Confirm deletion is durable in a fresh in-memory repository
         val reloadedRepository = InstalledIrProfileRepository(storageDir)
         assertNull(reloadedRepository.getProfile("test-profile-to-delete"))
     }

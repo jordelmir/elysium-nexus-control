@@ -16,12 +16,17 @@ import com.elysium.nexus.fabric.canonical.DeviceType
 import com.elysium.nexus.fabric.canonical.Protocol
 import com.elysium.nexus.fabric.canonical.ProtocolBinding
 import com.elysium.nexus.fabric.canonical.UniversalAction
+import com.elysium.nexus.fabric.dispatch.CommandResolution
+import com.elysium.nexus.fabric.dispatch.IrCommandResolver
 import com.elysium.nexus.fabric.evidence.ControlEvidenceStore
 import com.elysium.nexus.fabric.evidence.EventResult
+import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.resilience.DisconnectNeutralizer
 import com.elysium.nexus.fabric.routing.RouteNegotiator
 import com.elysium.nexus.fabric.session.PermissionGate
 import com.elysium.nexus.fabric.session.SessionManager
+import com.elysium.nexus.core.device.IrAction
+import com.elysium.nexus.core.device.IrSignal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -34,6 +39,32 @@ import org.junit.Test
 class ActionDispatcherTest {
 
     private val deviceId = DeviceId("tv-dispatch-001")
+
+    // §4.7 Fake resolver: JVM-safe stand-in for DeviceCommandResolver (which needs an Android Context).
+    private fun fakeIrResolver(): IrCommandResolver = IrCommandResolver { _, action ->
+        val irAction = when (action) {
+            is UniversalAction.PowerOn -> IrAction.POWER_ON
+            is UniversalAction.PowerToggle -> IrAction.POWER_TOGGLE
+            is UniversalAction.VolumeUp -> IrAction.VOLUME_UP
+            is UniversalAction.Mute -> IrAction.MUTE
+            is UniversalAction.MediaPlay -> IrAction.PLAY
+            is UniversalAction.MediaStop -> IrAction.STOP
+            else -> null
+        } ?: return@IrCommandResolver CommandResolution.ActionNotInProfile(deviceId.value, IrAction.POWER_TOGGLE)
+        CommandResolution.Resolved(
+            profileId = deviceId.value,
+            codeSetId = "fake-code-set",
+            action = irAction,
+            signalId = "fake-signal-$irAction",
+            physicalSha256 = "fake-fingerprint",
+            signal = IrSignal.Encoded(
+                carrierHz = 38000,
+                protocol = IrProtocol.Nec,
+                address = 0x07,
+                command = irAction.ordinal
+            )
+        )
+    }
 
     private fun fakeAdapter(
         protocol: Protocol,
@@ -84,7 +115,8 @@ class ActionDispatcherTest {
             neutralizer = neutralizer,
             evidenceStore = evidenceStore,
             twinResolver = { id -> if (id == deviceId) twin else null },
-            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) }
+            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) },
+            injectedIrResolver = fakeIrResolver()
         )
 
         val action = UniversalAction.PowerOn(targetDeviceId = deviceId)
@@ -141,7 +173,8 @@ class ActionDispatcherTest {
             neutralizer = neutralizer,
             evidenceStore = evidenceStore,
             twinResolver = { twin },
-            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR, PermissionGate.BLUETOOTH_CONNECT, PermissionGate.BLUETOOTH_SCAN) }
+            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR, PermissionGate.BLUETOOTH_CONNECT, PermissionGate.BLUETOOTH_SCAN) },
+            injectedIrResolver = fakeIrResolver()
         )
 
         val action = UniversalAction.PowerOn(targetDeviceId = deviceId)
@@ -169,7 +202,8 @@ class ActionDispatcherTest {
             neutralizer = neutralizer,
             evidenceStore = evidenceStore,
             twinResolver = { twin },
-            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) }
+            permissionResolver = { setOf(PermissionGate.TRANSMIT_IR) },
+            injectedIrResolver = fakeIrResolver()
         )
 
         // Dispatch MediaPlay

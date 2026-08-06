@@ -58,7 +58,8 @@ class ProtocolCodecGoldenVectorTest {
     fun protocolCodecRegistry_verifiesCodecsCorrectly() {
         val necSpec = ProtocolCodecRegistry.getCodec("NEC")
         assertNotNull(necSpec)
-        assertEquals(CodecVerificationStatus.GOLDEN_VECTOR_VERIFIED, necSpec?.status)
+        // Honest state: unit-shape validated until decoder round-trip + HIL proof exist (dictamen P1).
+        assertEquals(CodecVerificationStatus.UNIT_SHAPE_VALIDATED, necSpec?.status)
         assertTrue(ProtocolCodecRegistry.isCodecTransmittable("NEC"))
         assertTrue(ProtocolCodecRegistry.isCodecTransmittable("RC5"))
     }

@@ -158,7 +158,7 @@ fun IrConnectFlow(
         val repo = IrCatalogRepository.getInstance(context)
         val sqliteCandidates = repo.getCandidatesForBrand(
             brand = template.brand,
-            deviceType = template.category.name,
+            deviceType = "",
             action = IrAction.VOLUME_UP
         )
 

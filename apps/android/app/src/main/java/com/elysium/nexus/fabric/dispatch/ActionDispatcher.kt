@@ -54,9 +54,12 @@ class ActionDispatcher(
     private val twinResolver: (DeviceId) -> DeviceTwin?,
     private val permissionResolver: () -> Set<String>,
     private val maxRetries: Int = 2,
-    private val context: Context? = null
+    private val context: Context? = null,
+    private val injectedIrResolver: IrCommandResolver? = null
 ) {
-    private val deviceCommandResolver by lazy { context?.let { DeviceCommandResolver(it) } }
+    private val deviceCommandResolver: IrCommandResolver? by lazy {
+        injectedIrResolver ?: context?.let { DeviceCommandResolver(it) }
+    }
 
     init {
         require(maxRetries in 0..5) { "maxRetries must be in [0, 5] (got $maxRetries)." }

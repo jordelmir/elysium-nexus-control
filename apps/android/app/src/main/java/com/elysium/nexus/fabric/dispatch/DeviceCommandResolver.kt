@@ -39,6 +39,15 @@ sealed interface CommandResolution {
 }
 
 /**
+ * §4.7 IR command resolution port. Implemented by [DeviceCommandResolver]
+ * (Room + SQLite authoritative). Injectable so the dispatcher is testable
+ * on JVM without an Android [Context].
+ */
+fun interface IrCommandResolver {
+    suspend fun resolve(deviceId: DeviceId, action: UniversalAction): CommandResolution
+}
+
+/**
  * §4.7 Authoritative Device Command Resolver.
  *
  * Resolves [UniversalAction] and [DeviceId] to exact [CommandResolution.Resolved]
@@ -47,7 +56,7 @@ sealed interface CommandResolution {
  */
 class DeviceCommandResolver(
     private val context: Context
-) {
+) : IrCommandResolver {
     private val profileRepository = InstalledIrProfileRepository(context)
     private val catalogRepository = IrCatalogRepository.getInstance(context)
 
@@ -56,7 +65,7 @@ class DeviceCommandResolver(
      * NEVER falls back to first profile. Returns sealed [CommandResolution].
      * Verifies physical fingerprint before returning.
      */
-    suspend fun resolve(
+    override suspend fun resolve(
         deviceId: DeviceId,
         action: UniversalAction
     ): CommandResolution {
