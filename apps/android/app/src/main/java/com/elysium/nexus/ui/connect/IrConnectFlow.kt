@@ -304,7 +304,7 @@ fun IrConnectFlow(
                 accent = ElysiumColors.NeonCyan,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = info.sidePadding, vertical = 4.dp),
                 statusChips = {
-                    NeonStatusPill(label = "Paso ${step.number} de 4", color = ElysiumColors.NeonOrange)
+                    NeonStatusPill(label = "Paso ${step.number} de ${IrStep.entries.size}", color = ElysiumColors.NeonOrange)
                     activeEngine?.let { engine ->
                         NeonStatusPill(label = "Probe ${engine.currentProbeNumber}/${engine.totalCandidates}", color = ElysiumColors.NeonPurple)
                     }
@@ -359,21 +359,14 @@ fun IrConnectFlow(
                                 )
                                 IrStep.CONFIRM -> ConfirmStep(
                                     onYes = {
-                                        // §24 Start secondary action verification
+                                        // §24 VOLUME_UP verified. Now verify VOLUME_DOWN.
                                         verifiedActions = setOf(IrAction.VOLUME_UP)
                                         val candidate = engine.currentCandidate()
                                         if (candidate != null && IrAction.VOLUME_DOWN in candidate.commands) {
-                                            step = IrStep.SAVE
-                                            // Send VOLUME_DOWN for verification
+                                            step = IrStep.VERIFY_SECONDARY
                                             sendTestAction(candidate, IrAction.VOLUME_DOWN)
-                                            probeUiState = ProbeUiState.VerifyingSecondaryAction(
-                                                candidateId = candidate.id,
-                                                codeSetId = candidate.id,
-                                                primaryAttemptId = currentAttempt?.attemptId ?: "",
-                                                secondaryAction = IrAction.VOLUME_DOWN,
-                                                verifiedActions = verifiedActions
-                                            )
                                         } else {
+                                            // No VOLUME_DOWN available, skip to SAVE
                                             step = IrStep.SAVE
                                         }
                                     },
@@ -385,6 +378,55 @@ fun IrConnectFlow(
                                         step = IrStep.TEST
                                         val candidate = engine.currentCandidate() ?: return@ConfirmStep
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
+                                    }
+                                )
+                                IrStep.VERIFY_SECONDARY -> VerifyActionStep(
+                                    actionLabel = "VOLUME_DOWN",
+                                    action = IrAction.VOLUME_DOWN,
+                                    lastResult = currentResult,
+                                    currentAttempt = currentAttempt,
+                                    onSendTest = {
+                                        val candidate = engine.currentCandidate() ?: return@VerifyActionStep
+                                        sendTestAction(candidate, IrAction.VOLUME_DOWN)
+                                    },
+                                    onDidWork = {
+                                        // §24 VOLUME_DOWN verified. Now verify MUTE.
+                                        verifiedActions = verifiedActions + IrAction.VOLUME_DOWN
+                                        val candidate = engine.currentCandidate()
+                                        if (candidate != null && IrAction.MUTE in candidate.commands) {
+                                            step = IrStep.VERIFY_TERTIARY
+                                            sendTestAction(candidate, IrAction.MUTE)
+                                        } else {
+                                            step = IrStep.SAVE
+                                        }
+                                    },
+                                    onSkip = {
+                                        // §24 User says VOLUME_DOWN didn't work, skip to MUTE or SAVE
+                                        val candidate = engine.currentCandidate()
+                                        if (candidate != null && IrAction.MUTE in candidate.commands) {
+                                            step = IrStep.VERIFY_TERTIARY
+                                            sendTestAction(candidate, IrAction.MUTE)
+                                        } else {
+                                            step = IrStep.SAVE
+                                        }
+                                    }
+                                )
+                                IrStep.VERIFY_TERTIARY -> VerifyActionStep(
+                                    actionLabel = "MUTE",
+                                    action = IrAction.MUTE,
+                                    lastResult = currentResult,
+                                    currentAttempt = currentAttempt,
+                                    onSendTest = {
+                                        val candidate = engine.currentCandidate() ?: return@VerifyActionStep
+                                        sendTestAction(candidate, IrAction.MUTE)
+                                    },
+                                    onDidWork = {
+                                        // §24 All 3 actions verified
+                                        verifiedActions = verifiedActions + IrAction.MUTE
+                                        step = IrStep.SAVE
+                                    },
+                                    onSkip = {
+                                        step = IrStep.SAVE
                                     }
                                 )
                                 IrStep.SAVE -> SaveStep(
@@ -454,7 +496,7 @@ fun IrConnectFlow(
                 "Paso 2: Apunta el teléfono al sensor IR. La señal se envía automáticamente.",
                 "Paso 3: Si aparece el indicador de volumen, toca 'Sí'. Si no, toca 'Probar siguiente'."
             ),
-            tip = "El sistema probará candidatos distintos sin repetir señales fallidas.",
+            tip = "El sistema probará candidatos distintos sin repetir señales fallidas. Se verificarán VOLUME_UP, VOLUME_DOWN y MUTE del mismo codeSet.",
             onDismiss = { showHelp = false }
         )
     }
@@ -464,7 +506,9 @@ private enum class IrStep(val number: Int, val labelEn: String, val labelEs: Str
     ORIENT(1, "Aim", "Apuntar"),
     TEST(2, "Test", "Probar"),
     CONFIRM(3, "Confirm", "Confirmar"),
-    SAVE(4, "Save", "Guardar")
+    VERIFY_SECONDARY(4, "Down", "Bajar"),
+    VERIFY_TERTIARY(5, "Mute", "Mute"),
+    SAVE(6, "Save", "Guardar")
 }
 
 @Composable
@@ -567,8 +611,57 @@ private fun ConfirmStep(onYes: () -> Unit, onNo: () -> Unit) {
             Text("Si viste el indicador de volumen subir, confirma para verificar más acciones del mismo control.", style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NeonChip(label = "Sí, guardar", onClick = onYes, accent = ElysiumColors.NeonGreen, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                NeonChip(label = "Sí, funcionó", onClick = onYes, accent = ElysiumColors.NeonGreen, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
                 NeonChip(label = "No, probar otro", onClick = onNo, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/**
+ * §24 Verification step for secondary/tertiary actions (VOLUME_DOWN, MUTE).
+ * Transmits the action, shows result, asks user to confirm.
+ */
+@Composable
+private fun VerifyActionStep(
+    actionLabel: String,
+    action: IrAction,
+    lastResult: IrTransmitResult?,
+    currentAttempt: ProbeAttempt?,
+    onSendTest: () -> Unit,
+    onDidWork: () -> Unit,
+    onSkip: () -> Unit
+) {
+    val canConfirm = lastResult is IrTransmitResult.Success && currentAttempt != null && currentAttempt.action == action
+
+    NeonCard(modifier = Modifier.fillMaxWidth(), accent = ElysiumColors.NeonCyan, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Verificar $actionLabel", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
+            Text(
+                "Acción: $actionLabel\n¿La TV reaccionó a esta acción?",
+                style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                NeonFab(icon = { Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(36.dp)) }, onClick = onSendTest, accent = ElysiumColors.NeonCyan, fabSize = 80.dp)
+            }
+            lastResult?.let { res ->
+                val resultText = when (res) {
+                    is IrTransmitResult.Success -> "Transmitido: ${res.carrierHz} Hz"
+                    is IrTransmitResult.NoEmitter -> "Sin emisor IR"
+                    is IrTransmitResult.PermissionDenied -> "Permiso denegado"
+                    is IrTransmitResult.UnsupportedCarrier -> "Frecuencia no soportada"
+                    is IrTransmitResult.InvalidPattern -> "Patrón inválido"
+                    is IrTransmitResult.Busy -> "Emisor ocupado"
+                    is IrTransmitResult.PlatformFailure -> "Error Android"
+                }
+                val color = if (res is IrTransmitResult.Success) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
+                NeonStatusPill(label = resultText, color = color)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NeonChip(label = "Sí, funcionó", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                NeonChip(label = "Saltar", onClick = onSkip, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
             }
         }
     }
