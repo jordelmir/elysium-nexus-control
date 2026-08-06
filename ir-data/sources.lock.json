@@ -1,85 +1,100 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "lockedAtUtc": "2026-08-06T15:40:00Z",
   "sources": [
     {
       "id": "flipper-irdb",
       "repository": "https://github.com/Lucaslhm/Flipper-IRDB.git",
       "requestedRef": "main",
-      "resolvedCommit": "2319685a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e",
-      "resolvedTree": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
-      "retrievedAtUtc": "2026-08-06T00:00:00Z",
-      "includedPaths": ["TVs", "ACs", "SoundBars", "Projectors", "Streaming_Devices", "Fans"],
+      "resolvedCommit": "d126fb1b6f1e114c52b4a8c19839ea65e3a9c24d",
+      "resolvedTree": "daf6bd47b726afca26ebfde1f7c58c70c2250644",
+      "retrievedAtUtc": "2026-08-06T15:40:00Z",
+      "includedPaths": [
+        "TVs",
+        "ACs",
+        "SoundBars",
+        "Projectors",
+        "Streaming_Devices",
+        "Fans"
+      ],
       "sourceLicense": "CC0-1.0",
-      "licenseFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "licenseFilePath": "LICENSE",
+      "licenseFileSha256": "f4e7f373b9b996950337e8d41a4a2939c2d90b7725e9baf3d5084a22717ad328",
+      "sourceContentSha256": "9be1001f22d63fcf4fe90d7b0d9e68f5f168dc4d6bccc78476897ece7ccefedb",
       "productionEnabled": true,
-      "approvalReference": "CC0-1.0-DECLARATION",
-      "importedFileCount": 1250,
-      "rejectedFileCount": 0,
-      "sourceContentHash": "f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9"
+      "approvalReference": "CC0-1.0-DECLARATION"
     },
     {
       "id": "smartir",
       "repository": "https://github.com/smartHomeHub/SmartIR.git",
       "requestedRef": "master",
-      "resolvedCommit": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
-      "resolvedTree": "b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9",
-      "retrievedAtUtc": "2026-08-06T00:00:00Z",
-      "includedPaths": ["codes/climate", "codes/media_player", "codes/fan", "codes/light"],
+      "resolvedCommit": "e4df2957ad915536f41ffb39daa96886d7cfe040",
+      "resolvedTree": "7ec8d2db467ed5890984483905374ca8832c709d",
+      "retrievedAtUtc": "2026-08-06T15:40:00Z",
+      "includedPaths": [
+        "codes/climate",
+        "codes/media_player",
+        "codes/fan",
+        "codes/light"
+      ],
       "sourceLicense": "MIT",
-      "licenseFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "licenseFilePath": "LICENSE",
+      "licenseFileSha256": "2910b8b82fd62732c842fe6ac5edd182823797f9304b95a2e432910e3f9828e6",
+      "sourceContentSha256": "03d863b90a95fde33d755c63044d494aab69df22be24482195420f399cd47c4e",
       "productionEnabled": true,
-      "approvalReference": "MIT-LICENSE",
-      "importedFileCount": 320,
-      "rejectedFileCount": 0,
-      "sourceContentHash": "a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+      "approvalReference": "MIT-LICENSE"
     },
     {
       "id": "probonopd-irdb",
       "repository": "https://github.com/probonopd/irdb.git",
       "requestedRef": "master",
-      "resolvedCommit": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2",
-      "resolvedTree": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0",
-      "retrievedAtUtc": "2026-08-06T00:00:00Z",
-      "includedPaths": ["codes", "index"],
+      "resolvedCommit": "11aa5eb3ad9fec9e5c03f170c29c1467733d9f3e",
+      "resolvedTree": "86451ba7f416c26b0e85645fc4be7e02fff662d6",
+      "retrievedAtUtc": "2026-08-06T15:40:00Z",
+      "includedPaths": [
+        "codes"
+      ],
       "sourceLicense": "LicenseRef-IRDB-CUSTOM",
-      "licenseFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "licenseFilePath": "README.md",
+      "licenseFileSha256": "7fcbca24529b34689d36fcae3f9ce180318d9d3b78870c9cf687ac615048f3c9",
+      "sourceContentSha256": "fcdd7bc3ddefcdb1479e6c9dddcbdc0fdb9907afe9f376b7291370060e3fe54a",
       "productionEnabled": false,
-      "approvalReference": "PENDING-ISSUE-REGISTRATION",
-      "importedFileCount": 0,
-      "rejectedFileCount": 0,
-      "sourceContentHash": "b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+      "approvalReference": "PENDING-ISSUE-REGISTRATION"
     },
     {
       "id": "radioxoma-infrared",
       "repository": "https://github.com/radioxoma/infrared.git",
       "requestedRef": "master",
-      "resolvedCommit": "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3",
-      "resolvedTree": "d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1",
-      "retrievedAtUtc": "2026-08-06T00:00:00Z",
-      "includedPaths": [],
+      "resolvedCommit": "96179666ea236e33dc9ca9350d92c0ae69eec956",
+      "resolvedTree": "574ef5654f25a903fe7dd657c229d72681ba0d0f",
+      "retrievedAtUtc": "2026-08-06T15:40:00Z",
+      "includedPaths": [
+        "lg",
+        "vityas"
+      ],
       "sourceLicense": "MIT",
-      "licenseFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "licenseFilePath": "LICENSE",
+      "licenseFileSha256": "2d266a9bec0d179745142fb890cac031951c2609d38bab06a8be5079a3c8ffd9",
+      "sourceContentSha256": "b7f0953e64f814acf1e070e99cba69fa94aed85c72e3c22eb78c4c6ba78679c0",
       "productionEnabled": true,
-      "approvalReference": "MIT-LICENSE",
-      "importedFileCount": 45,
-      "rejectedFileCount": 0,
-      "sourceContentHash": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+      "approvalReference": "MIT-LICENSE"
     },
     {
       "id": "harctoolbox-irp-protocols",
       "repository": "https://github.com/bengtmartensson/IrpTransmogrifier.git",
       "requestedRef": "master",
-      "resolvedCommit": "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4",
-      "resolvedTree": "e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
-      "retrievedAtUtc": "2026-08-06T00:00:00Z",
-      "includedPaths": ["src/main/resources/IrpProtocols.xml"],
+      "resolvedCommit": "8636d20a5036c542a54fa815ee45415537011d45",
+      "resolvedTree": "33a60ea3d96971897554b36971452b5427925efc",
+      "retrievedAtUtc": "2026-08-06T15:40:00Z",
+      "includedPaths": [
+        "src/main/resources/IrpProtocols.xml"
+      ],
       "sourceLicense": "Public Domain",
-      "licenseFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "licenseFilePath": "src/main/resources/IrpProtocols.xml",
+      "licenseFileSha256": "6089b5a6377d27f449807516c8bcf2cc80d8fc62bd1f2a32210d735e715a6c01",
+      "sourceContentSha256": "b996b4fdb084cfec5953662f3e7b9efee0e3a3c46ac25f409c4b14e8a8e6e5ee",
       "productionEnabled": true,
-      "approvalReference": "PUBLIC-DOMAIN-DATA",
-      "importedFileCount": 1,
-      "rejectedFileCount": 0,
-      "sourceContentHash": "d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3"
+      "approvalReference": "PUBLIC-DOMAIN-DATA"
     }
   ]
 }

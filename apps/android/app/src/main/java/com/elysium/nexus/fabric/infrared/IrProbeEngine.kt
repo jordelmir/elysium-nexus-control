@@ -48,9 +48,33 @@ class IrProbeEngine(
     }
 
     companion object {
-        fun fingerprintSignal(signal: IrSignal): String = when (signal) {
-            is IrSignal.Encoded -> "${signal.protocol}_${signal.address}_${signal.subDevice}_${signal.command}"
-            is IrSignal.Raw -> "${signal.carrierHz}_${signal.patternUs.contentHashCode()}"
+        fun fingerprintSignal(signal: IrSignal): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val buffer = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            when (signal) {
+                is IrSignal.Raw -> {
+                    digest.update("RAW:v1".toByteArray(Charsets.UTF_8))
+                    buffer.clear(); buffer.putInt(signal.carrierHz); digest.update(buffer.array())
+                    for (us in signal.patternUs) {
+                        buffer.clear(); buffer.putInt(us); digest.update(buffer.array())
+                    }
+                }
+                is IrSignal.Encoded -> {
+                    digest.update("ENCODED:v1".toByteArray(Charsets.UTF_8))
+                    digest.update(signal.protocol.name.toByteArray(Charsets.UTF_8))
+                    buffer.clear(); buffer.putInt(signal.carrierHz); digest.update(buffer.array())
+                    buffer.clear(); buffer.putInt(signal.address); digest.update(buffer.array())
+                    buffer.clear(); buffer.putInt(signal.subDevice ?: -1); digest.update(buffer.array())
+                    buffer.clear(); buffer.putInt(signal.command); digest.update(buffer.array())
+                    buffer.clear(); buffer.putInt(signal.repeats); digest.update(buffer.array())
+                    buffer.clear(); buffer.putInt(signal.toggle); digest.update(buffer.array())
+                }
+            }
+            val hex = StringBuilder()
+            for (b in digest.digest()) {
+                hex.append(String.format("%02x", b))
+            }
+            return hex.toString()
         }
     }
 }

@@ -4,38 +4,49 @@ IFS=$'\n\t'
 
 ROOT="$(git rev-parse --show-toplevel)"
 CACHE="$ROOT/.cache/ir-sources"
+LOCKFILE="$ROOT/ir-data/sources.lock.json"
 mkdir -p "$CACHE"
 
-echo "==> Bootstrapping IR Data Sources into $CACHE..."
+MODE="${1:---locked}"
 
-# 1. FLIPPER-IRDB
-if [ ! -d "$CACHE/flipper-irdb" ]; then
-    echo "Cloning Flipper-IRDB..."
-    git clone --filter=blob:none --no-checkout https://github.com/Lucaslhm/Flipper-IRDB.git "$CACHE/flipper-irdb" || true
+if [ ! -f "$LOCKFILE" ]; then
+    echo "ERROR: Lockfile missing at $LOCKFILE" >&2
+    exit 1
 fi
 
-# 2. SMARTIR
-if [ ! -d "$CACHE/smartir" ]; then
-    echo "Cloning SmartIR..."
-    git clone --filter=blob:none --no-checkout https://github.com/smartHomeHub/SmartIR.git "$CACHE/smartir" || true
-fi
+echo "==> Bootstrapping IR Data Sources ($MODE) into $CACHE..."
 
-# 3. PROBONOPD IRDB
-if [ ! -d "$CACHE/probonopd-irdb" ]; then
-    echo "Cloning probonopd/irdb..."
-    git clone --filter=blob:none --no-checkout https://github.com/probonopd/irdb.git "$CACHE/probonopd-irdb" || true
-fi
+checkout_source() {
+    local name="$1"
+    local repo_url="$2"
+    local commit="$3"
+    local target_dir="$CACHE/$name"
 
-# 4. RADIOXOMA INFRARED
-if [ ! -d "$CACHE/radioxoma-infrared" ]; then
-    echo "Cloning radioxoma/infrared..."
-    git clone --filter=blob:none https://github.com/radioxoma/infrared.git "$CACHE/radioxoma-infrared" || true
-fi
+    if [ ! -d "$target_dir/.git" ]; then
+        echo "Cloning $name..."
+        git clone --filter=blob:none "$repo_url" "$target_dir"
+    fi
 
-# 5. IRP PROTOCOLS
-if [ ! -d "$CACHE/irp-transmogrifier" ]; then
-    echo "Cloning IrpTransmogrifier..."
-    git clone --filter=blob:none --no-checkout https://github.com/bengtmartensson/IrpTransmogrifier.git "$CACHE/irp-transmogrifier" || true
-fi
+    echo "Checking out locked commit $commit for $name..."
+    git -C "$target_dir" fetch --quiet origin "$commit" || true
+    git -C "$target_dir" checkout --detach "$commit" --quiet
 
-echo "==> Bootstrap completed successfully."
+    local actual_commit
+    actual_commit="$(git -C "$target_dir" rev-parse HEAD)"
+
+    if [ "$actual_commit" != "$commit" ]; then
+        echo "ERROR: [$name] Lock mismatch! Expected $commit, got $actual_commit" >&2
+        exit 1
+    fi
+}
+
+checkout_source "flipper-irdb" "https://github.com/Lucaslhm/Flipper-IRDB.git" "d126fb1b6f1e114c52b4a8c19839ea65e3a9c24d"
+checkout_source "smartir" "https://github.com/smartHomeHub/SmartIR.git" "e4df2957ad915536f41ffb39daa96886d7cfe040"
+checkout_source "probonopd-irdb" "https://github.com/probonopd/irdb.git" "11aa5eb3ad9fec9e5c03f170c29c1467733d9f3e"
+checkout_source "radioxoma-infrared" "https://github.com/radioxoma/infrared.git" "96179666ea236e33dc9ca9350d92c0ae69eec956"
+checkout_source "irp-transmogrifier" "https://github.com/bengtmartensson/IrpTransmogrifier.git" "8636d20a5036c542a54fa815ee45415537011d45"
+
+echo "==> Verifying source locks..."
+python3 "$ROOT/tools/ir-data/verify_source_locks.py"
+
+echo "==> Bootstrap completed successfully with strict lock verification."

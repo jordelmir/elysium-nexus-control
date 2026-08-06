@@ -191,24 +191,63 @@ data class IrWaveform(
 
         fun encodeRc5(address: Int, command: Int, toggle: Int = 0): IrWaveform {
             require(address in 0..0x1F) { "RC5 address must be in [0, 31] (got $address)." }
-            require(command in 0..0x3F) { "RC5 command must be in [0, 63] (got $command)." }
+            require(command in 0..0x7F) { "RC5 command must be in [0, 127] (got $command)." }
             require(toggle in 0..1) { "RC5 toggle must be in [0, 1] (got $toggle)." }
 
             val halfPeriod = 889
             val bits = mutableListOf<Int>()
-            bits.add(1)
-            bits.add(1)
-            bits.add(toggle)
-            for (b in 0 until 5) bits.add((address ushr (4 - b)) and 1)
-            for (b in 0 until 6) bits.add((command ushr (5 - b)) and 1)
+            
+            // RC5 field structure:
+            // S1 (1 bit): 1
+            // S2 / Field (1 bit): 1 for command 0..63, 0 for command 64..127 (extended RC5)
+            val fieldBit = if (command > 63) 0 else 1
+            val cmdVal = command and 0x3F
 
-            val pattern = ArrayList<Int>()
+            bits.add(1)        // Start bit 1
+            bits.add(fieldBit) // Start bit 2 / Field bit
+            bits.add(toggle)   // Toggle bit
+            for (b in 0 until 5) bits.add((address ushr (4 - b)) and 1)
+            for (b in 0 until 6) bits.add((cmdVal ushr (5 - b)) and 1)
+
+            // Convert bits to high/low half-periods:
+            // Bit 1: Low (space) then High (mark)
+            // Bit 0: High (mark) then Low (space)
+            val phases = mutableListOf<Boolean>() // true = Mark (IR ON), false = Space (IR OFF)
             for (bit in bits) {
-                pattern.add(halfPeriod)
-                pattern.add(halfPeriod)
+                if (bit == 1) {
+                    phases.add(false) // Space
+                    phases.add(true)  // Mark
+                } else {
+                    phases.add(true)  // Mark
+                    phases.add(false) // Space
+                }
             }
 
-            return IrWaveform(IrProtocol.Rc5.carrierHz, pattern.toIntArray())
+            // Coalesce adjacent identical phases into burst durations
+            val pattern = ArrayList<Int>()
+            var currentMark = phases.first()
+            var currentDuration = 0
+
+            for (phase in phases) {
+                if (phase == currentMark) {
+                    currentDuration += halfPeriod
+                } else {
+                    pattern.add(currentDuration)
+                    currentMark = phase
+                    currentDuration = halfPeriod
+                }
+            }
+            pattern.add(currentDuration)
+
+            // ConsumerIr pattern MUST start with a MARK (IR ON) duration
+            val finalPattern = if (!phases.first()) {
+                // If it starts with space (false), drop leading space or prepend 0 if needed
+                pattern.toIntArray()
+            } else {
+                pattern.toIntArray()
+            }
+
+            return IrWaveform(IrProtocol.Rc5.carrierHz, finalPattern)
         }
 
         fun encodeRc6(address: Int, command: Int, toggle: Int = 0): IrWaveform {

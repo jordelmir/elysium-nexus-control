@@ -57,7 +57,10 @@ sealed class HubDestination {
     data class Connect(val template: DeviceTemplate) : HubDestination()
 
     /** The control surface (button grid). */
-    data class Control(val template: DeviceTemplate) : HubDestination()
+    data class Control(
+        val template: DeviceTemplate,
+        val profile: com.elysium.nexus.core.device.InstalledIrProfile? = null
+    ) : HubDestination()
 
     /** The Mac/PC discovery screen. */
     object MacDiscovery : HubDestination()

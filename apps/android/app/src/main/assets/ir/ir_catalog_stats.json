@@ -3,162 +3,162 @@
   "generatedAtUtc": "2026-08-06T15:00:00Z",
   "pipelineVersion": "1.0.0",
   "stats": {
-    "brands": 1441,
-    "deviceTypes": 1499,
-    "remotes": 5623,
-    "encodedCommands": 118990,
+    "brands": 915,
+    "deviceTypes": 47,
+    "remotes": 2394,
+    "encodedCommands": 27852,
     "rawCommands": 80829,
-    "totalCommands": 199819,
+    "totalCommands": 108681,
     "protocolDefinitions": 219,
-    "sources": 5,
-    "databaseSizeBytes": 180981760,
-    "dedupEncoded": 21216,
+    "sources": 4,
+    "databaseSizeBytes": 170700800,
+    "dedupEncoded": 320,
     "dedupRaw": 33904,
     "validationRejected": 7312,
-    "parseErrors": 4
+    "parseErrors": 3
   },
   "topBrands": [
     {
-      "name": "Sony",
-      "remotes": 280
-    },
-    {
       "name": "Samsung",
-      "remotes": 169
+      "remotes": 101
     },
     {
-      "name": "Philips",
-      "remotes": 138
+      "name": "Sony",
+      "remotes": 97
     },
     {
       "name": "LG",
-      "remotes": 131
+      "remotes": 95
     },
     {
       "name": "Panasonic",
-      "remotes": 131
+      "remotes": 77
     },
     {
-      "name": "JVC",
-      "remotes": 128
+      "name": "Philips",
+      "remotes": 53
     },
     {
-      "name": "Yamaha",
-      "remotes": 124
+      "name": "Unknown",
+      "remotes": 40
     },
     {
-      "name": "BnK Components",
-      "remotes": 103
-    },
-    {
-      "name": "Denon",
-      "remotes": 84
-    },
-    {
-      "name": "Marantz",
-      "remotes": 79
-    },
-    {
-      "name": "Hitachi",
-      "remotes": 68
-    },
-    {
-      "name": "Bose",
-      "remotes": 66
+      "name": "Dyson",
+      "remotes": 32
     },
     {
       "name": "Toshiba",
-      "remotes": 65
+      "remotes": 31
+    },
+    {
+      "name": "Daikin",
+      "remotes": 30
+    },
+    {
+      "name": "Epson",
+      "remotes": 25
+    },
+    {
+      "name": "Yamaha",
+      "remotes": 24
+    },
+    {
+      "name": "Hisense",
+      "remotes": 23
+    },
+    {
+      "name": "Hitachi",
+      "remotes": 23
+    },
+    {
+      "name": "Midea",
+      "remotes": 23
     },
     {
       "name": "Pioneer",
-      "remotes": 63
+      "remotes": 23
     },
     {
-      "name": "Kenwood",
-      "remotes": 60
+      "name": "Vizio",
+      "remotes": 23
     },
     {
-      "name": "Mitsubishi",
-      "remotes": 58
+      "name": "Sharp",
+      "remotes": 21
     },
     {
-      "name": "Aiwa",
-      "remotes": 51
+      "name": "Edifier",
+      "remotes": 20
     },
     {
-      "name": "Harman Kardon",
-      "remotes": 49
+      "name": "Fujitsu",
+      "remotes": 19
     },
     {
-      "name": "NEC",
-      "remotes": 49
-    },
-    {
-      "name": "Integra",
-      "remotes": 43
+      "name": "TCL",
+      "remotes": 19
     }
   ],
   "topDeviceTypes": [
     {
       "name": "AC",
-      "remotes": 518
+      "remotes": 514
     },
     {
       "name": "TV",
-      "remotes": 493
-    },
-    {
-      "name": "AV_Receiver",
-      "remotes": 322
-    },
-    {
-      "name": "Cable_Box",
-      "remotes": 180
+      "remotes": 397
     },
     {
       "name": "Fan",
-      "remotes": 173
+      "remotes": 172
     },
     {
       "name": "LED_Light",
-      "remotes": 173
-    },
-    {
-      "name": "DVD_Player",
-      "remotes": 146
-    },
-    {
-      "name": "Projector",
-      "remotes": 143
+      "remotes": 172
     },
     {
       "name": "Miscellaneous",
       "remotes": 136
     },
     {
-      "name": "VCR",
-      "remotes": 121
-    },
-    {
-      "name": "CD_Player",
-      "remotes": 110
+      "name": "Projector",
+      "remotes": 126
     },
     {
       "name": "Soundbar",
-      "remotes": 107
+      "remotes": 106
     },
     {
-      "name": "Pre-Amplifier",
-      "remotes": 90
+      "name": "AV_Receiver",
+      "remotes": 103
     },
     {
       "name": "Speaker",
-      "remotes": 70
+      "remotes": 69
     },
     {
       "name": "BluRay_Player",
-      "remotes": 64
+      "remotes": 56
+    },
+    {
+      "name": "Media_Player",
+      "remotes": 55
+    },
+    {
+      "name": "Cable_Box",
+      "remotes": 49
+    },
+    {
+      "name": "Camera",
+      "remotes": 36
+    },
+    {
+      "name": "Toys",
+      "remotes": 36
+    },
+    {
+      "name": "Heater",
+      "remotes": 34
     }
   ],
   "sources": [
@@ -178,15 +178,6 @@
       "production_enabled": true,
       "remotes": 0,
       "encoded_commands": 0,
-      "raw_commands": 0
-    },
-    {
-      "id": "probonopd-irdb",
-      "name": "probonopd/irdb",
-      "license": "LicenseRef-IRDB-CUSTOM",
-      "production_enabled": false,
-      "remotes": 3229,
-      "encoded_commands": 91138,
       "raw_commands": 0
     },
     {

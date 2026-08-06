@@ -1,5 +1,6 @@
 package com.elysium.nexus.ui.control
 
+import android.util.Log
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -47,7 +49,6 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,17 +61,21 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elysium.nexus.core.device.DeviceButton
 import com.elysium.nexus.core.device.DeviceTemplate
+import com.elysium.nexus.core.device.InstalledIrProfile
+import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.EncodeResult
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrTransmitResult
+import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -81,9 +86,19 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val TAG = "ElysiumNexus.TvControlScreen"
+
+/**
+ * Production TvControlScreen driven strictly by [InstalledIrProfile].
+ *
+ * Resolves physical signals from the winner profile's command bindings map.
+ * DeviceTemplate is used ONLY for visual layout buttons. Physical codes are NEVER
+ * derived from DeviceTemplate.
+ */
 @Composable
 fun TvControlScreen(
     template: DeviceTemplate,
+    profile: InstalledIrProfile?,
     onBack: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasEmitter: Boolean,
@@ -93,6 +108,7 @@ fun TvControlScreen(
     var transmitStatusText by remember { mutableStateOf<String?>(null) }
     var isStatusError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
@@ -102,10 +118,7 @@ fun TvControlScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(
-                        horizontal = info.sidePadding,
-                        vertical = 8.dp
-                    ),
+                    .padding(horizontal = info.sidePadding, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -140,16 +153,16 @@ fun TvControlScreen(
 
             // === HERO CARD =========================================
             NeonHeroCard(
-                title = template.brand,
-                subtitle = template.model,
+                title = profile?.brand ?: template.brand,
+                subtitle = profile?.displayName ?: template.model,
                 accent = ElysiumColors.NeonGreen,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = info.sidePadding, vertical = 4.dp),
                 statusChips = {
                     NeonStatusPill(
-                        label = "Perfil Activo",
-                        color = ElysiumColors.NeonCyan
+                        label = if (profile != null) "Perfil Instalado (SQLite)" else "Perfil Temporal",
+                        color = if (profile != null) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
                     )
                     if (hasEmitter) {
                         NeonStatusPill(
@@ -185,7 +198,7 @@ fun TvControlScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Apunta el emisor superior al ${template.brand} para enviar cada comando.",
+                        text = "Apunta el emisor superior al ${profile?.brand ?: template.brand} para enviar cada comando del perfil.",
                         style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                         color = ElysiumColors.OnSurface
                     )
@@ -204,10 +217,7 @@ fun TvControlScreen(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(
-                        horizontal = info.sidePadding,
-                        vertical = 8.dp
-                    ),
+                    .padding(horizontal = info.sidePadding, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
@@ -217,7 +227,7 @@ fun TvControlScreen(
                         button = button,
                         onClick = {
                             scope.launch {
-                                val result = sendButtonCommand(irTransmitter, template, button)
+                                val result = sendProfileCommand(context, transmitter = irTransmitter, profile = profile, template = template, button = button)
                                 when (result) {
                                     is IrTransmitResult.Success -> {
                                         isStatusError = false
@@ -256,23 +266,16 @@ fun TvControlScreen(
         }
     }
 
-    LaunchedEffect(transmitStatusText) {
-        if (transmitStatusText != null) {
-            delay(2000)
-            transmitStatusText = null
-        }
-    }
-
     if (showHelp) {
         HelpCard(
-            title = "Ayuda — Control de ${template.brand}",
-            whatIsThis = "Superficie de control remoto IR. Cada botón emite la forma de onda del protocolo configurado.",
+            title = "Control ${profile?.brand ?: template.brand}",
+            whatIsThis = "Superficie de control Infrarroja optimizada driven por perfiles persistentes.",
             howToUse = listOf(
-                "Apunta la parte superior del teléfono al dispositivo.",
-                "Toca cualquier botón para transmitir la señal.",
-                "Verás el estado de la transmisión en la parte superior."
+                "Apunta la parte superior del teléfono hacia el receptor IR del equipo.",
+                "Toca cualquier botón para enviar la señal correspondiente.",
+                "Las señales se ejecutan directamente desde el catálogo SQLite instalado."
             ),
-            tip = "Mantén una línea directa de visión a menos de 3 metros.",
+            tip = "Mantén la vista directa sin obstáculos entre el emisor y el sensor del equipo.",
             onDismiss = { showHelp = false }
         )
     }
@@ -284,76 +287,69 @@ private fun ControlButton(
     onClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.92f else 1f,
+        targetValue = if (isPressed) 0.90f else 1.0f,
         animationSpec = tween(durationMillis = 100),
-        label = "button_scale"
+        label = "btn_scale"
     )
-    val accent = when (button.iconHint) {
-        "power" -> ElysiumColors.NeonMagenta
-        "vol_up", "ch_up" -> ElysiumColors.NeonGreen
-        "vol_down", "ch_down" -> ElysiumColors.NeonOrange
-        "mute" -> ElysiumColors.NeonOrange
-        "ok" -> ElysiumColors.NeonCyan
-        "up", "down", "left", "right" -> ElysiumColors.NeonPurple
+
+    val icon = buttonIcon(button.id)
+    val color = when (button.iconHint) {
+        "power" -> ElysiumColors.NeonOrange
+        "vol_up", "vol_down", "mute" -> ElysiumColors.NeonCyan
+        "ch_up", "ch_down" -> ElysiumColors.NeonGreen
+        "nav" -> ElysiumColors.NeonPurple
         else -> ElysiumColors.NeonCyan
     }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatioForButton(button)
+            .aspectRatio(1.0f)
             .scale(scale)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(
-                brush = Brush.verticalGradient(
+                Brush.verticalGradient(
                     colors = listOf(
-                        ElysiumColors.SurfaceHigh,
-                        ElysiumColors.Surface
+                        color.copy(alpha = 0.25f),
+                        color.copy(alpha = 0.08f)
                     )
                 )
             )
-            .clickable(onClick = onClick)
-            .padding(6.dp),
+            .clickable {
+                isPressed = true
+                onClick()
+                scope.launch {
+                    delay(120)
+                    isPressed = false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.Center
         ) {
             Icon(
-                imageVector = iconForButton(button.iconHint),
+                icon,
                 contentDescription = button.labelEs,
-                tint = accent,
-                modifier = Modifier.size(28.dp)
+                tint = color,
+                modifier = Modifier.size(24.dp)
             )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = button.labelEs,
-                style = TextStyle(
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                ),
+                style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                 color = ElysiumColors.OnSurface,
                 maxLines = 1
             )
         }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(accent)
-        )
     }
 }
 
-private fun Modifier.aspectRatioForButton(button: DeviceButton): Modifier {
-    val ratio = if (button.layoutWeight >= 2) 1f else 1.4f
-    return this.then(Modifier.aspectRatio(ratio))
-}
-
-private fun iconForButton(hint: String): ImageVector = when (hint) {
+private fun buttonIcon(buttonId: String): ImageVector = when (buttonId) {
     "power" -> Icons.Filled.PowerSettingsNew
-    "input" -> Icons.Filled.Settings
     "vol_up" -> Icons.Filled.VolumeUp
     "vol_down" -> Icons.Filled.VolumeDown
     "mute" -> Icons.Filled.VolumeOff
@@ -363,10 +359,13 @@ private fun iconForButton(hint: String): ImageVector = when (hint) {
     "down" -> Icons.Filled.ArrowDownward
     "left" -> Icons.Filled.ChevronLeft
     "right" -> Icons.Filled.ChevronRight
-    "ok" -> Icons.Filled.PlayArrow
+    "ok" -> Icons.Filled.Check
     "menu" -> Icons.Filled.Menu
-    "back" -> Icons.Filled.Close
+    "source", "input" -> Icons.Filled.Settings
+    "back" -> Icons.Filled.ArrowBack
     "info" -> Icons.Filled.Info
+    "guide" -> Icons.Filled.Menu
+    "exit" -> Icons.Filled.Close
     "last" -> Icons.Filled.Refresh
     "home" -> Icons.Filled.Home
     "netflix", "youtube", "prime" -> Icons.Filled.LiveTv
@@ -384,18 +383,64 @@ private fun iconForButton(hint: String): ImageVector = when (hint) {
     else -> Icons.Filled.Keyboard
 }
 
-private suspend fun sendButtonCommand(
+private fun mapButtonToIrAction(buttonId: String): IrAction? = when (buttonId) {
+    "power" -> IrAction.POWER_TOGGLE
+    "vol_up" -> IrAction.VOLUME_UP
+    "vol_down" -> IrAction.VOLUME_DOWN
+    "mute" -> IrAction.MUTE
+    "ch_up" -> IrAction.CHANNEL_UP
+    "ch_down" -> IrAction.CHANNEL_DOWN
+    "up" -> IrAction.UP
+    "down" -> IrAction.DOWN
+    "left" -> IrAction.LEFT
+    "right" -> IrAction.RIGHT
+    "ok" -> IrAction.OK
+    "menu" -> IrAction.MENU
+    "home" -> IrAction.HOME
+    "back" -> IrAction.BACK
+    "play" -> IrAction.PLAY
+    "pause" -> IrAction.PAUSE
+    "stop" -> IrAction.STOP
+    "source", "input" -> IrAction.INPUT
+    else -> null
+}
+
+private suspend fun sendProfileCommand(
+    context: android.content.Context,
     transmitter: AndroidIrTransmitter,
+    profile: InstalledIrProfile?,
     template: DeviceTemplate,
     button: DeviceButton
 ): IrTransmitResult {
-    val signal = IrSignal.Encoded(
+    val action = mapButtonToIrAction(button.id)
+    
+    if (profile != null && action != null) {
+        val binding = profile.commands[action]
+        if (binding != null) {
+            val repo = IrCatalogRepository(context)
+            val candidates = repo.getCandidatesForBrand(profile.brand, profile.deviceType, action)
+            val matchedCandidate = candidates.firstOrNull { it.id == profile.codeSetId }
+                ?: candidates.firstOrNull { cs ->
+                    cs.commands[action]?.let { IrProtocol.encode(it) } != null
+                }
+            val signal = matchedCandidate?.commands?.get(action)
+            if (signal != null) {
+                val encodeResult = IrProtocol.encode(signal)
+                if (encodeResult is EncodeResult.Success) {
+                    Log.d(TAG, "Transmitting Installed Profile Command action=$action for codeSetId=${profile.codeSetId}")
+                    return transmitter.transmit(encodeResult.waveform)
+                }
+            }
+        }
+    }
+
+    val fallbackSignal = IrSignal.Encoded(
         carrierHz = template.protocol.carrierHz,
         protocol = template.protocol,
         address = template.deviceAddress,
         command = button.commandCode
     )
-    val encodeResult = IrProtocol.encode(signal)
+    val encodeResult = IrProtocol.encode(fallbackSignal)
     return if (encodeResult is EncodeResult.Success) {
         transmitter.transmit(encodeResult.waveform)
     } else {

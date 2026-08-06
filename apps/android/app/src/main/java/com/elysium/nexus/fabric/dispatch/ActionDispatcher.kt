@@ -322,11 +322,11 @@ object DefaultActionTranslator : ActionTranslator {
             is UniversalAction.Ok,
             is UniversalAction.Back,
             is UniversalAction.Home,
-            is UniversalAction.Menu -> DeviceState.OnOff(isOn = true) // generic fallback
+            is UniversalAction.Menu,
             is UniversalAction.ChannelUp,
-            is UniversalAction.ChannelDown -> DeviceState.OnOff(isOn = true) // generic
-            is UniversalAction.InputSelect -> DeviceState.OnOff(isOn = true) // generic
-            is UniversalAction.Custom -> null // custom actions need adapter-specific handling
+            is UniversalAction.ChannelDown,
+            is UniversalAction.InputSelect,
+            is UniversalAction.Custom -> null // Non-IR adapters must implement custom translation for navigation/channel
         }
     }
 }

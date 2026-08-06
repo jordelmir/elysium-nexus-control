@@ -19,21 +19,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SettingsRemote
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +48,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elysium.nexus.core.device.CodeProvenance
-import com.elysium.nexus.core.device.DeviceCatalog
 import com.elysium.nexus.core.device.DeviceTemplate
+import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
+import com.elysium.nexus.core.device.IrCommandBinding
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrTransmitResult
+import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
+import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -70,11 +73,18 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "ElysiumNexus.IrProbe"
 
+sealed interface ProbeUiState {
+    data object LoadingCatalog : ProbeUiState
+    data class Ready(val probeEngine: IrProbeEngine) : ProbeUiState
+    data object Exhausted : ProbeUiState
+    data class Error(val message: String) : ProbeUiState
+}
+
 @Composable
 fun IrConnectFlow(
     template: DeviceTemplate,
     onBack: () -> Unit,
-    onConnected: (DeviceTemplate) -> Unit,
+    onProfileInstalled: (InstalledIrProfile) -> Unit,
     onTryOther: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasIrBlaster: Boolean,
@@ -83,82 +93,113 @@ fun IrConnectFlow(
     var step by remember { mutableStateOf(IrStep.ORIENT) }
     var showHelp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Mutable state for the active IrProbeEngine, populated directly from SQLite ir_catalog.db
-    var probeEngine by remember(template) {
-        val matchedTemplates = DeviceCatalog.all.filter {
-            it.brand.equals(template.brand, ignoreCase = true) ||
-            it.id == template.id ||
-            template.brand.contains("Universal", ignoreCase = true)
-        }
+    var probeUiState by remember { mutableStateOf<ProbeUiState>(ProbeUiState.LoadingCatalog) }
+    var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
 
-        val initialList = matchedTemplates.mapIndexed { idx, t ->
-            IrCodeSet(
-                id = "cand-${t.id}-$idx",
-                brand = t.brand,
-                modelPatterns = setOf(t.model),
-                remoteModels = emptySet(),
-                commands = mapOf(
-                    IrAction.VOLUME_UP to IrSignal.Encoded(
-                        carrierHz = t.protocol.carrierHz,
-                        protocol = t.protocol,
-                        address = t.deviceAddress,
-                        command = if (t.commandAddress != 0) t.commandAddress else 0x07
-                    )
-                ),
-                provenance = CodeProvenance(
-                    sourceName = "Elysium Device Catalog",
-                    sourceUrl = "https://github.com/jordelmir/elysium-nexus-control",
-                    licenseSpdx = "MIT"
-                ),
-                verification = VerificationStatus.UNVERIFIED
-            )
-        }
-        mutableStateOf(IrProbeEngine(initialList))
-    }
-
-    // Load candidates directly from SQLite ir_catalog.db on launch
-    androidx.compose.runtime.LaunchedEffect(template) {
-        val repo = com.elysium.nexus.fabric.infrared.database.IrCatalogRepository(context)
+    // Async SQLite Candidate Loading (Eliminates P0 Race Condition with DeviceCatalog)
+    LaunchedEffect(template) {
+        probeUiState = ProbeUiState.LoadingCatalog
+        val repo = IrCatalogRepository(context)
         val sqliteCandidates = repo.getCandidatesForBrand(
             brand = template.brand,
             deviceType = "TV",
             action = IrAction.VOLUME_UP
         )
+
         if (sqliteCandidates.isNotEmpty()) {
-            val engineFromSqlite = IrProbeEngine(sqliteCandidates)
-            probeEngine = engineFromSqlite
-            Log.d(TAG, "Loaded ${engineFromSqlite.totalCandidates} candidates directly from SQLite ir_catalog.db for brand=${template.brand}")
+            val engine = IrProbeEngine(sqliteCandidates)
+            probeUiState = ProbeUiState.Ready(engine)
+            Log.d(TAG, "Loaded ${engine.totalCandidates} candidates directly from SQLite ir_catalog.db for brand=${template.brand}")
+        } else {
+            // Fallback for custom / non-catalog brands: build regional candidate set
+            val fallbackCandidates = listOf(
+                IrCodeSet(
+                    id = "cand-fallback-nec-0x07",
+                    brand = template.brand,
+                    modelPatterns = setOf(template.model),
+                    remoteModels = emptySet(),
+                    commands = mapOf(
+                        IrAction.VOLUME_UP to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x07),
+                        IrAction.VOLUME_DOWN to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x06),
+                        IrAction.MUTE to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x08),
+                        IrAction.POWER_TOGGLE to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x02)
+                    ),
+                    provenance = CodeProvenance("Elysium Regional Fallback", "", "MIT"),
+                    verification = VerificationStatus.UNVERIFIED
+                ),
+                IrCodeSet(
+                    id = "cand-fallback-samsung-0x07",
+                    brand = template.brand,
+                    modelPatterns = setOf(template.model),
+                    remoteModels = emptySet(),
+                    commands = mapOf(
+                        IrAction.VOLUME_UP to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x07),
+                        IrAction.VOLUME_DOWN to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x0B),
+                        IrAction.MUTE to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x0F),
+                        IrAction.POWER_TOGGLE to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x02)
+                    ),
+                    provenance = CodeProvenance("Elysium Regional Fallback", "", "MIT"),
+                    verification = VerificationStatus.UNVERIFIED
+                )
+            )
+            val engine = IrProbeEngine(fallbackCandidates)
+            probeUiState = ProbeUiState.Ready(engine)
         }
     }
 
-    var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
-    var candidateIndex by remember { mutableStateOf(probeEngine.currentProbeNumber) }
+    val activeEngine = (probeUiState as? ProbeUiState.Ready)?.probeEngine
 
-    // Sync candidateIndex when probeEngine changes
-    androidx.compose.runtime.LaunchedEffect(probeEngine) {
-        candidateIndex = probeEngine.currentProbeNumber
-    }
-
-    // Helper to transmit the current candidate's VOLUME_UP signal automatically
     fun sendVolumeTestForCurrentCandidate() {
-        val candidate = probeEngine.currentCandidate() ?: return
+        val engine = activeEngine ?: return
+        val candidate = engine.currentCandidate() ?: return
         val signal = candidate.commands[IrAction.VOLUME_UP] ?: return
         val sigDetails = IrProbeEngine.fingerprintSignal(signal)
-        Log.d(TAG, "Transmitting Probe #${probeEngine.currentProbeNumber}/${probeEngine.totalCandidates}: ID=${candidate.id}, Brand=${candidate.brand}, Sig=$sigDetails")
+        Log.d(TAG, "Transmitting Probe #${engine.currentProbeNumber}/${engine.totalCandidates}: ID=${candidate.id}, Brand=${candidate.brand}, Sig=$sigDetails")
 
         val encodeResult = IrProtocol.encode(signal)
         if (encodeResult is com.elysium.nexus.fabric.infrared.EncodeResult.Success) {
             scope.launch {
                 val res = irTransmitter.transmit(encodeResult.waveform)
-                Log.d(TAG, "Transmit result for Probe #${probeEngine.currentProbeNumber}: $res")
+                Log.d(TAG, "Transmit result for Probe #${engine.currentProbeNumber}: $res")
                 currentResult = res
             }
         } else {
-            currentResult = IrTransmitResult.InvalidPattern("Unsupported protocol or bad params")
+            currentResult = IrTransmitResult.InvalidPattern("Unsupported protocol or invalid parameters")
         }
+    }
+
+    fun buildAndPersistInstalledProfile(winnerCandidate: IrCodeSet): InstalledIrProfile {
+        val bindings = mutableMapOf<IrAction, IrCommandBinding>()
+        
+        for ((action, signal) in winnerCandidate.commands) {
+            val fp = IrProbeEngine.fingerprintSignal(signal)
+            bindings[action] = IrCommandBinding(
+                signalId = "${winnerCandidate.id}_${action.name}",
+                physicalFingerprint = fp,
+                sourceId = winnerCandidate.provenance.sourceName,
+                action = action
+            )
+        }
+
+        val profile = InstalledIrProfile(
+            displayName = "${winnerCandidate.brand} Remote (${winnerCandidate.id.take(8)})",
+            brand = winnerCandidate.brand,
+            deviceType = "TV",
+            model = winnerCandidate.modelPatterns.firstOrNull(),
+            remoteModel = winnerCandidate.remoteModels.firstOrNull(),
+            codeSetId = winnerCandidate.id,
+            sourceRevision = "v0.3.0",
+            commands = bindings,
+            verifiedActions = setOf(IrAction.VOLUME_UP),
+            verificationStatus = VerificationStatus.PARTIALLY_VERIFIED
+        )
+
+        val profileRepo = InstalledIrProfileRepository(context)
+        profileRepo.saveProfile(profile)
+        Log.d(TAG, "Successfully installed and saved winner profile ID=${profile.id} with ${bindings.size} bindings to disk")
+        return profile
     }
 
     ResponsiveContainer(modifier = modifier) { info ->
@@ -167,7 +208,7 @@ fun IrConnectFlow(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // === TOP BAR ===========================================
+            // Top bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,7 +239,7 @@ fun IrConnectFlow(
                 }
             }
 
-            // === HERO CARD =========================================
+            // Hero Card
             NeonHeroCard(
                 title = "${template.brand} ${template.model}",
                 subtitle = template.blurbEs,
@@ -211,14 +252,16 @@ fun IrConnectFlow(
                         label = "Paso ${step.number} de 4",
                         color = ElysiumColors.NeonOrange
                     )
-                    NeonStatusPill(
-                        label = "Probe ${candidateIndex}/${probeEngine.totalCandidates}",
-                        color = ElysiumColors.NeonPurple
-                    )
+                    activeEngine?.let { engine ->
+                        NeonStatusPill(
+                            label = "Probe ${engine.currentProbeNumber}/${engine.totalCandidates}",
+                            color = ElysiumColors.NeonPurple
+                        )
+                    }
                 }
             )
 
-            // === STEP INDICATOR ====================================
+            // Step Indicator
             StepIndicator(
                 currentStep = step,
                 modifier = Modifier
@@ -226,61 +269,93 @@ fun IrConnectFlow(
                     .padding(horizontal = info.sidePadding, vertical = 8.dp)
             )
 
-            // === STEP CONTENT ======================================
+            // Step Content
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = info.sidePadding)
             ) {
-                AnimatedContent(
-                    targetState = step,
-                    transitionSpec = {
-                        (fadeIn() + scaleIn(initialScale = 0.95f))
-                            .togetherWith(fadeOut() + scaleOut(targetScale = 0.95f))
-                    },
-                    label = "ir_step"
-                ) { currentStep ->
-                    when (currentStep) {
-                        IrStep.ORIENT -> OrientStep(
-                            onContinue = {
-                                step = IrStep.TEST
-                                sendVolumeTestForCurrentCandidate()
-                            },
-                            hasIrBlaster = hasIrBlaster
-                        )
-                        IrStep.TEST -> TestStep(
-                            template = template,
-                            probeEngine = probeEngine,
-                            lastResult = currentResult,
-                            onSendTest = {
-                                sendVolumeTestForCurrentCandidate()
-                            },
-                            onDidWork = { step = IrStep.CONFIRM },
-                            onNextCandidate = {
-                                val next = probeEngine.nextCandidate()
-                                candidateIndex = probeEngine.currentProbeNumber
-                                currentResult = null
-                                Log.d(TAG, "Advanced to Candidate #${candidateIndex}: ID=${next?.id}, Brand=${next?.brand}")
-                                sendVolumeTestForCurrentCandidate()
-                            },
-                            hasIrBlaster = hasIrBlaster
-                        )
-                        IrStep.CONFIRM -> ConfirmStep(
-                            onYes = { step = IrStep.SAVE },
-                            onNo = {
-                                val next = probeEngine.nextCandidate()
-                                candidateIndex = probeEngine.currentProbeNumber
-                                currentResult = null
-                                Log.d(TAG, "Advanced via ConfirmStep to Candidate #${candidateIndex}: ID=${next?.id}")
-                                step = IrStep.TEST
-                                sendVolumeTestForCurrentCandidate()
+                when (val uiState = probeUiState) {
+                    is ProbeUiState.LoadingCatalog -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = ElysiumColors.NeonCyan)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Cargando catálogo SQLite desde assets...",
+                                    style = TextStyle(fontSize = 14.sp, color = ElysiumColors.OnSurfaceVariant)
+                                )
                             }
-                        )
-                        IrStep.SAVE -> SaveStep(
-                            template = template,
-                            onSave = { onConnected(template) },
-                            onLearnInstead = onTryOther
-                        )
+                        }
+                    }
+                    is ProbeUiState.Ready -> {
+                        val engine = uiState.probeEngine
+                        AnimatedContent(
+                            targetState = step,
+                            transitionSpec = {
+                                (fadeIn() + scaleIn(initialScale = 0.95f))
+                                    .togetherWith(fadeOut() + scaleOut(targetScale = 0.95f))
+                            },
+                            label = "ir_step"
+                        ) { currentStep ->
+                            when (currentStep) {
+                                IrStep.ORIENT -> OrientStep(
+                                    onContinue = {
+                                        step = IrStep.TEST
+                                        sendVolumeTestForCurrentCandidate()
+                                    },
+                                    hasIrBlaster = hasIrBlaster
+                                )
+                                IrStep.TEST -> TestStep(
+                                    template = template,
+                                    probeEngine = engine,
+                                    lastResult = currentResult,
+                                    onSendTest = { sendVolumeTestForCurrentCandidate() },
+                                    onDidWork = { step = IrStep.CONFIRM },
+                                    onNextCandidate = {
+                                        engine.nextCandidate()
+                                        currentResult = null
+                                        sendVolumeTestForCurrentCandidate()
+                                    },
+                                    hasIrBlaster = hasIrBlaster
+                                )
+                                IrStep.CONFIRM -> ConfirmStep(
+                                    onYes = {
+                                        step = IrStep.SAVE
+                                    },
+                                    onNo = {
+                                        engine.nextCandidate()
+                                        currentResult = null
+                                        step = IrStep.TEST
+                                        sendVolumeTestForCurrentCandidate()
+                                    }
+                                )
+                                IrStep.SAVE -> SaveStep(
+                                    template = template,
+                                    onSave = {
+                                        val winner = engine.currentCandidate()
+                                        if (winner != null) {
+                                            val profile = buildAndPersistInstalledProfile(winner)
+                                            onProfileInstalled(profile)
+                                        } else {
+                                            onTryOther()
+                                        }
+                                    },
+                                    onLearnInstead = onTryOther
+                                )
+                            }
+                        }
+                    }
+                    is ProbeUiState.Exhausted -> {
+                        Text("No se encontraron más candidatos para esta marca.", color = ElysiumColors.NeonOrange)
+                    }
+                    is ProbeUiState.Error -> {
+                        Text("Error de catálogo: ${uiState.message}", color = Color.Red)
                     }
                 }
             }
@@ -318,22 +393,49 @@ private fun StepIndicator(
     val steps = IrStep.entries.toTypedArray()
     Row(
         modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        steps.forEach { step ->
+        steps.forEachIndexed { idx, s ->
+            val isActive = s == currentStep
+            val isPassed = s.number < currentStep.number
             val color = when {
-                step.ordinal < currentStep.ordinal -> ElysiumColors.NeonGreen
-                step == currentStep -> ElysiumColors.NeonPurple
-                else -> ElysiumColors.OnSurfaceMuted.copy(alpha = 0.3f)
+                isActive -> ElysiumColors.NeonCyan
+                isPassed -> ElysiumColors.NeonGreen
+                else -> ElysiumColors.OnSurfaceVariant.copy(alpha = 0.4f)
             }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(color)
-            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(color.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${s.number}",
+                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                        color = color
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = s.labelEs,
+                    style = TextStyle(fontSize = 11.sp, fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal),
+                    color = color
+                )
+            }
+
+            if (idx < steps.size - 1) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(2.dp)
+                        .padding(horizontal = 4.dp)
+                        .background(if (isPassed) ElysiumColors.NeonGreen else ElysiumColors.OnSurfaceVariant.copy(alpha = 0.2f))
+                )
+            }
         }
     }
 }
@@ -349,50 +451,26 @@ private fun OrientStep(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text("📱", style = TextStyle(fontSize = 56.sp))
-                Text("➤➤➤", style = TextStyle(fontSize = 24.sp), color = ElysiumColors.NeonCyan)
-                Text("📺", style = TextStyle(fontSize = 56.sp))
-            }
             Text(
-                text = "Apunta el teléfono a la TV encendida",
-                style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold),
+                text = "Preparación de Sondeo IR",
+                style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                 color = ElysiumColors.OnSurface
             )
             Text(
-                text = "Para probar códigos de forma confiable, la TV debe estar encendida. " +
-                    "Probaremos la acción SUBIR VOLUMEN (Volume Up) para ver la confirmación OSD en pantalla.",
+                text = if (hasIrBlaster)
+                    "El emisor Infrarrojo de tu teléfono enviará códigos de prueba. Mantén el teléfono apuntado al sensor IR del equipo."
+                else
+                    "Atención: Este teléfono no reporta emisor IR de hardware. Puedes probar con un receptor external USB.",
                 style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
                 color = ElysiumColors.OnSurfaceVariant
             )
-            if (!hasIrBlaster) {
-                Spacer(modifier = Modifier.height(8.dp))
-                NeonCard(
-                    accent = ElysiumColors.NeonOrange,
-                    cornerRadius = 12.dp,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Filled.Cancel, contentDescription = null, tint = ElysiumColors.NeonOrange, modifier = Modifier.size(20.dp))
-                        Text(
-                            text = "Hardware IR no detectado en este teléfono.",
-                            style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-                            color = ElysiumColors.OnSurface
-                        )
-                    }
-                }
-            }
             Spacer(modifier = Modifier.height(8.dp))
             NeonChip(
-                label = "Comenzar pruebas de volumen",
+                label = "Comenzar Prueba",
                 onClick = onContinue,
                 accent = ElysiumColors.NeonCyan,
-                active = true,
-                icon = { Icon(Icons.Filled.Check, contentDescription = null) }
+                icon = { Icon(Icons.Filled.Bolt, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -409,6 +487,9 @@ private fun TestStep(
     hasIrBlaster: Boolean
 ) {
     val currentCand = probeEngine.currentCandidate()
+
+    // P0 Issue 3 Fix: Enable confirmation ONLY when transmission actually succeeded!
+    val canConfirm = lastResult is IrTransmitResult.Success && currentCand != null
 
     NeonCard(
         modifier = Modifier.fillMaxWidth(),
@@ -466,9 +547,9 @@ private fun TestStep(
             ) {
                 NeonChip(
                     label = "Sí, subió el volumen",
-                    onClick = onDidWork,
-                    accent = ElysiumColors.NeonGreen,
-                    active = true,
+                    onClick = { if (canConfirm) onDidWork() },
+                    accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray,
+                    active = canConfirm,
                     icon = { Icon(Icons.Filled.Check, contentDescription = null) },
                     modifier = Modifier.weight(1f)
                 )
@@ -494,35 +575,31 @@ private fun ConfirmStep(
 ) {
     NeonCard(
         modifier = Modifier.fillMaxWidth(),
-        accent = ElysiumColors.NeonCyan,
+        accent = ElysiumColors.NeonGreen,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                text = "¿Confirmar control remoto?",
-                style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold),
+                text = "¿Reaccionó tu TV?",
+                style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                 color = ElysiumColors.OnSurface
             )
             Text(
-                text = "Si la TV reaccionó al cambio de volumen, guarda este perfil. Si no, avanza al siguiente candidato.",
+                text = "Si viste el indicador de volumen subir en pantalla, confirma para instalar el perfil de control completo.",
                 style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
                 color = ElysiumColors.OnSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NeonChip(
-                    label = "Guardar Perfil",
+                    label = "Sí, guardar perfil",
                     onClick = onYes,
                     accent = ElysiumColors.NeonGreen,
-                    active = true,
                     icon = { Icon(Icons.Filled.Check, contentDescription = null) },
                     modifier = Modifier.weight(1f)
                 )
                 NeonChip(
-                    label = "Probar Otro",
+                    label = "No, probar otro",
                     onClick = onNo,
                     accent = ElysiumColors.NeonOrange,
                     icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
@@ -545,19 +622,13 @@ private fun SaveStep(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Filled.Check, contentDescription = null, tint = ElysiumColors.NeonGreen, modifier = Modifier.size(28.dp))
-                Text(
-                    text = "¡Perfil Seleccionado!",
-                    style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold),
-                    color = ElysiumColors.NeonGreen
-                )
-            }
             Text(
-                text = "El perfil para ${template.brand} ${template.model} ha sido verificado en esta sesión.",
+                text = "Perfil Encontrado y Verificado",
+                style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                color = ElysiumColors.OnSurface
+            )
+            Text(
+                text = "El mapa de comandos del código ganador se ha guardado de forma persistente. Todos los botones utilizarán las señales de este perfil.",
                 style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
                 color = ElysiumColors.OnSurfaceVariant
             )
@@ -566,8 +637,8 @@ private fun SaveStep(
                 label = "Abrir Control Remoto",
                 onClick = onSave,
                 accent = ElysiumColors.NeonGreen,
-                active = true,
-                icon = { Icon(Icons.Filled.SettingsRemote, contentDescription = null) }
+                icon = { Icon(Icons.Filled.Check, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

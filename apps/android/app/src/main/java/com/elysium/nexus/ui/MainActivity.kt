@@ -506,9 +506,12 @@ class MainActivity : ComponentActivity() {
                             IrConnectFlow(
                                 template = current.template,
                                 onBack = { navStack.value = navStack.value.dropLast(1) },
-                                onConnected = { template ->
-                                    connectedDeviceFlow.value = template
-                                    navStack.value = navStack.value.dropLast(1) + HubDestination.Control(template)
+                                onProfileInstalled = { installedProfile ->
+                                    connectedDeviceFlow.value = current.template
+                                    navStack.value = navStack.value.dropLast(1) + HubDestination.Control(
+                                        template = current.template,
+                                        profile = installedProfile
+                                    )
                                 },
                                 onTryOther = { navStack.value = navStack.value.dropLast(1) },
                                 irTransmitter = ir,
@@ -521,6 +524,7 @@ class MainActivity : ComponentActivity() {
                         if (ir != null) {
                             TvControlScreen(
                                 template = current.template,
+                                profile = current.profile,
                                 onBack = { navStack.value = navStack.value.dropLast(1) },
                                 irTransmitter = ir,
                                 hasEmitter = ir.hasEmitter()
