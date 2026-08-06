@@ -12,6 +12,15 @@ sealed interface EncodeResult {
 }
 
 /**
+ * Result of resolving a protocol string name from an IR catalog or source file.
+ */
+sealed interface ProtocolResolution {
+    data class Supported(val protocol: IrProtocol) : ProtocolResolution
+    data class RawPassthrough(val carrierHz: Int) : ProtocolResolution
+    data class Unsupported(val originalName: String, val reason: String) : ProtocolResolution
+}
+
+/**
  * The §6.4 IR protocol catalog.
  */
 enum class IrProtocol(
@@ -33,6 +42,36 @@ enum class IrProtocol(
 
     companion object {
         const val DEFAULT_CARRIER_HZ: Int = 38_000
+
+        /**
+         * Resolves protocol string name cleanly.
+         * Evaluates NECx BEFORE NEC.
+         * Returns [ProtocolResolution.Unsupported] for unknown protocols. Zero silent NEC fallback.
+         */
+        fun resolveProtocol(name: String, carrierHz: Int = DEFAULT_CARRIER_HZ): ProtocolResolution {
+            val clean = name.trim()
+            if (clean.equals("RAW", ignoreCase = true)) {
+                return ProtocolResolution.RawPassthrough(carrierHz)
+            }
+            return when {
+                clean.startsWith("NECx", ignoreCase = true) || clean.startsWith("NECext", ignoreCase = true) || clean.startsWith("NECx2", ignoreCase = true) ->
+                    ProtocolResolution.Supported(NecExtended)
+                clean.startsWith("NEC", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Nec)
+                clean.startsWith("Samsung", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Samsung)
+                clean.startsWith("SIRC", ignoreCase = true) || clean.startsWith("Sony", ignoreCase = true) ->
+                    ProtocolResolution.Supported(SonySirc)
+                clean.startsWith("RC5", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Rc5)
+                clean.startsWith("RC6", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Rc6)
+                clean.startsWith("Kaseikyo", ignoreCase = true) || clean.startsWith("Panasonic", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Kaseikyo)
+                else ->
+                    ProtocolResolution.Unsupported(clean, "Protocol '$clean' is not registered in ProtocolCodecRegistry.")
+            }
+        }
 
         /**
          * Exhaustive encoder dispatching without silent fallback to NEC.
