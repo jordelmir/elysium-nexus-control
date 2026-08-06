@@ -73,9 +73,11 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.EncodeResult
+import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrTransmitResult
 import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
+import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -98,7 +100,8 @@ private const val TAG = "ElysiumNexus.TvControlScreen"
 @Composable
 fun TvControlScreen(
     template: DeviceTemplate,
-    profile: InstalledIrProfile?,
+    profile: InstalledIrProfile? = null,
+    profileId: String? = null,
     onBack: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasEmitter: Boolean,
@@ -109,6 +112,13 @@ fun TvControlScreen(
     var isStatusError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val activeProfile = remember(profile, profileId) {
+        profile ?: profileId?.let { id -> InstalledIrProfileRepository(context).getProfile(id) }
+    }
+
+    // Singleton catalog repository — ONE instance, not per-button
+    val catalogRepo = remember { IrCatalogRepository(context) }
 
     ResponsiveContainer(modifier = modifier) { info ->
         Column(
@@ -153,16 +163,16 @@ fun TvControlScreen(
 
             // === HERO CARD =========================================
             NeonHeroCard(
-                title = profile?.brand ?: template.brand,
-                subtitle = profile?.displayName ?: template.model,
+                title = activeProfile?.brand ?: template.brand,
+                subtitle = activeProfile?.displayName ?: template.model,
                 accent = ElysiumColors.NeonGreen,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = info.sidePadding, vertical = 4.dp),
                 statusChips = {
                     NeonStatusPill(
-                        label = if (profile != null) "Perfil Instalado (SQLite)" else "Perfil Temporal",
-                        color = if (profile != null) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
+                        label = if (activeProfile != null) "Perfil Instalado (Room DB)" else "Perfil Temporal",
+                        color = if (activeProfile != null) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
                     )
                     if (hasEmitter) {
                         NeonStatusPill(
@@ -198,7 +208,7 @@ fun TvControlScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Apunta el emisor superior al ${profile?.brand ?: template.brand} para enviar cada comando del perfil.",
+                        text = "Apunta el emisor superior al ${activeProfile?.brand ?: template.brand} para enviar cada comando del perfil.",
                         style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                         color = ElysiumColors.OnSurface
                     )
@@ -213,6 +223,26 @@ fun TvControlScreen(
                 com.elysium.nexus.ui.responsive.ScreenSize.Large -> 7
             }
 
+            // Generate buttons from profile bindings when available,
+            // fall back to template buttons for visual layout only
+            val effectiveButtons = remember(activeProfile, template) {
+                if (activeProfile != null && activeProfile.commands.isNotEmpty()) {
+                    // Build buttons from the profile's real bindings
+                    activeProfile.commands.keys.mapNotNull { action ->
+                        template.buttons.firstOrNull { mapButtonToIrAction(it.id) == action }
+                            ?: DeviceButton(
+                                id = action.name.lowercase(),
+                                labelEs = action.name.replace("_", " "),
+                                labelEn = action.name.replace("_", " "),
+                                iconHint = action.name.lowercase(),
+                                commandCode = 0
+                            )
+                    }
+                } else {
+                    template.buttons
+                }
+            }
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier
@@ -222,12 +252,12 @@ fun TvControlScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
             ) {
-                items(template.buttons) { button ->
+                items(effectiveButtons) { button ->
                     ControlButton(
                         button = button,
                         onClick = {
                             scope.launch {
-                                val result = sendProfileCommand(context, transmitter = irTransmitter, profile = profile, template = template, button = button)
+                                val result = sendProfileCommand(catalogRepo = catalogRepo, transmitter = irTransmitter, profile = activeProfile, template = template, button = button)
                                 when (result) {
                                     is IrTransmitResult.Success -> {
                                         isStatusError = false
@@ -406,7 +436,7 @@ private fun mapButtonToIrAction(buttonId: String): IrAction? = when (buttonId) {
 }
 
 private suspend fun sendProfileCommand(
-    context: android.content.Context,
+    catalogRepo: IrCatalogRepository,
     transmitter: AndroidIrTransmitter,
     profile: InstalledIrProfile?,
     template: DeviceTemplate,
@@ -420,13 +450,24 @@ private suspend fun sendProfileCommand(
     val binding = profile.commands[action]
         ?: return IrTransmitResult.InvalidPattern("Action $action not mapped for profile ${profile.id}")
 
-    val repo = IrCatalogRepository(context)
-    val signal = repo.getSignal(binding.signalId)
+    val signal = catalogRepo.getSignal(binding.signalId)
         ?: return IrTransmitResult.InvalidPattern("Signal ${binding.signalId} missing from SQLite catalog")
+
+    // §21 Fingerprint verification: ensure the signal hasn't changed since installation
+    val actualFingerprint = IrProbeEngine.fingerprintSignal(signal)
+    if (actualFingerprint != binding.physicalFingerprint) {
+        Log.e(TAG, "FINGERPRINT MISMATCH for action=$action, signalId=${binding.signalId}: " +
+            "expected=${binding.physicalFingerprint}, actual=$actualFingerprint. " +
+            "Catalog may have been updated. Refusing to transmit.")
+        return IrTransmitResult.InvalidPattern(
+            "Fingerprint mismatch for $action — profile may need reinstallation"
+        )
+    }
 
     val encodeResult = IrProtocol.encode(signal)
     return if (encodeResult is EncodeResult.Success) {
-        Log.d(TAG, "Transmitting Authoritative Profile Signal action=$action, signalId=${binding.signalId}, codeSetId=${profile.codeSetId}")
+        Log.d(TAG, "Transmitting Authoritative Profile Signal action=$action, signalId=${binding.signalId}, " +
+            "codeSetId=${profile.codeSetId}, fingerprint=${actualFingerprint.take(16)}...")
         transmitter.transmit(encodeResult.waveform)
     } else {
         IrTransmitResult.InvalidPattern("Failed to encode signal for action $action")

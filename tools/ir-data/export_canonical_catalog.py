@@ -11,6 +11,7 @@ import hashlib
 import json
 import sqlite3
 import sys
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -43,7 +44,7 @@ def compute_canonical_hash(db_path: Path) -> tuple[str, dict]:
 
         for row in sorted_rows:
             row_dict = {
-                k: (v.hex() if isinstance(v, bytes) else v)
+                k: (v.hex() if isinstance(v, bytes) else (unicodedata.normalize("NFKC", v) if isinstance(v, str) else v))
                 for k, v in zip(col_names, row)
             }
             # Format JSON deterministically

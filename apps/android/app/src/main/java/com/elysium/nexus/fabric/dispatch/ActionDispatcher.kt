@@ -300,10 +300,35 @@ fun interface ActionTranslator {
  */
 object DefaultActionTranslator : ActionTranslator {
     override fun translate(action: UniversalAction, route: TransportRoute): DeviceState? {
+        if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
+            val cmdCode = when (action) {
+                is UniversalAction.PowerOn, is UniversalAction.PowerToggle -> 0x02
+                is UniversalAction.PowerOff -> 0x01
+                is UniversalAction.VolumeUp -> 0x07
+                is UniversalAction.VolumeDown -> 0x06
+                is UniversalAction.Mute -> 0x08
+                is UniversalAction.ChannelUp -> 0x09
+                is UniversalAction.ChannelDown -> 0x0A
+                is UniversalAction.Ok -> 0x0B
+                is UniversalAction.Back -> 0x0C
+                is UniversalAction.Home -> 0x0D
+                is UniversalAction.Menu -> 0x0E
+                is UniversalAction.MediaPlay -> 0x0F
+                is UniversalAction.MediaPause -> 0x10
+                is UniversalAction.MediaStop -> 0x11
+                else -> null
+            } ?: return null
+            return DeviceState.IrCommand(
+                protocolName = "NEC",
+                address = 0,
+                command = cmdCode,
+                extras = mapOf("action" to action::class.simpleName.orEmpty())
+            )
+        }
         return when (action) {
             is UniversalAction.PowerOn -> DeviceState.OnOff(isOn = true)
             is UniversalAction.PowerOff -> DeviceState.OnOff(isOn = false)
-            is UniversalAction.PowerToggle -> DeviceState.OnOff(isOn = true) // toggle semantics at adapter
+            is UniversalAction.PowerToggle -> DeviceState.OnOff(isOn = true)
             is UniversalAction.VolumeUp -> DeviceState.Level(value = 0.6f)
             is UniversalAction.VolumeDown -> DeviceState.Level(value = 0.4f)
             is UniversalAction.SetVolume -> DeviceState.Level(value = action.level)
@@ -326,7 +351,7 @@ object DefaultActionTranslator : ActionTranslator {
             is UniversalAction.ChannelUp,
             is UniversalAction.ChannelDown,
             is UniversalAction.InputSelect,
-            is UniversalAction.Custom -> null // Non-IR adapters must implement custom translation for navigation/channel
+            is UniversalAction.Custom -> null
         }
     }
 }

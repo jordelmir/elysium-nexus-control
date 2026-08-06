@@ -22,8 +22,8 @@ android {
         applicationId = "com.elysium.nexus.controller"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.3.0-ir-fabric-rc1"
+        versionCode = 5
+        versionName = "0.5.0-engineering-preview"
 
         // No instrumentation runner until we add AndroidX Test. We add
         // it in 0.5 alongside the first Context-dependent test.

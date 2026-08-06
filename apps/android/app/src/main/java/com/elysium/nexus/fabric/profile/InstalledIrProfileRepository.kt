@@ -6,6 +6,10 @@ import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCommandBinding
 import com.elysium.nexus.core.device.VerificationStatus
+import com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase
+import com.elysium.nexus.fabric.profile.db.InstalledIrCommandEntity
+import com.elysium.nexus.fabric.profile.db.InstalledIrProfileEntity
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -16,13 +20,14 @@ private const val PROFILES_FILE = "installed_ir_profiles.json"
 /**
  * §9 Installed IR Profile Repository.
  *
- * Provides persistent local storage (in app's noBackupFilesDir) for installed IR remote profiles.
- * Installed profiles survive process restarts and application updates.
+ * Provides persistent local storage using Room Database [ElysiumUserDatabase] in app's noBackupFilesDir
+ * for installed IR remote profiles. Installed profiles survive process restarts and application updates.
  */
 class InstalledIrProfileRepository(
-    private val storageDir: File
+    private val storageDir: File,
+    private val context: Context? = null
 ) {
-    constructor(context: Context) : this(context.noBackupFilesDir)
+    constructor(context: Context) : this(context.noBackupFilesDir, context)
 
     private val storageFile: File
         get() = File(storageDir, PROFILES_FILE)
@@ -36,6 +41,56 @@ class InstalledIrProfileRepository(
     @Synchronized
     private fun loadFromDisk() {
         memoryCache.clear()
+
+        // 1. Try Room Database load if context is available
+        if (context != null) {
+            try {
+                runBlocking {
+                    val db = ElysiumUserDatabase.getInstance(context)
+                    val profileEntities = db.profileDao().getAllProfiles()
+                    for (pe in profileEntities) {
+                        val commandEntities = db.profileDao().getCommandsForProfile(pe.profileId)
+                        val commandsMap = mutableMapOf<IrAction, IrCommandBinding>()
+                        for (ce in commandEntities) {
+                            val action = try { IrAction.valueOf(ce.actionKey) } catch (e: Exception) { null }
+                            if (action != null) {
+                                commandsMap[action] = IrCommandBinding(
+                                    signalId = ce.signalId,
+                                    physicalFingerprint = ce.physicalSha256,
+                                    sourceId = ce.sourceRevisionId,
+                                    action = action
+                                )
+                            }
+                        }
+
+                        val status = try { VerificationStatus.valueOf(pe.verificationStatus) } catch (e: Exception) { VerificationStatus.PARTIALLY_VERIFIED }
+                        val profile = InstalledIrProfile(
+                            id = pe.profileId,
+                            displayName = pe.displayName,
+                            brand = pe.brandId,
+                            deviceType = pe.deviceTypeId,
+                            model = pe.deviceModelId,
+                            remoteModel = pe.remoteId,
+                            codeSetId = pe.codeSetId,
+                            sourceRevision = pe.catalogVersion,
+                            commands = commandsMap,
+                            verifiedActions = setOf(IrAction.VOLUME_UP),
+                            verificationStatus = status,
+                            createdAtEpochMs = pe.createdAtEpochMs
+                        )
+                        memoryCache[profile.id] = profile
+                    }
+                }
+                if (memoryCache.isNotEmpty()) {
+                    Log.d(TAG, "Loaded ${memoryCache.size} installed IR profiles from Room Database")
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed loading profiles from Room DB, trying JSON fallback: ${e.message}")
+            }
+        }
+
+        // 2. Fallback to JSON file read if Room is empty or context null
         val file = storageFile
         if (!file.exists() || file.length() == 0L) return
 
@@ -47,7 +102,7 @@ class InstalledIrProfileRepository(
                 val profile = deserializeProfile(obj)
                 memoryCache[profile.id] = profile
             }
-            Log.d(TAG, "Loaded ${memoryCache.size} installed IR profiles from disk (${file.absolutePath})")
+            Log.d(TAG, "Loaded ${memoryCache.size} installed IR profiles from JSON disk cache (${file.absolutePath})")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load installed IR profiles from disk: ${e.message}", e)
         }
@@ -55,6 +110,7 @@ class InstalledIrProfileRepository(
 
     @Synchronized
     private fun saveToDisk() {
+        // Save to JSON disk cache
         try {
             val jsonArray = JSONArray()
             for (profile in memoryCache.values) {
@@ -66,9 +122,55 @@ class InstalledIrProfileRepository(
                 tmpFile.copyTo(storageFile, overwrite = true)
                 tmpFile.delete()
             }
-            Log.d(TAG, "Saved ${memoryCache.size} installed IR profiles to disk")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save installed IR profiles: ${e.message}", e)
+            Log.e(TAG, "Failed to save JSON profile backup: ${e.message}", e)
+        }
+
+        // Save to Room DB if context available
+        if (context != null) {
+            try {
+                runBlocking {
+                    val db = ElysiumUserDatabase.getInstance(context)
+                    for (profile in memoryCache.values) {
+                        val profileEntity = InstalledIrProfileEntity(
+                            profileId = profile.id,
+                            displayName = profile.displayName,
+                            brandId = profile.brand,
+                            deviceTypeId = profile.deviceType,
+                            deviceModelId = profile.model,
+                            remoteId = profile.remoteModel,
+                            codeSetId = profile.codeSetId,
+                            catalogVersion = profile.sourceRevision,
+                            catalogCanonicalHash = "8e75385dfc41e2a06944eb3a9397edea2db37f59016cdf1cc66cebeaf08dc936",
+                            verificationStatus = profile.verificationStatus.name,
+                            createdAtEpochMs = profile.createdAtEpochMs,
+                            updatedAtEpochMs = System.currentTimeMillis(),
+                            lastSuccessfulUseEpochMs = System.currentTimeMillis(),
+                            needsRevalidation = false,
+                            isEnabled = true
+                        )
+                        val commandEntities = profile.commands.map { (action, binding) ->
+                            InstalledIrCommandEntity(
+                                profileId = profile.id,
+                                actionKey = action.name,
+                                signalId = binding.signalId,
+                                codeSetId = profile.codeSetId,
+                                physicalSha256 = binding.physicalFingerprint,
+                                sourceRevisionId = binding.sourceId,
+                                verificationStatus = profile.verificationStatus.name,
+                                successCount = 1,
+                                failureCount = 0,
+                                lastSuccessEpochMs = System.currentTimeMillis(),
+                                lastFailureEpochMs = 0L
+                            )
+                        }
+                        db.profileDao().saveProfileWithCommands(profileEntity, commandEntities)
+                    }
+                }
+                Log.d(TAG, "Persisted ${memoryCache.size} profiles to Room Database")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed persisting profiles to Room: ${e.message}", e)
+            }
         }
     }
 
@@ -77,8 +179,96 @@ class InstalledIrProfileRepository(
         saveToDisk()
     }
 
+    suspend fun saveProfileSuspend(profile: InstalledIrProfile) {
+        memoryCache[profile.id] = profile
+        if (context != null) {
+            try {
+                val db = ElysiumUserDatabase.getInstance(context)
+                val profileEntity = InstalledIrProfileEntity(
+                    profileId = profile.id,
+                    displayName = profile.displayName,
+                    brandId = profile.brand,
+                    deviceTypeId = profile.deviceType,
+                    deviceModelId = profile.model,
+                    remoteId = profile.remoteModel,
+                    codeSetId = profile.codeSetId,
+                    catalogVersion = profile.sourceRevision,
+                    catalogCanonicalHash = "8e75385dfc41e2a06944eb3a9397edea2db37f59016cdf1cc66cebeaf08dc936",
+                    verificationStatus = profile.verificationStatus.name,
+                    createdAtEpochMs = profile.createdAtEpochMs,
+                    updatedAtEpochMs = System.currentTimeMillis(),
+                    lastSuccessfulUseEpochMs = System.currentTimeMillis(),
+                    needsRevalidation = false,
+                    isEnabled = true
+                )
+                val commandEntities = profile.commands.map { (action, binding) ->
+                    InstalledIrCommandEntity(
+                        profileId = profile.id,
+                        actionKey = action.name,
+                        signalId = binding.signalId,
+                        codeSetId = profile.codeSetId,
+                        physicalSha256 = binding.physicalFingerprint,
+                        sourceRevisionId = binding.sourceId,
+                        verificationStatus = profile.verificationStatus.name,
+                        successCount = 1,
+                        failureCount = 0,
+                        lastSuccessEpochMs = System.currentTimeMillis(),
+                        lastFailureEpochMs = 0L
+                    )
+                }
+                db.profileDao().saveProfileWithCommands(profileEntity, commandEntities)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed persisting profile ${profile.id} to Room: ${e.message}", e)
+            }
+        }
+        saveToDisk()
+    }
+
     fun getProfile(id: String): InstalledIrProfile? {
         return memoryCache[id]
+    }
+
+    suspend fun getProfileSuspend(id: String): InstalledIrProfile? {
+        memoryCache[id]?.let { return it }
+        if (context != null) {
+            try {
+                val db = ElysiumUserDatabase.getInstance(context)
+                val pe = db.profileDao().getProfileById(id) ?: return null
+                val commandEntities = db.profileDao().getCommandsForProfile(id)
+                val commandsMap = mutableMapOf<IrAction, IrCommandBinding>()
+                for (ce in commandEntities) {
+                    val action = try { IrAction.valueOf(ce.actionKey) } catch (e: Exception) { null }
+                    if (action != null) {
+                        commandsMap[action] = IrCommandBinding(
+                            signalId = ce.signalId,
+                            physicalFingerprint = ce.physicalSha256,
+                            sourceId = ce.sourceRevisionId,
+                            action = action
+                        )
+                    }
+                }
+                val status = try { VerificationStatus.valueOf(pe.verificationStatus) } catch (e: Exception) { VerificationStatus.PARTIALLY_VERIFIED }
+                val profile = InstalledIrProfile(
+                    id = pe.profileId,
+                    displayName = pe.displayName,
+                    brand = pe.brandId,
+                    deviceType = pe.deviceTypeId,
+                    model = pe.deviceModelId,
+                    remoteModel = pe.remoteId,
+                    codeSetId = pe.codeSetId,
+                    sourceRevision = pe.catalogVersion,
+                    commands = commandsMap,
+                    verifiedActions = setOf(IrAction.VOLUME_UP),
+                    verificationStatus = status,
+                    createdAtEpochMs = pe.createdAtEpochMs
+                )
+                memoryCache[profile.id] = profile
+                return profile
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed loading profile $id from Room: ${e.message}")
+            }
+        }
+        return null
     }
 
     fun getAllProfiles(): List<InstalledIrProfile> {
@@ -87,7 +277,18 @@ class InstalledIrProfileRepository(
 
     fun deleteProfile(id: String): Boolean {
         val removed = memoryCache.remove(id) != null
-        if (removed) saveToDisk()
+        if (removed) {
+            saveToDisk()
+            if (context != null) {
+                try {
+                    runBlocking {
+                        ElysiumUserDatabase.getInstance(context).profileDao().deleteProfileWithCommands(id)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed deleting profile $id from Room: ${e.message}")
+                }
+            }
+        }
         return removed
     }
 
@@ -132,7 +333,7 @@ class InstalledIrProfileRepository(
         val model = obj.optString("model").ifBlank { null }
         val remoteModel = obj.optString("remoteModel").ifBlank { null }
         val codeSetId = obj.getString("codeSetId")
-        val sourceRevision = obj.optString("sourceRevision", "v0.3.0")
+        val sourceRevision = obj.optString("sourceRevision", "v0.4.0")
         val verificationStatus = try {
             VerificationStatus.valueOf(obj.optString("verificationStatus", "PARTIALLY_VERIFIED"))
         } catch (e: Exception) {

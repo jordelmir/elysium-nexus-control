@@ -95,6 +95,7 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 fun HubScreen(
     onCategorySelected: (DeviceCategory) -> Unit,
     onTvControlsSelected: () -> Unit,
+    onInstalledProfilesSelected: () -> Unit = {},
     onMacSelected: () -> Unit,
     onUsbCSelected: () -> Unit = {},
     onUniversalRemoteSelected: () -> Unit = {},
@@ -477,6 +478,65 @@ fun HubScreen(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = ElysiumColors.NeonOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === MIS CONTROLES (INSTALLED PROFILES) ================
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onInstalledProfilesSelected() },
+                accent = ElysiumColors.NeonGreen,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonGreen.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.LiveTv,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonGreen,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Mis Controles",
+                            style = TextStyle(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            ),
+                            color = ElysiumColors.OnSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Ver tus controles IR guardados y configurados",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonGreen,
                         modifier = Modifier.size(28.dp)
                     )
                 }

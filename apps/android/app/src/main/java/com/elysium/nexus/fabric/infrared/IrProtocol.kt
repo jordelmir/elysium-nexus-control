@@ -77,46 +77,52 @@ enum class IrProtocol(
          * Exhaustive encoder dispatching without silent fallback to NEC.
          * If a protocol is unsupported or parameters are invalid, returns explicit [EncodeResult].
          */
-        fun encode(signal: IrSignal): EncodeResult = when (signal) {
-            is IrSignal.Raw -> {
-                try {
-                    val waveform = IrWaveform(
-                        carrierHz = if (signal.carrierHz in 30_000..60_000) signal.carrierHz else DEFAULT_CARRIER_HZ,
-                        pattern = signal.patternUs
-                    )
-                    EncodeResult.Success(waveform)
-                } catch (e: Throwable) {
-                    EncodeResult.InvalidParameters("Raw waveform invalid: ${e.message}")
-                }
-            }
-            is IrSignal.Encoded -> {
-                try {
-                    when (signal.protocol) {
-                        Nec -> EncodeResult.Success(
-                            IrWaveform.encodeNec(signal.address, signal.command)
-                        )
-                        NecExtended -> EncodeResult.Success(
-                            IrWaveform.encodeNecExtended(signal.address, signal.command)
-                        )
-                        Samsung -> EncodeResult.Success(
-                            IrWaveform.encodeSamsung(signal.address, signal.command)
-                        )
-                        SonySirc -> EncodeResult.Success(
-                            IrWaveform.encodeSonySirc(signal.address, signal.command)
-                        )
-                        Rc5 -> EncodeResult.Success(
-                            IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle)
-                        )
-                        Rc6 -> EncodeResult.Success(
-                            IrWaveform.encodeRc6(signal.address, signal.command, signal.toggle)
-                        )
-                        Kaseikyo -> EncodeResult.Success(
-                            IrWaveform.encodeKaseikyo(signal.address, signal.command)
-                        )
-                        Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
+        fun encode(signal: IrSignal): EncodeResult {
+            return when (signal) {
+                is IrSignal.Raw -> {
+                    if (signal.carrierHz !in 30_000..60_000) {
+                        EncodeResult.InvalidParameters("Carrier frequency ${signal.carrierHz} Hz is out of valid IR range [30000, 60000] Hz")
+                    } else {
+                        try {
+                            val waveform = IrWaveform(
+                                carrierHz = signal.carrierHz,
+                                pattern = signal.patternUs
+                            )
+                            EncodeResult.Success(waveform)
+                        } catch (e: Exception) {
+                            EncodeResult.InvalidParameters("Raw waveform invalid: ${e.message}")
+                        }
                     }
-                } catch (e: Throwable) {
-                    EncodeResult.InvalidParameters("Encoder exception for ${signal.protocol}: ${e.message}")
+                }
+                is IrSignal.Encoded -> {
+                    try {
+                        when (signal.protocol) {
+                            Nec -> EncodeResult.Success(
+                                IrWaveform.encodeNec(signal.address, signal.command)
+                            )
+                            NecExtended -> EncodeResult.Success(
+                                IrWaveform.encodeNecExtended(signal.address, signal.command)
+                            )
+                            Samsung -> EncodeResult.Success(
+                                IrWaveform.encodeSamsung(signal.address, signal.command)
+                            )
+                            SonySirc -> EncodeResult.Success(
+                                IrWaveform.encodeSonySirc(signal.address, signal.command)
+                            )
+                            Rc5 -> EncodeResult.Success(
+                                IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle)
+                            )
+                            Rc6 -> EncodeResult.Success(
+                                IrWaveform.encodeRc6(signal.address, signal.command, signal.toggle)
+                            )
+                            Kaseikyo -> EncodeResult.Success(
+                                IrWaveform.encodeKaseikyo(signal.address, signal.command)
+                            )
+                            Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
+                        }
+                    } catch (e: Exception) {
+                        EncodeResult.InvalidParameters("Encoder exception for ${signal.protocol}: ${e.message}")
+                    }
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.elysium.nexus.fabric.infrared.database
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
+import com.elysium.nexus.core.device.CatalogCommandBinding
 import com.elysium.nexus.core.device.CodeProvenance
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
@@ -20,12 +21,19 @@ import java.util.zip.Inflater
 private const val TAG = "ElysiumNexus.IrCatalogV4"
 private const val MAX_PATTERN_SLICES = 4096
 
+private data class CodeSetCommandsResult(
+    val commands: Map<IrAction, IrSignal>,
+    val commandSignalIds: Map<IrAction, String>,
+    val commandBindings: List<CatalogCommandBinding>
+)
+
 /**
  * §2 Canonical Schema v4 SQLite IR Catalog Repository.
  *
  * Provides authoritative query access to Schema v4 [code_sets], [command_bindings],
  * and [signals] tables.
- * Guaranteed: A single [IrCodeSet] contains ALL command bindings belonging to that remote.
+ * Guaranteed: A single [IrCodeSet] contains ALL command bindings belonging to that remote
+ * with exact database [signalId]s. Zero manufactured signal IDs.
  */
 class IrCatalogRepository(
     private val context: Context
@@ -35,7 +43,6 @@ class IrCatalogRepository(
         val manager = IrCatalogDatabaseManager.getInstance(context)
         val dbFile = manager.databaseFile
         if (!dbFile.exists() || dbFile.length() == 0L) {
-            // Install database atomically
             val assetManager = context.assets
             val targetDir = manager.targetDirectory
             val tmpFile = File(targetDir, "ir_catalog.db.tmp")
@@ -65,7 +72,7 @@ class IrCatalogRepository(
 
         val query = """
             SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
-                   s.id AS source_name, s.license_id
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
             FROM code_sets cs
             JOIN remotes r ON cs.remote_id = r.id
             JOIN brands b ON r.brand_id = b.id
@@ -76,6 +83,7 @@ class IrCatalogRepository(
             JOIN actions a ON cb.action_id = a.id
             WHERE (b.display_name LIKE ? OR b.normalized_name LIKE ?)
               AND a.canonical_key = ?
+              AND (dt.canonical_name = ? OR ? = '')
               AND s.production_approved = 1
             GROUP BY cs.id
             ORDER BY cs.id
@@ -83,7 +91,8 @@ class IrCatalogRepository(
         """.trimIndent()
 
         val brandArg = "%${brand.trim()}%"
-        database.rawQuery(query, arrayOf(brandArg, brandArg, actionKey)).use { cursor ->
+        val devTypeArg = deviceType.trim()
+        database.rawQuery(query, arrayOf(brandArg, brandArg, actionKey, devTypeArg, devTypeArg)).use { cursor ->
             while (cursor.moveToNext()) {
                 val csId = cursor.getString(0)
                 val brandName = cursor.getString(1) ?: brand
@@ -91,16 +100,17 @@ class IrCatalogRepository(
                 val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
                 val licenseSpdx = cursor.getString(4) ?: "MIT"
 
-                // Fetch ALL command bindings for this complete Code Set
-                val allBindings = getCommandsForCodeSetInternal(database, csId)
-                if (allBindings.isNotEmpty()) {
+                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                if (codeSetResult.commands.isNotEmpty()) {
                     results.add(
                         IrCodeSet(
                             id = csId,
                             brand = brandName,
                             modelPatterns = setOf(remoteModel),
                             remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
-                            commands = allBindings,
+                            commands = codeSetResult.commands,
+                            commandSignalIds = codeSetResult.commandSignalIds,
+                            commandBindings = codeSetResult.commandBindings,
                             provenance = CodeProvenance(
                                 sourceName = sourceName,
                                 sourceUrl = "",
@@ -114,20 +124,23 @@ class IrCatalogRepository(
         }
 
         database.close()
-        Log.d(TAG, "getCandidatesForBrand(brand=$brand, action=$actionKey): ${results.size} multi-command Code Sets from Schema v4")
+        Log.d(TAG, "getCandidatesForBrand(brand=$brand, deviceType=$deviceType, action=$actionKey): ${results.size} multi-command Code Sets from Schema v4")
         results
     }
 
     private fun getCommandsForCodeSetInternal(
         database: SQLiteDatabase,
         codeSetId: String
-    ): Map<IrAction, IrSignal> {
+    ): CodeSetCommandsResult {
         val commands = mutableMapOf<IrAction, IrSignal>()
+        val commandSignalIds = mutableMapOf<IrAction, String>()
+        val commandBindings = mutableListOf<CatalogCommandBinding>()
 
         val query = """
             SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
-                   sig.pattern_blob
+                   sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
+                   sig.physical_sha256
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
@@ -138,25 +151,32 @@ class IrCatalogRepository(
             while (cursor.moveToNext()) {
                 val actionStr = cursor.getString(0)
                 val encodingType = cursor.getString(1)
-                val codecId = cursor.getString(2) ?: "NEC"
+                val codecId = cursor.getString(2)
                 val carrierHz = cursor.getInt(3)
                 val address = cursor.getInt(4)
                 val subDevice = cursor.getInt(5)
                 val command = cursor.getInt(6)
                 val blob = cursor.getBlob(7)
+                val signalId = cursor.getString(8)
+                val bindingId = cursor.getString(9)
+                val physicalSha256 = cursor.getString(10) ?: signalId
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
                 val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
-                    val codecSpec = ProtocolCodecRegistry.getCodec(codecId)
-                    val protocol = codecSpec?.protocol ?: IrProtocol.Nec
-                    IrSignal.Encoded(
-                        carrierHz = carrierHz,
-                        protocol = protocol,
-                        address = address,
-                        subDevice = if (subDevice >= 0) subDevice else null,
-                        command = command
-                    )
+                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
+                    if (codecSpec == null) {
+                        Log.w(TAG, "Unsupported codec '$codecId' for signalId=$signalId in codeSetId=$codeSetId. Skipping without NEC fallback.")
+                        null
+                    } else {
+                        IrSignal.Encoded(
+                            carrierHz = carrierHz,
+                            protocol = codecSpec.protocol,
+                            address = address,
+                            subDevice = if (subDevice >= 0) subDevice else null,
+                            command = command
+                        )
+                    }
                 } else if (encodingType == "RAW" && blob != null) {
                     val pattern = decompressPattern(blob)
                     if (pattern != null && pattern.all { it > 0 }) {
@@ -166,11 +186,22 @@ class IrCatalogRepository(
 
                 if (signal != null) {
                     commands[irAction] = signal
+                    commandSignalIds[irAction] = signalId
+                    commandBindings.add(
+                        CatalogCommandBinding(
+                            bindingId = bindingId,
+                            codeSetId = codeSetId,
+                            action = irAction,
+                            signalId = signalId,
+                            physicalSha256 = physicalSha256,
+                            signal = signal
+                        )
+                    )
                 }
             }
         }
 
-        return commands
+        return CodeSetCommandsResult(commands, commandSignalIds, commandBindings)
     }
 
     override suspend fun getSignal(signalId: String): IrSignal? = withContext(Dispatchers.IO) {
@@ -187,7 +218,7 @@ class IrCatalogRepository(
         database.rawQuery(query, arrayOf(signalId)).use { cursor ->
             if (cursor.moveToFirst()) {
                 val encodingType = cursor.getString(0)
-                val codecId = cursor.getString(1) ?: "NEC"
+                val codecId = cursor.getString(1)
                 val carrierHz = cursor.getInt(2)
                 val address = cursor.getInt(3)
                 val subDevice = cursor.getInt(4)
@@ -195,15 +226,16 @@ class IrCatalogRepository(
                 val blob = cursor.getBlob(6)
 
                 if (encodingType == "PARAMETRIC") {
-                    val codecSpec = ProtocolCodecRegistry.getCodec(codecId)
-                    val protocol = codecSpec?.protocol ?: IrProtocol.Nec
-                    resultSignal = IrSignal.Encoded(
-                        carrierHz = carrierHz,
-                        protocol = protocol,
-                        address = address,
-                        subDevice = if (subDevice >= 0) subDevice else null,
-                        command = command
-                    )
+                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
+                    if (codecSpec != null) {
+                        resultSignal = IrSignal.Encoded(
+                            carrierHz = carrierHz,
+                            protocol = codecSpec.protocol,
+                            address = address,
+                            subDevice = if (subDevice >= 0) subDevice else null,
+                            command = command
+                        )
+                    }
                 } else if (encodingType == "RAW" && blob != null) {
                     val pattern = decompressPattern(blob)
                     if (pattern != null && pattern.all { it > 0 }) {

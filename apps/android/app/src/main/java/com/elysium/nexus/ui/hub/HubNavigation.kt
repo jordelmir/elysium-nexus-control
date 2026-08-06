@@ -56,10 +56,14 @@ sealed class HubDestination {
     /** The IR connection flow. */
     data class Connect(val template: DeviceTemplate) : HubDestination()
 
+    /** Installed profiles ("Mis controles") screen. */
+    object InstalledProfiles : HubDestination()
+
     /** The control surface (button grid). */
     data class Control(
         val template: DeviceTemplate,
-        val profile: com.elysium.nexus.core.device.InstalledIrProfile? = null
+        val profile: com.elysium.nexus.core.device.InstalledIrProfile? = null,
+        val profileId: String? = profile?.id
     ) : HubDestination()
 
     /** The Mac/PC discovery screen. */

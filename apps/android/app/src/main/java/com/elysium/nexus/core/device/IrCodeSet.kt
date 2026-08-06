@@ -27,7 +27,20 @@ data class CodeProvenance(
 )
 
 /**
- * Canonical IR CodeSet definition mapping semantic [IrAction]s to physical [IrSignal]s.
+ * Authoritative command binding linking action key to exact physical signal ID and signal payload.
+ */
+data class CatalogCommandBinding(
+    val bindingId: String,
+    val codeSetId: String,
+    val action: IrAction,
+    val signalId: String,
+    val physicalSha256: String,
+    val signal: IrSignal,
+    val sourceRevisionId: String = "v0.4.0"
+)
+
+/**
+ * Canonical IR CodeSet definition mapping semantic [IrAction]s to physical [IrSignal]s and exact [signalId]s.
  */
 data class IrCodeSet(
     val id: String,
@@ -35,6 +48,8 @@ data class IrCodeSet(
     val modelPatterns: Set<String>,
     val remoteModels: Set<String>,
     val commands: Map<IrAction, IrSignal>,
+    val commandSignalIds: Map<IrAction, String> = emptyMap(),
+    val commandBindings: List<CatalogCommandBinding> = emptyList(),
     val provenance: CodeProvenance,
     val verification: VerificationStatus = VerificationStatus.UNVERIFIED
 )

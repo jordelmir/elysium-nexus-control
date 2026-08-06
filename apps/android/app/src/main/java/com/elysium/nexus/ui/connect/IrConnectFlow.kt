@@ -77,6 +77,8 @@ sealed interface ProbeUiState {
     data object LoadingCatalog : ProbeUiState
     data class Ready(val probeEngine: IrProbeEngine) : ProbeUiState
     data object Exhausted : ProbeUiState
+    /** No candidates found in the catalog for this brand/deviceType. */
+    data object NoCompatibleCandidates : ProbeUiState
     data class Error(val message: String) : ProbeUiState
 }
 
@@ -110,42 +112,16 @@ fun IrConnectFlow(
 
         if (sqliteCandidates.isNotEmpty()) {
             val engine = IrProbeEngine(sqliteCandidates)
-            probeUiState = ProbeUiState.Ready(engine)
-            Log.d(TAG, "Loaded ${engine.totalCandidates} candidates directly from SQLite ir_catalog.db for brand=${template.brand}")
+            if (engine.totalCandidates > 0) {
+                probeUiState = ProbeUiState.Ready(engine)
+                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates directly from SQLite ir_catalog.db for brand=${template.brand}")
+            } else {
+                probeUiState = ProbeUiState.NoCompatibleCandidates
+                Log.w(TAG, "SQLite returned ${sqliteCandidates.size} code sets but none had VOLUME_UP after dedup for brand=${template.brand}")
+            }
         } else {
-            // Fallback for custom / non-catalog brands: build regional candidate set
-            val fallbackCandidates = listOf(
-                IrCodeSet(
-                    id = "cand-fallback-nec-0x07",
-                    brand = template.brand,
-                    modelPatterns = setOf(template.model),
-                    remoteModels = emptySet(),
-                    commands = mapOf(
-                        IrAction.VOLUME_UP to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x07),
-                        IrAction.VOLUME_DOWN to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x06),
-                        IrAction.MUTE to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x08),
-                        IrAction.POWER_TOGGLE to IrSignal.Encoded(38000, IrProtocol.Nec, 0x00, null, 0x02)
-                    ),
-                    provenance = CodeProvenance("Elysium Regional Fallback", "", "MIT"),
-                    verification = VerificationStatus.UNVERIFIED
-                ),
-                IrCodeSet(
-                    id = "cand-fallback-samsung-0x07",
-                    brand = template.brand,
-                    modelPatterns = setOf(template.model),
-                    remoteModels = emptySet(),
-                    commands = mapOf(
-                        IrAction.VOLUME_UP to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x07),
-                        IrAction.VOLUME_DOWN to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x0B),
-                        IrAction.MUTE to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x0F),
-                        IrAction.POWER_TOGGLE to IrSignal.Encoded(38000, IrProtocol.Samsung, 0x07, null, 0x02)
-                    ),
-                    provenance = CodeProvenance("Elysium Regional Fallback", "", "MIT"),
-                    verification = VerificationStatus.UNVERIFIED
-                )
-            )
-            val engine = IrProbeEngine(fallbackCandidates)
-            probeUiState = ProbeUiState.Ready(engine)
+            probeUiState = ProbeUiState.NoCompatibleCandidates
+            Log.w(TAG, "No SQLite candidates found for brand=${template.brand}. Zero fallbacks — no invented codes.")
         }
     }
 
@@ -170,17 +146,31 @@ fun IrConnectFlow(
         }
     }
 
-    fun buildAndPersistInstalledProfile(winnerCandidate: IrCodeSet): InstalledIrProfile {
+    fun buildAndPersistInstalledProfile(winnerCandidate: IrCodeSet): InstalledIrProfile? {
         val bindings = mutableMapOf<IrAction, IrCommandBinding>()
         
         for ((action, signal) in winnerCandidate.commands) {
+            // Use ONLY real signalIds from the catalog. Never fabricate.
+            val realSignalId = winnerCandidate.commandSignalIds[action]
+                ?: winnerCandidate.commandBindings.firstOrNull { it.action == action }?.signalId
+
+            if (realSignalId == null) {
+                Log.w(TAG, "Skipping action $action for codeSet=${winnerCandidate.id}: no real signalId from catalog")
+                continue
+            }
+
             val fp = IrProbeEngine.fingerprintSignal(signal)
             bindings[action] = IrCommandBinding(
-                signalId = "${winnerCandidate.id}_${action.name}",
+                signalId = realSignalId,
                 physicalFingerprint = fp,
                 sourceId = winnerCandidate.provenance.sourceName,
                 action = action
             )
+        }
+
+        if (bindings.isEmpty()) {
+            Log.e(TAG, "CRITICAL: Winner candidate ${winnerCandidate.id} has ZERO real bindings. Refusing to save empty profile.")
+            return null
         }
 
         val profile = InstalledIrProfile(
@@ -190,7 +180,7 @@ fun IrConnectFlow(
             model = winnerCandidate.modelPatterns.firstOrNull(),
             remoteModel = winnerCandidate.remoteModels.firstOrNull(),
             codeSetId = winnerCandidate.id,
-            sourceRevision = "v0.3.0",
+            sourceRevision = "v0.5.0",
             commands = bindings,
             verifiedActions = setOf(IrAction.VOLUME_UP),
             verificationStatus = VerificationStatus.PARTIALLY_VERIFIED
@@ -198,7 +188,7 @@ fun IrConnectFlow(
 
         val profileRepo = InstalledIrProfileRepository(context)
         profileRepo.saveProfile(profile)
-        Log.d(TAG, "Successfully installed and saved winner profile ID=${profile.id} with ${bindings.size} bindings to disk")
+        Log.d(TAG, "Installed winner profile ID=${profile.id} with ${bindings.size} REAL bindings (codeSetId=${winnerCandidate.id})")
         return profile
     }
 
@@ -341,7 +331,12 @@ fun IrConnectFlow(
                                         val winner = engine.currentCandidate()
                                         if (winner != null) {
                                             val profile = buildAndPersistInstalledProfile(winner)
-                                            onProfileInstalled(profile)
+                                            if (profile != null) {
+                                                onProfileInstalled(profile)
+                                            } else {
+                                                Log.e(TAG, "Failed to build profile: zero real bindings for winner ${winner.id}")
+                                                onTryOther()
+                                            }
                                         } else {
                                             onTryOther()
                                         }
@@ -352,7 +347,63 @@ fun IrConnectFlow(
                         }
                     }
                     is ProbeUiState.Exhausted -> {
-                        Text("No se encontraron más candidatos para esta marca.", color = ElysiumColors.NeonOrange)
+                        NeonCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            accent = ElysiumColors.NeonOrange,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = "Candidatos agotados",
+                                    style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                                    color = ElysiumColors.OnSurface
+                                )
+                                Text(
+                                    text = "Se probaron todos los candidatos disponibles. Puedes volver y buscar otro modelo o marca.",
+                                    style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+                                    color = ElysiumColors.OnSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    is ProbeUiState.NoCompatibleCandidates -> {
+                        NeonCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            accent = ElysiumColors.NeonOrange,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = "Sin candidatos compatibles",
+                                    style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                                    color = ElysiumColors.OnSurface
+                                )
+                                Text(
+                                    text = "El catálogo no contiene códigos IR para ${template.brand} ${template.model}. " +
+                                        "Opciones disponibles:",
+                                    style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+                                    color = ElysiumColors.OnSurfaceVariant
+                                )
+                                NeonChip(
+                                    label = "Buscar por modelo exacto del TV",
+                                    onClick = onTryOther,
+                                    accent = ElysiumColors.NeonCyan,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                NeonChip(
+                                    label = "Buscar por modelo del control",
+                                    onClick = onTryOther,
+                                    accent = ElysiumColors.NeonCyan,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                NeonChip(
+                                    label = "Volver y elegir otra marca",
+                                    onClick = onBack,
+                                    accent = ElysiumColors.NeonPurple,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
                     }
                     is ProbeUiState.Error -> {
                         Text("Error de catálogo: ${uiState.message}", color = Color.Red)

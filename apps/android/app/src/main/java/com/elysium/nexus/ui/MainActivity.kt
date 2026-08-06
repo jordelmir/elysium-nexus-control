@@ -378,6 +378,9 @@ class MainActivity : ComponentActivity() {
                         onTvControlsSelected = {
                             navStack.value = navStack.value + HubDestination.TvControls
                         },
+                        onInstalledProfilesSelected = {
+                            navStack.value = navStack.value + HubDestination.InstalledProfiles
+                        },
                         onMacSelected = {
                             // USB-C Direct transport is top priority when connecting to Mac/PC
                             navStack.value = navStack.value + HubDestination.UsbC
@@ -519,12 +522,23 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                    is HubDestination.InstalledProfiles -> com.elysium.nexus.ui.hub.InstalledProfilesScreen(
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onProfileSelected = { template, profile ->
+                            navStack.value = navStack.value.dropLast(1) + HubDestination.Control(
+                                template = template,
+                                profile = profile,
+                                profileId = profile.id
+                            )
+                        }
+                    )
                     is HubDestination.Control -> {
                         val ir = irTransmitter
                         if (ir != null) {
                             TvControlScreen(
                                 template = current.template,
                                 profile = current.profile,
+                                profileId = current.profileId ?: current.profile?.id,
                                 onBack = { navStack.value = navStack.value.dropLast(1) },
                                 irTransmitter = ir,
                                 hasEmitter = ir.hasEmitter()
