@@ -14,6 +14,20 @@ if [ ! -f "$LOCKFILE" ]; then
     exit 1
 fi
 
+if [ "$MODE" = "--refresh-locks" ]; then
+    echo "==> Refreshing source locks from remote HEAD repositories..."
+    python3 "$ROOT/tools/ir-data/lock_sources.py"
+    echo "==> Source locks refreshed in $LOCKFILE"
+    exit 0
+fi
+
+if [ "$MODE" = "--verify-only" ]; then
+    echo "==> Verifying source locks only..."
+    python3 "$ROOT/tools/ir-data/verify_source_locks.py"
+    echo "==> Source locks verification completed."
+    exit 0
+fi
+
 echo "==> Bootstrapping IR Data Sources ($MODE) into $CACHE..."
 
 checkout_source() {
@@ -28,7 +42,7 @@ checkout_source() {
     fi
 
     echo "Checking out locked commit $commit for $name..."
-    git -C "$target_dir" fetch --quiet origin "$commit" || true
+    git -C "$target_dir" fetch --quiet origin "$commit"
     git -C "$target_dir" checkout --detach "$commit" --quiet
 
     local actual_commit
