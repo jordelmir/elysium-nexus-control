@@ -10,6 +10,9 @@
 agp = "8.7.3"
 kotlin = "2.0.21"
 junit = "4.13.2"
+androidx-test = "1.6.1"
+androidx-test-ext-junit = "1.2.1"
+androidx-test-runner = "1.6.2"
 
 # Coroutines — earned in Phase 0.4 because the engine is the first
 # piece of code that needs StateFlow + CoroutineScope. We pin 1.10.1
@@ -74,6 +77,9 @@ targetSdk = "34"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidx-test-runner" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext-junit" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "androidx-activity" }

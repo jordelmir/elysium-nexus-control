@@ -104,7 +104,7 @@ class InstalledIrProfileRepository(
                 for (profile in migrated) {
                     val pe = mapProfileToEntity(profile, setOf())
                     val ces = profile.commands.map { (action, binding) ->
-                        mapBindingToEntity(profile.id, action, binding, VerificationStatus.PARTIALLY_VERIFIED)
+                        mapBindingToEntity(profile.id, profile.codeSetId, action, binding, VerificationStatus.PARTIALLY_VERIFIED)
                     }
                     db.profileDao().saveProfileWithCommands(pe, ces)
                     memoryCache[profile.id] = profile
@@ -139,7 +139,7 @@ class InstalledIrProfileRepository(
                     val pe = mapProfileToEntity(profile, verifiedActions)
                     val ces = profile.commands.map { (action, binding) ->
                         val wasVerified = action in verifiedActions
-                        mapBindingToEntity(profile.id, action, binding, profile.verificationStatus, wasVerified)
+                        mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
                     }
                     db.profileDao().saveProfileWithCommands(pe, ces)
                     Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
@@ -169,7 +169,7 @@ class InstalledIrProfileRepository(
                 val pe = mapProfileToEntity(profile, verifiedActions)
                 val ces = profile.commands.map { (action, binding) ->
                     val wasVerified = action in verifiedActions
-                    mapBindingToEntity(profile.id, action, binding, profile.verificationStatus, wasVerified)
+                    mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
                 }
                 db.profileDao().saveProfileWithCommands(pe, ces)
                 Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
@@ -387,6 +387,7 @@ class InstalledIrProfileRepository(
 
     private fun mapBindingToEntity(
         profileId: String,
+        profileCodeSetId: String,
         action: IrAction,
         binding: IrCommandBinding,
         verificationStatus: VerificationStatus,
@@ -396,7 +397,7 @@ class InstalledIrProfileRepository(
             profileId = profileId,
             actionKey = action.name,
             signalId = binding.signalId,
-            codeSetId = binding.sourceId,
+            codeSetId = profileCodeSetId,
             physicalSha256 = binding.physicalFingerprint,
             sourceRevisionId = binding.sourceId,
             verificationStatus = verificationStatus.name,

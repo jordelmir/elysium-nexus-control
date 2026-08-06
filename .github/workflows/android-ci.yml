@@ -1,16 +1,14 @@
 name: Android CI
 
-# Phase 1.19 — the project's first CI workflow.
+# Phase 1.19+ — full green-build gates.
 #
 # `MASTER_ORDER.md` §44 calls for every change to be
 # measured: the test suite, the build, the lint. The
-# workflow runs the two green-build gates (test +
-# assemble) on every push and pull request. Lint is
-# NOT a gate yet (Bug #17: the Compose Compiler
-# 1.5.15 + Kotlin 2.0.21 detector stack is broken
-# with `MutableCollectionMutableStateDetector`); the
-# gate lands in Phase 2+ when the Compose Compiler
-# upgrade is complete.
+# workflow runs the three green-build gates (test +
+# assemble + lint) on every push and pull request,
+# and verifies the IR catalog integrity (Schema v4,
+# quick_check, foreign_key_check) so a bad asset can
+# never be shipped silently.
 #
 # The workflow uses a single job (`build`) on the
 # cheapest Linux runner. The Gradle build is cached
@@ -59,10 +57,39 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x apps/android/gradlew
 
+      - name: Verify IR catalog integrity (quick_check + manifest hash)
+        run: |
+          cd apps/android/app/src/main/assets/ir
+          python3 - <<'EOF'
+          import hashlib, json, sqlite3, os
+          db = "ir_catalog.db"
+          sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
+          manifest = json.load(open("ir_catalog.manifest.json"))
+          expected = manifest.get("databaseSha256")
+          status = "PASS" if expected is None or sha == expected else "FAIL"
+          print(f"catalog sha256   : {sha}")
+          print(f"manifest expected: {expected}")
+          print(f"hash check       : {status}")
+          con = sqlite3.connect(db)
+          quick = con.execute("PRAGMA quick_check").fetchone()[0]
+          fk = con.execute("PRAGMA foreign_key_check").fetchall()
+          print(f"quick_check      : {quick}")
+          print(f"foreign_key_check: {len(fk)} violations")
+          con.close()
+          ok = (quick == "ok") and (len(fk) == 0) and (status == "PASS")
+          if not ok:
+              raise SystemExit(f"catalog integrity failed: quick={quick} fk={len(fk)} hash={status}")
+          EOF
+
       - name: Run JVM unit tests
         run: |
           cd apps/android
           ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Lint (abort on error)
+        run: |
+          cd apps/android
+          ./gradlew :app:lintDebug --console=plain
 
       - name: Build debug APK
         run: |

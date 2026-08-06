@@ -216,10 +216,15 @@ fun IrConnectFlow(
                 ?: continue
 
             val fp = IrProbeEngine.fingerprintSignal(signal)
+            val sourceRevision = winnerCandidate.commandBindings
+                .firstOrNull { it.action == action }
+                ?.sourceRevisionId
+                ?: winnerCandidate.provenance.commitSha
+                ?: "catalog-legacy"
             bindings[action] = IrCommandBinding(
                 signalId = realSignalId,
                 physicalFingerprint = fp,
-                sourceId = winnerCandidate.provenance.sourceName,
+                sourceId = sourceRevision,
                 action = action
             )
         }
@@ -243,7 +248,9 @@ fun IrConnectFlow(
             model = winnerCandidate.modelPatterns.firstOrNull(),
             remoteModel = winnerCandidate.remoteModels.firstOrNull(),
             codeSetId = winnerCandidate.id,
-            sourceRevision = "v0.6.0",
+            sourceRevision = winnerCandidate.commandBindings.firstOrNull()?.sourceRevisionId
+                ?: winnerCandidate.provenance.commitSha
+                ?: "catalog-legacy",
             commands = bindings,
             verifiedActions = verifiedActions,
             verificationStatus = status

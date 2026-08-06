@@ -114,7 +114,10 @@ class IrCatalogRepository private constructor(
                 val licenseSpdx = cursor.getString(4) ?: "MIT"
 
                 val codeSetResult = getCommandsForCodeSetInternal(database, csId)
-                if (codeSetResult.commands.isNotEmpty()) {
+                // §7 A candidate is only a candidate for `action` if that
+                // exact action is decodeable from the catalog (zero "phantom"
+                // candidates whose VOLUME_UP codec could not be decoded).
+                if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
                     results.add(
                         IrCodeSet(
                             id = csId,
@@ -146,9 +149,27 @@ class IrCatalogRepository private constructor(
         val signal: IrSignal,
         val signalId: String,
         val bindingId: String,
+        val codeSetId: String,
         val physicalSha256: String,
-        val encodingType: String
+        val encodingType: String,
+        val sourcePriority: Int,
+        val sourceRevisionSha: String,
+        val verificationStatus: String
     )
+
+    /**
+     * §7 Determining selection rank for a binding, per the dictamen policy:
+     * VERIFIED_LAB > VERIFIED_COMMUNITY > raw exacto del modelo > paramétrico validado >
+     * mayor source_priority > orden estable por bindingId.
+     */
+    private fun verificationRank(codeSetStatus: String): Int = when {
+        codeSetStatus == "VERIFIED_LAB" -> 5
+        codeSetStatus == "VERIFIED_COMMUNITY" -> 4
+        codeSetStatus == "PARTIALLY_VERIFIED" -> 3
+        codeSetStatus == "STRUCTURALLY_VALID" || codeSetStatus == "PROTOCOL_VALIDATED" -> 2
+        codeSetStatus == "VERIFIED" -> 1
+        else -> 0
+    }
 
     private fun getCommandsForCodeSetInternal(
         database: SQLiteDatabase,
@@ -162,10 +183,13 @@ class IrCatalogRepository private constructor(
             SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
                    sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
-                   sig.physical_sha256
+                   sig.physical_sha256, cb.source_priority, sr.content_sha256 AS revision_sha,
+                   cs.verification_status
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
+            JOIN code_sets cs ON cb.code_set_id = cs.id
+            JOIN source_revisions sr ON cs.source_revision_id = sr.id
             WHERE cb.code_set_id = ?
         """.trimIndent()
 
@@ -182,6 +206,9 @@ class IrCatalogRepository private constructor(
                 val signalId = cursor.getString(8)
                 val bindingId = cursor.getString(9)
                 val physicalSha256 = cursor.getString(10) ?: signalId
+                val sourcePriority = cursor.getInt(11)
+                val revisionSha = cursor.getString(12) ?: "catalog-legacy"
+                val codeSetStatus = cursor.getString(13) ?: "UNVERIFIED"
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
@@ -207,7 +234,7 @@ class IrCatalogRepository private constructor(
                 } else null
 
                 if (signal != null) {
-                    val pending = PendingBinding(irAction, signal, signalId, bindingId, physicalSha256, encodingType)
+                    val pending = PendingBinding(irAction, signal, signalId, bindingId, codeSetId, physicalSha256, encodingType, sourcePriority, revisionSha, codeSetStatus)
                     allBindingsPerAction.getOrPut(irAction) { mutableListOf() }.add(pending)
                     allBindings.add(
                         CatalogCommandBinding(
@@ -216,21 +243,26 @@ class IrCatalogRepository private constructor(
                             action = irAction,
                             signalId = signalId,
                             physicalSha256 = physicalSha256,
-                            signal = signal
+                            signal = signal,
+                            sourceRevisionId = revisionSha
                         )
                     )
                 }
             }
         }
 
-        // §7 Deterministic selection: prefer PARAMETRIC over RAW, then by bindingId (stable)
+        // §7 Deterministic selection policy:
+        //   VERIFIED_LAB > VERIFIED_COMMUNITY > raw exacto del modelo > paramétrico validado >
+        //   mayor source_priority > orden estable por bindingId.
         val commands = mutableMapOf<IrAction, IrSignal>()
         val commandSignalIds = mutableMapOf<IrAction, String>()
         for ((action, bindings) in allBindingsPerAction) {
-            val selected = bindings.sortedWith(
-                compareBy<PendingBinding> { it.encodingType != "PARAMETRIC" }
-                    .thenBy { it.bindingId }
-            ).first()
+            val selected = bindings.maxWithOrNull(
+                compareBy<PendingBinding> { verificationRank(it.verificationStatus) }
+                    .thenBy { if (it.encodingType == "RAW") 1 else 0 }
+                    .thenByDescending { it.sourcePriority }
+                    .thenByDescending { it.bindingId }
+            ) ?: continue
             commands[action] = selected.signal
             commandSignalIds[action] = selected.signalId
         }

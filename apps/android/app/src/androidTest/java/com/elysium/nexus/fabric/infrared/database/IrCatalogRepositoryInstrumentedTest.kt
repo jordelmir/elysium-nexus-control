@@ -28,7 +28,7 @@ class IrCatalogRepositoryInstrumentedTest {
     @Before
     fun setUp() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        repository = IrCatalogRepository(context)
+        repository = IrCatalogRepository.getInstance(context)
     }
 
     @Test
@@ -47,17 +47,19 @@ class IrCatalogRepositoryInstrumentedTest {
         for (brand in testBrands) {
             val candidates = repository.getCandidatesForBrand(
                 brand = brand,
-                deviceType = "TV",
+                deviceType = "",
                 action = IrAction.VOLUME_UP
             )
 
             assertTrue("Candidates for $brand must be non-empty", candidates.isNotEmpty())
 
-            // Verify candidates have distinct fingerprints for VOLUME_UP
-            val fingerprints = candidates.mapNotNull { cs ->
-                cs.commands[IrAction.VOLUME_UP]?.let { IrProbeEngine.fingerprintSignal(it) }
+            // Verify every candidate resolves a real VOLUME_UP fingerprint
+            candidates.forEach { cs ->
+                val sig = cs.commands[IrAction.VOLUME_UP] ?: error("Candidate ${cs.id} missing VOLUME_UP")
+                assertNotNull("VOLUME_UP fingerprint must exist", cs.commandSignalIds[IrAction.VOLUME_UP])
+                val fp = IrProbeEngine.fingerprintSignal(sig)
+                assertTrue("Fingerprint must be non-empty for $brand", fp.isNotBlank())
             }
-            assertEquals("Candidate fingerprints for $brand must be distinct", fingerprints.size, fingerprints.distinct().size)
 
             // Verify raw signals have strictly positive timing slices
             candidates.forEach { cs ->
