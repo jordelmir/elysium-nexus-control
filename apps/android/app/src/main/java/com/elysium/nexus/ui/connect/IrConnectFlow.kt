@@ -145,6 +145,9 @@ fun IrConnectFlow(
 
     var probeUiState by remember { mutableStateOf<ProbeUiState>(ProbeUiState.LoadingCatalog) }
     var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
+    var currentAttempt by remember { mutableStateOf<ProbeAttempt?>(null) }
+    var currentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var verifiedActions by remember { mutableStateOf<Set<IrAction>>(emptySet()) }
 
     // §6 Pass targetModel for real ranking
     val targetModel = template.model
@@ -177,11 +180,28 @@ fun IrConnectFlow(
     val activeEngine = (probeUiState as? ProbeUiState.Ready)?.probeEngine
 
     fun sendTestAction(candidate: com.elysium.nexus.core.device.IrCodeSet, action: IrAction) {
+        // §24 Cancel any in-flight transmission before starting a new one
+        currentJob?.cancel()
+        currentResult = null
+
         val signal = candidate.commands[action] ?: return
         val encodeResult = IrProtocol.encode(signal)
         if (encodeResult is com.elysium.nexus.fabric.infrared.EncodeResult.Success) {
-            scope.launch {
-                irTransmitter.transmit(encodeResult.waveform)
+            val attempt = ProbeAttempt(
+                candidateId = candidate.id,
+                codeSetId = candidate.id,
+                signalId = candidate.commandSignalIds[action]
+                    ?: candidate.commandBindings.firstOrNull { it.action == action }?.signalId
+                    ?: "",
+                action = action
+            )
+            currentAttempt = attempt
+            currentJob = scope.launch {
+                val result = irTransmitter.transmit(encodeResult.waveform)
+                // §24 Only accept result if attemptId still matches (race guard)
+                if (currentAttempt?.attemptId == attempt.attemptId) {
+                    currentResult = result
+                }
             }
         }
     }
@@ -209,12 +229,11 @@ fun IrConnectFlow(
             return null
         }
 
-        val status = if (verifiedActions.size >= 3) {
-            VerificationStatus.VERIFIED_COMMUNITY
-        } else if (verifiedActions.isNotEmpty()) {
-            VerificationStatus.PARTIALLY_VERIFIED
-        } else {
-            VerificationStatus.UNVERIFIED
+        val status = when {
+            verifiedActions.size >= 3 -> VerificationStatus.VERIFIED_COMMUNITY
+            verifiedActions.size >= 2 -> VerificationStatus.PARTIALLY_VERIFIED
+            verifiedActions.isNotEmpty() -> VerificationStatus.PARTIALLY_VERIFIED
+            else -> VerificationStatus.UNVERIFIED
         }
 
         val profile = InstalledIrProfile(
@@ -231,9 +250,21 @@ fun IrConnectFlow(
         )
 
         val profileRepo = InstalledIrProfileRepository(context)
-        profileRepo.saveProfile(profile)
-        Log.d(TAG, "Installed profile ${profile.id} with ${bindings.size} bindings, verified=$verifiedActions")
-        return profile
+        val result = profileRepo.saveProfile(profile, verifiedActions)
+        when (result) {
+            is com.elysium.nexus.fabric.profile.SaveProfileResult.Saved -> {
+                Log.d(TAG, "Installed profile ${profile.id} with ${bindings.size} bindings, verified=$verifiedActions")
+                return profile
+            }
+            is com.elysium.nexus.fabric.profile.SaveProfileResult.ValidationFailure -> {
+                Log.e(TAG, "Profile validation failed: ${result.reason}")
+                return null
+            }
+            is com.elysium.nexus.fabric.profile.SaveProfileResult.StorageFailure -> {
+                Log.e(TAG, "Profile storage failed: ${result.cause.message}")
+                return null
+            }
+        }
     }
 
     ResponsiveContainer(modifier = modifier) { info ->
@@ -327,10 +358,30 @@ fun IrConnectFlow(
                                     hasIrBlaster = hasIrBlaster
                                 )
                                 IrStep.CONFIRM -> ConfirmStep(
-                                    onYes = { step = IrStep.SAVE },
+                                    onYes = {
+                                        // §24 Start secondary action verification
+                                        verifiedActions = setOf(IrAction.VOLUME_UP)
+                                        val candidate = engine.currentCandidate()
+                                        if (candidate != null && IrAction.VOLUME_DOWN in candidate.commands) {
+                                            step = IrStep.SAVE
+                                            // Send VOLUME_DOWN for verification
+                                            sendTestAction(candidate, IrAction.VOLUME_DOWN)
+                                            probeUiState = ProbeUiState.VerifyingSecondaryAction(
+                                                candidateId = candidate.id,
+                                                codeSetId = candidate.id,
+                                                primaryAttemptId = currentAttempt?.attemptId ?: "",
+                                                secondaryAction = IrAction.VOLUME_DOWN,
+                                                verifiedActions = verifiedActions
+                                            )
+                                        } else {
+                                            step = IrStep.SAVE
+                                        }
+                                    },
                                     onNo = {
                                         engine.nextCandidate()
                                         currentResult = null
+                                        currentAttempt = null
+                                        verifiedActions = emptySet()
                                         step = IrStep.TEST
                                         val candidate = engine.currentCandidate() ?: return@ConfirmStep
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
@@ -338,16 +389,12 @@ fun IrConnectFlow(
                                 )
                                 IrStep.SAVE -> SaveStep(
                                     template = template,
+                                    verifiedActions = verifiedActions,
                                     onSave = {
                                         val winner = engine.currentCandidate()
                                         if (winner != null) {
-                                            // §24 Verify VolumeUp + VolumeDown + Mute from same codeSetId
-                                            val verified = mutableSetOf(IrAction.VOLUME_UP)
-                                            // VolumeDown and Mute are verified if they exist in the same codeSet
-                                            if (IrAction.VOLUME_DOWN in winner.commands) verified.add(IrAction.VOLUME_DOWN)
-                                            if (IrAction.MUTE in winner.commands) verified.add(IrAction.MUTE)
-
-                                            val profile = buildAndPersistInstalledProfile(winner, verified)
+                                            // §24 Use actually verified actions, not assumed
+                                            val profile = buildAndPersistInstalledProfile(winner, verifiedActions)
                                             if (profile != null) {
                                                 probeUiState = ProbeUiState.Completed(profile)
                                                 onProfileInstalled(profile)
@@ -528,11 +575,19 @@ private fun ConfirmStep(onYes: () -> Unit, onNo: () -> Unit) {
 }
 
 @Composable
-private fun SaveStep(template: DeviceTemplate, onSave: () -> Unit, onLearnInstead: () -> Unit) {
+private fun SaveStep(template: DeviceTemplate, verifiedActions: Set<IrAction>, onSave: () -> Unit, onLearnInstead: () -> Unit) {
+    val verifiedCount = verifiedActions.size
+    val statusText = when {
+        verifiedCount >= 3 -> "3 acciones verificadas (VOLUME_UP + VOLUME_DOWN + MUTE)"
+        verifiedCount >= 2 -> "2 acciones verificadas"
+        verifiedCount == 1 -> "1 acción verificada (VOLUME_UP)"
+        else -> "Sin verificación"
+    }
     NeonCard(modifier = Modifier.fillMaxWidth(), accent = ElysiumColors.NeonGreen, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Perfil Encontrado", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
-            Text("Se verificarán VolumeUp, VolumeDown y Mute del mismo codeSet. Luego se guardará el perfil completo.", style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant)
+            Text(statusText, style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant)
+            Text("Se guardará el perfil completo con las acciones verificadas.", style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp), color = ElysiumColors.OnSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
             NeonChip(label = "Instalar Control Remoto", onClick = onSave, accent = ElysiumColors.NeonGreen, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
         }

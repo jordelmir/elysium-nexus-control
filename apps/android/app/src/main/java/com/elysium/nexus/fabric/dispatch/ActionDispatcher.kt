@@ -114,7 +114,38 @@ class ActionDispatcher(
 
             // §25 IR routes resolve from installed profiles, NOT from hardcoded NEC
             val deviceState = if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
-                resolveIrCommand(action, route)
+                when (val resolution = resolveIrCommand(action, route)) {
+                    is CommandResolution.Resolved -> {
+                        val encoded = resolution.signal as? com.elysium.nexus.core.device.IrSignal.Encoded
+                        DeviceState.IrCommand(
+                            protocolName = encoded?.protocol?.name ?: resolution.signalId,
+                            address = encoded?.address ?: 0,
+                            command = encoded?.command ?: 0,
+                            extras = mapOf(
+                                "signalId" to resolution.signalId,
+                                "codeSetId" to resolution.codeSetId,
+                                "profileId" to resolution.profileId,
+                                "fingerprint" to resolution.physicalSha256.take(16)
+                            )
+                        )
+                    }
+                    is CommandResolution.ProfileMissing -> {
+                        lastError = "Profile ${resolution.profileId} missing"
+                        null
+                    }
+                    is CommandResolution.ActionNotInProfile -> {
+                        lastError = "Action ${resolution.action} not in profile ${resolution.profileId}"
+                        null
+                    }
+                    is CommandResolution.SignalMissing -> {
+                        lastError = "Signal ${resolution.signalId} missing from SQLite"
+                        null
+                    }
+                    is CommandResolution.FingerprintMismatch -> {
+                        lastError = "Fingerprint mismatch signalId=${resolution.signalId}"
+                        null
+                    }
+                }
             } else {
                 DefaultActionTranslator.translate(action, route)
             }
@@ -157,29 +188,12 @@ class ActionDispatcher(
 
     /**
      * §25 Resolve IR command from installed profile via DeviceCommandResolver.
-     * Returns DeviceState.IrCommand with real protocol/address/command from the catalog.
-     * Zero hardcoded NEC bytes.
+     * Returns [CommandResolution] — sealed, never null. Fail-closed.
      */
-    private suspend fun resolveIrCommand(action: UniversalAction, route: TransportRoute): DeviceState? {
-        val resolver = deviceCommandResolver ?: return null
-        val resolved = resolver.resolve(action.targetDeviceId, action) ?: return null
-
-        return when (resolved.signal) {
-            is com.elysium.nexus.core.device.IrSignal.Encoded -> {
-                DeviceState.IrCommand(
-                    protocolName = resolved.signal.protocol.name,
-                    address = resolved.signal.address,
-                    command = resolved.signal.command,
-                    extras = mapOf(
-                        "signalId" to resolved.signalId,
-                        "codeSetId" to resolved.codeSetId,
-                        "profileId" to resolved.profileId,
-                        "fingerprint" to resolved.physicalSha256.take(16)
-                    )
-                )
-            }
-            is com.elysium.nexus.core.device.IrSignal.Raw -> null
-        }
+    private suspend fun resolveIrCommand(action: UniversalAction, route: TransportRoute): CommandResolution {
+        val resolver = deviceCommandResolver
+            ?: return CommandResolution.ProfileMissing("no-resolver-context")
+        return resolver.resolve(action.targetDeviceId, action)
     }
 
     suspend fun terminateSession(deviceId: DeviceId): List<UniversalAction> {
@@ -189,7 +203,18 @@ class ActionDispatcher(
             val routes = routeNegotiator.negotiate(action, twin)
             val route = routes.firstOrNull { it.isAvailable } ?: continue
             val state = if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
-                resolveIrCommand(action, route)
+                when (val resolution = resolveIrCommand(action, route)) {
+                    is CommandResolution.Resolved -> {
+                        val encoded = resolution.signal as? com.elysium.nexus.core.device.IrSignal.Encoded
+                        DeviceState.IrCommand(
+                            protocolName = encoded?.protocol?.name ?: resolution.signalId,
+                            address = encoded?.address ?: 0,
+                            command = encoded?.command ?: 0,
+                            extras = mapOf("signalId" to resolution.signalId)
+                        )
+                    }
+                    else -> null
+                }
             } else {
                 DefaultActionTranslator.translate(action, route)
             } ?: continue

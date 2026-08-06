@@ -1,28 +1,49 @@
 package com.elysium.nexus.fabric.dispatch
 
 import android.content.Context
+import android.util.Log
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.UniversalAction
+import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
 import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 
-data class ResolvedIrCommand(
-    val profileId: String,
-    val codeSetId: String,
-    val action: IrAction,
-    val signalId: String,
-    val physicalSha256: String,
-    val signal: IrSignal
-)
+private const val TAG = "ElysiumNexus.DeviceCmdResolver"
+
+/**
+ * §4.7 Sealed resolution result — never returns null on missing profile.
+ */
+sealed interface CommandResolution {
+    data class Resolved(
+        val profileId: String,
+        val codeSetId: String,
+        val action: IrAction,
+        val signalId: String,
+        val physicalSha256: String,
+        val signal: IrSignal
+    ) : CommandResolution
+
+    data class ProfileMissing(val profileId: String) : CommandResolution
+
+    data class ActionNotInProfile(val profileId: String, val action: IrAction) : CommandResolution
+
+    data class SignalMissing(val signalId: String, val profileId: String) : CommandResolution
+
+    data class FingerprintMismatch(
+        val signalId: String,
+        val expected: String,
+        val actual: String
+    ) : CommandResolution
+}
 
 /**
  * §4.7 Authoritative Device Command Resolver.
  *
- * Resolves [UniversalAction] and [DeviceId] to exact [ResolvedIrCommand] carrying
- * database [signalId] and physical [IrSignal] loaded directly from SQLite/Room.
- * Zero manufactured signals or brand fallbacks.
+ * Resolves [UniversalAction] and [DeviceId] to exact [CommandResolution.Resolved]
+ * carrying database [signalId] and physical [IrSignal] loaded from SQLite/Room.
+ * Zero manufactured signals. Zero brand fallbacks. Fail-closed on missing profile.
  */
 class DeviceCommandResolver(
     private val context: Context
@@ -30,20 +51,42 @@ class DeviceCommandResolver(
     private val profileRepository = InstalledIrProfileRepository(context)
     private val catalogRepository = IrCatalogRepository.getInstance(context)
 
+    /**
+     * §4.7 Resolve action to exact IR command.
+     * NEVER falls back to first profile. Returns sealed [CommandResolution].
+     * Verifies physical fingerprint before returning.
+     */
     suspend fun resolve(
         deviceId: DeviceId,
         action: UniversalAction
-    ): ResolvedIrCommand? {
+    ): CommandResolution {
         val profileId = deviceId.value.removePrefix("ir-")
-        val profile = profileRepository.getProfile(profileId)
-            ?: profileRepository.getAllProfiles().firstOrNull()
-            ?: return null
 
-        val irAction = mapUniversalActionToIrAction(action) ?: return null
-        val binding = profile.commands[irAction] ?: return null
-        val signal = catalogRepository.getSignal(binding.signalId) ?: return null
+        // §4.7 FAIL CLOSED: no fallback to first profile
+        val profile = profileRepository.getProfileSuspend(profileId)
+            ?: return CommandResolution.ProfileMissing(profileId)
 
-        return ResolvedIrCommand(
+        val irAction = mapUniversalActionToIrAction(action)
+            ?: return CommandResolution.ActionNotInProfile(profileId, IrAction.POWER_TOGGLE)
+
+        val binding = profile.commands[irAction]
+            ?: return CommandResolution.ActionNotInProfile(profileId, irAction)
+
+        val signal = catalogRepository.getSignal(binding.signalId)
+            ?: return CommandResolution.SignalMissing(binding.signalId, profileId)
+
+        // §21 Fingerprint verification at domain layer
+        val actualFingerprint = IrProbeEngine.fingerprintSignal(signal)
+        if (actualFingerprint != binding.physicalFingerprint) {
+            Log.e(TAG, "FINGERPRINT MISMATCH profile=$profileId action=$irAction signalId=${binding.signalId}: expected=${binding.physicalFingerprint}, actual=$actualFingerprint")
+            return CommandResolution.FingerprintMismatch(
+                signalId = binding.signalId,
+                expected = binding.physicalFingerprint,
+                actual = actualFingerprint
+            )
+        }
+
+        return CommandResolution.Resolved(
             profileId = profile.id,
             codeSetId = profile.codeSetId,
             action = irAction,

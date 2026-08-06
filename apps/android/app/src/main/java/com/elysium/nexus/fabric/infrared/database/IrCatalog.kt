@@ -1,5 +1,6 @@
 package com.elysium.nexus.fabric.infrared.database
 
+import com.elysium.nexus.core.device.CatalogCommandBinding
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
@@ -21,6 +22,18 @@ data class CatalogStats(
     val rawCommands: Int,
     val totalCommands: Int,
     val protocols: Int
+)
+
+data class SignalMetadata(
+    val signalId: String,
+    val encodingType: String,
+    val codecId: String?,
+    val carrierHz: Int,
+    val addressValue: Int,
+    val subDeviceValue: Int,
+    val commandValue: Int,
+    val physicalSha256: String,
+    val sourceRevisionSha: String?
 )
 
 /**
@@ -51,6 +64,21 @@ interface IrCatalog {
      * Retrieve single physical [IrSignal] by exact signal ID.
      */
     suspend fun getSignal(signalId: String): IrSignal?
+
+    /**
+     * §7 Retrieve all command bindings for a code set with deterministic selection.
+     */
+    suspend fun getCommandsForCodeSet(codeSetId: String): Map<IrAction, List<CatalogCommandBinding>>
+
+    /**
+     * §7 Retrieve signal metadata including source revision SHA.
+     */
+    suspend fun getSignalMetadata(signalId: String): SignalMetadata?
+
+    /**
+     * §7 Retrieve a full code set by ID for authoritative re-read during installation.
+     */
+    suspend fun getCodeSet(codeSetId: String): IrCodeSet?
 
     /**
      * Query overall catalog statistics.
@@ -90,6 +118,18 @@ class InMemoryIrCatalog(
 
     override suspend fun getSignal(signalId: String): IrSignal? {
         return signalMap[signalId]
+    }
+
+    override suspend fun getCommandsForCodeSet(codeSetId: String): Map<IrAction, List<CatalogCommandBinding>> {
+        return emptyMap()
+    }
+
+    override suspend fun getSignalMetadata(signalId: String): SignalMetadata? {
+        return null
+    }
+
+    override suspend fun getCodeSet(codeSetId: String): IrCodeSet? {
+        return candidateMap.values.flatten().firstOrNull { it.id == codeSetId }
     }
 
     override suspend fun getStats(): CatalogStats {

@@ -71,6 +71,7 @@ import com.elysium.nexus.core.device.DeviceButton
 import com.elysium.nexus.core.device.DeviceTemplate
 import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
+import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.EncodeResult
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
@@ -88,6 +89,16 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 import kotlinx.coroutines.launch
 
 private const val TAG = "ElysiumNexus.TvControlScreen"
+
+/**
+ * §22 Button model carrying IrAction directly — no string→action→string roundtrip.
+ */
+data class IrRemoteButtonModel(
+    val action: IrAction,
+    val label: String,
+    val iconHint: String,
+    val verificationStatus: VerificationStatus
+)
 
 /**
  * §3/§20/§21/§22 Authoritative TvControlScreen.
@@ -146,21 +157,20 @@ fun TvControlScreen(
         }
     }
 
-    // §22 Generate buttons from profile bindings, NOT from DeviceTemplate
+    // §22 Generate buttons from profile bindings, carrying IrAction directly
     val effectiveButtons = remember(activeProfile, fallbackTemplate) {
         if (activeProfile != null && activeProfile!!.commands.isNotEmpty()) {
-            activeProfile!!.commands.keys.mapNotNull { action ->
-                fallbackTemplate?.buttons?.firstOrNull { mapButtonToIrAction(it.id) == action }
-                    ?: DeviceButton(
-                        id = action.name.lowercase(),
-                        labelEs = action.name.replace("_", " "),
-                        labelEn = action.name.replace("_", " "),
-                        iconHint = action.name.lowercase(),
-                        commandCode = 0
-                    )
+            activeProfile!!.commands.keys.map { action ->
+                val templateBtn = fallbackTemplate?.buttons?.firstOrNull { mapButtonToIrAction(it.id) == action }
+                IrRemoteButtonModel(
+                    action = action,
+                    label = templateBtn?.labelEs ?: action.name.replace("_", " "),
+                    iconHint = templateBtn?.iconHint ?: action.name.lowercase(),
+                    verificationStatus = activeProfile!!.verificationStatus
+                )
             }
         } else {
-            fallbackTemplate?.buttons ?: emptyList()
+            emptyList()
         }
     }
 
@@ -239,25 +249,25 @@ fun TvControlScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
                     ) {
-                        items(effectiveButtons) { button ->
-                            ControlButton(
-                                button = button,
-                                onClick = {
-                                    scope.launch {
-                                        val result = sendProfileCommand(catalogRepo, irTransmitter, profile, button)
-                                        when (result) {
-                                            is IrTransmitResult.Success -> { isStatusError = false; transmitStatusText = "Enviado: ${button.labelEs}" }
-                                            is IrTransmitResult.NoEmitter -> { isStatusError = true; transmitStatusText = "Sin emisor IR" }
-                                            is IrTransmitResult.PermissionDenied -> { isStatusError = true; transmitStatusText = "Permiso denegado" }
-                                            is IrTransmitResult.UnsupportedCarrier -> { isStatusError = true; transmitStatusText = "Frecuencia no soportada" }
-                                            is IrTransmitResult.InvalidPattern -> { isStatusError = true; transmitStatusText = "Error: ${result.reason}" }
-                                            is IrTransmitResult.Busy -> { isStatusError = true; transmitStatusText = "Emisor ocupado" }
-                                            is IrTransmitResult.PlatformFailure -> { isStatusError = true; transmitStatusText = "Error Android" }
-                                        }
+                    items(effectiveButtons) { button ->
+                        ControlButton(
+                            button = button,
+                            onClick = {
+                                scope.launch {
+                                    val result = sendProfileCommand(catalogRepo, irTransmitter, profile, button)
+                                    when (result) {
+                                        is IrTransmitResult.Success -> { isStatusError = false; transmitStatusText = "Enviado: ${button.label}" }
+                                        is IrTransmitResult.NoEmitter -> { isStatusError = true; transmitStatusText = "Sin emisor IR" }
+                                        is IrTransmitResult.PermissionDenied -> { isStatusError = true; transmitStatusText = "Permiso denegado" }
+                                        is IrTransmitResult.UnsupportedCarrier -> { isStatusError = true; transmitStatusText = "Frecuencia no soportada" }
+                                        is IrTransmitResult.InvalidPattern -> { isStatusError = true; transmitStatusText = "Error: ${result.reason}" }
+                                        is IrTransmitResult.Busy -> { isStatusError = true; transmitStatusText = "Emisor ocupado" }
+                                        is IrTransmitResult.PlatformFailure -> { isStatusError = true; transmitStatusText = "Error Android" }
                                     }
                                 }
-                            )
-                        }
+                            }
+                        )
+                    }
                     }
                 }
             }
@@ -276,16 +286,16 @@ fun TvControlScreen(
 }
 
 @Composable
-private fun ControlButton(button: DeviceButton, onClick: () -> Unit) {
+private fun ControlButton(button: IrRemoteButtonModel, onClick: () -> Unit) {
     var isPressed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.90f else 1.0f, animationSpec = tween(durationMillis = 100), label = "btn_scale")
-    val icon = buttonIcon(button.id)
+    val icon = buttonIcon(button.iconHint)
     val color = when (button.iconHint) {
-        "power" -> ElysiumColors.NeonOrange
-        "vol_up", "vol_down", "mute" -> ElysiumColors.NeonCyan
-        "ch_up", "ch_down" -> ElysiumColors.NeonGreen
-        "nav" -> ElysiumColors.NeonPurple
+        "power", "POWER_TOGGLE" -> ElysiumColors.NeonOrange
+        "vol_up", "VOLUME_UP", "vol_down", "VOLUME_DOWN", "mute", "MUTE" -> ElysiumColors.NeonCyan
+        "ch_up", "CHANNEL_UP", "ch_down", "CHANNEL_DOWN" -> ElysiumColors.NeonGreen
+        "nav", "UP", "DOWN", "LEFT", "RIGHT" -> ElysiumColors.NeonPurple
         else -> ElysiumColors.NeonCyan
     }
     Box(
@@ -295,35 +305,37 @@ private fun ControlButton(button: DeviceButton, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(icon, contentDescription = button.labelEs, tint = color, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = button.label, tint = color, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.height(4.dp))
-            Text(button.labelEs, style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.OnSurface, maxLines = 1)
+            Text(button.label, style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = ElysiumColors.OnSurface, maxLines = 1)
         }
     }
 }
 
-private fun buttonIcon(buttonId: String): ImageVector = when (buttonId) {
-    "power" -> Icons.Filled.PowerSettingsNew
-    "vol_up" -> Icons.Filled.VolumeUp
-    "vol_down" -> Icons.Filled.VolumeDown
-    "mute" -> Icons.Filled.VolumeOff
-    "ch_up" -> Icons.Filled.ArrowUpward
-    "ch_down" -> Icons.Filled.ArrowDownward
-    "up" -> Icons.Filled.ArrowUpward
-    "down" -> Icons.Filled.ArrowDownward
-    "left" -> Icons.Filled.ChevronLeft
-    "right" -> Icons.Filled.ChevronRight
-    "ok" -> Icons.Filled.Check
-    "menu" -> Icons.Filled.Menu
-    "source", "input" -> Icons.Filled.Settings
-    "back" -> Icons.Filled.ArrowBack
+private fun buttonIcon(iconHint: String): ImageVector = when (iconHint) {
+    "power", "POWER_TOGGLE" -> Icons.Filled.PowerSettingsNew
+    "vol_up", "VOLUME_UP" -> Icons.Filled.VolumeUp
+    "vol_down", "VOLUME_DOWN" -> Icons.Filled.VolumeDown
+    "mute", "MUTE" -> Icons.Filled.VolumeOff
+    "ch_up", "CHANNEL_UP" -> Icons.Filled.ArrowUpward
+    "ch_down", "CHANNEL_DOWN" -> Icons.Filled.ArrowDownward
+    "up", "UP" -> Icons.Filled.ArrowUpward
+    "down", "DOWN" -> Icons.Filled.ArrowDownward
+    "left", "LEFT" -> Icons.Filled.ChevronLeft
+    "right", "RIGHT" -> Icons.Filled.ChevronRight
+    "ok", "OK" -> Icons.Filled.Check
+    "menu", "MENU" -> Icons.Filled.Menu
+    "source", "input", "INPUT" -> Icons.Filled.Settings
+    "back", "BACK" -> Icons.Filled.ArrowBack
     "info" -> Icons.Filled.Info
     "guide" -> Icons.Filled.Menu
     "exit" -> Icons.Filled.Close
     "last" -> Icons.Filled.Refresh
-    "home" -> Icons.Filled.Home
+    "home", "HOME" -> Icons.Filled.Home
     "netflix", "youtube", "prime" -> Icons.Filled.LiveTv
-    "play" -> Icons.Filled.PlayArrow
+    "play", "PLAY" -> Icons.Filled.PlayArrow
+    "pause", "PAUSE" -> Icons.Filled.PlayArrow
+    "stop", "STOP" -> Icons.Filled.Stop
     "num_1", "num_2", "num_3", "num_4", "num_5" -> Icons.Filled.Numbers
     "num_6", "num_7", "num_8", "num_9", "num_0" -> Icons.Filled.Numbers
     "minus" -> Icons.Filled.FastRewind
@@ -360,16 +372,17 @@ private fun mapButtonToIrAction(buttonId: String): IrAction? = when (buttonId) {
 }
 
 /**
- * §21 Authoritative command sending — fingerprint verification before every transmit.
+ * §21/§22 Authoritative command sending — uses IrAction directly from button model.
+ * Fingerprint verification before every transmit.
  */
 private suspend fun sendProfileCommand(
     catalogRepo: IrCatalogRepository,
     transmitter: AndroidIrTransmitter,
     profile: InstalledIrProfile,
-    button: DeviceButton
+    button: IrRemoteButtonModel
 ): IrTransmitResult {
-    val action = mapButtonToIrAction(button.id)
-        ?: return IrTransmitResult.InvalidPattern("Acción '${button.labelEs}' no configurada")
+    // §22 Use IrAction directly — no string roundtrip
+    val action = button.action
 
     val binding = profile.commands[action]
         ?: return IrTransmitResult.InvalidPattern("Acción $action no mapeada en perfil ${profile.id}")

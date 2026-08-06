@@ -68,115 +68,127 @@ sealed interface CodecResolution {
  * decoder round-trip and HIL are proven.
  */
 object ProtocolCodecRegistry {
-    private val registeredCodecs = mapOf(
-        "NEC" to CodecSpec(
-            codecId = "NEC",
-            protocol = IrProtocol.Nec,
-            aliases = setOf("NEC1", "NEC_38"),
-            defaultCarrierHz = 38000,
-            carrierHzRange = 36000..40000,
-            repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
-            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
-            goldenVectorCount = 12,
-            variants = listOf(
-                ProtocolVariant("NEC_32", 32, 8, 8, "Standard NEC 32-bit (address + inverse + command + inverse)"),
-                ProtocolVariant("NEC_32_EXT", 32, 8, 8, "NEC with extended address via sub-device")
-            )
-        ),
-        "NECx" to CodecSpec(
-            codecId = "NECx",
-            protocol = IrProtocol.NecExtended,
-            aliases = setOf("NECEXT", "NEC_EXTENDED", "NECExtended"),
-            defaultCarrierHz = 38000,
-            carrierHzRange = 36000..40000,
-            repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
-            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
-            goldenVectorCount = 10,
-            variants = listOf(
-                ProtocolVariant("NECx_32", 32, 16, 8, "NEC Extended 16-bit address")
-            )
-        ),
-        "SAMSUNG" to CodecSpec(
-            codecId = "SAMSUNG",
-            protocol = IrProtocol.Samsung,
-            aliases = setOf("SAMSUNG32", "Samsung32"),
-            defaultCarrierHz = 38000,
-            carrierHzRange = 36000..40000,
-            repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
-            goldenVectorCount = 8,
-            variants = listOf(
-                ProtocolVariant("SAMSUNG_32", 32, 8, 8, "Samsung 32-bit standard"),
-                ProtocolVariant("SAMSUNG_20", 20, 5, 8, "Samsung 20-bit short")
-            )
-        ),
-        "SIRC" to CodecSpec(
-            codecId = "SIRC",
-            protocol = IrProtocol.SonySirc,
-            aliases = setOf("SONY", "SonySirc"),
-            defaultCarrierHz = 40000,
-            carrierHzRange = 38000..42000,
-            repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
-            goldenVectorCount = 6,
-            variants = listOf(
-                ProtocolVariant("SIRC_12", 12, 5, 7, "SIRC 12-bit (address 5, command 7)"),
-                ProtocolVariant("SIRC_15", 15, 8, 7, "SIRC 15-bit (address 8, command 7)"),
-                ProtocolVariant("SIRC_20", 20, 5, 7, "SIRC 20-bit extended (5-bit address, 8-bit sub, 7-bit command)")
-            )
-        ),
-        "RC5" to CodecSpec(
-            codecId = "RC5",
-            protocol = IrProtocol.Rc5,
-            aliases = setOf("RC5X"),
-            defaultCarrierHz = 36000,
-            carrierHzRange = 35000..38000,
-            repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
-            status = CodecVerificationStatus.EXPERIMENTAL,
-            goldenVectorCount = 5,
-            variants = listOf(
-                ProtocolVariant("RC5_14", 14, 5, 6, "RC5 standard 14-bit (1 start + 1 toggle + 5 addr + 6 cmd)"),
-                ProtocolVariant("RC5X_16", 16, 5, 8, "RC5X extended 16-bit")
-            )
-        ),
-        "RC6" to CodecSpec(
-            codecId = "RC6",
-            protocol = IrProtocol.Rc6,
-            aliases = setOf("RC6_0", "RC6Mode0"),
-            defaultCarrierHz = 36000,
-            carrierHzRange = 35000..38000,
-            repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
-            status = CodecVerificationStatus.EXPERIMENTAL,
-            goldenVectorCount = 4,
-            variants = listOf(
-                ProtocolVariant("RC6_16", 16, 8, 8, "RC6 Mode 0 standard 16-bit"),
-                ProtocolVariant("RC6_20", 20, 16, 8, "RC6 Mode 0 extended 20-bit")
-            )
-        ),
-        "KASEIKYO" to CodecSpec(
-            codecId = "KASEIKYO",
-            protocol = IrProtocol.Kaseikyo,
-            aliases = setOf("PANASONIC", "Panasonic"),
-            defaultCarrierHz = 38000,
-            carrierHzRange = 36000..40000,
-            repeatPolicy = RepeatPolicy.FULL_FRAME,
-            status = CodecVerificationStatus.EXPERIMENTAL,
-            goldenVectorCount = 4,
-            variants = listOf(
-                ProtocolVariant("KASEIKYO_48", 48, 16, 8, "Kaseikyo/Panasonic 48-bit standard")
+    private val registeredCodecs: Map<String, CodecSpec>
+
+    init {
+        // §6.3 Normalize all keys and aliases to UPPERCASE for case-insensitive lookup
+        val raw = mapOf(
+            "NEC" to CodecSpec(
+                codecId = "NEC",
+                protocol = IrProtocol.Nec,
+                aliases = setOf("NEC1", "NEC_38"),
+                defaultCarrierHz = 38000,
+                carrierHzRange = 36000..40000,
+                repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
+                status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+                goldenVectorCount = 12,
+                variants = listOf(
+                    ProtocolVariant("NEC_32", 32, 8, 8, "Standard NEC 32-bit (address + inverse + command + inverse)"),
+                    ProtocolVariant("NEC_32_EXT", 32, 8, 8, "NEC with extended address via sub-device")
+                )
+            ),
+            "NECX" to CodecSpec(
+                codecId = "NECx",
+                protocol = IrProtocol.NecExtended,
+                aliases = setOf("NECEXT", "NEC_EXTENDED", "NECExtended"),
+                defaultCarrierHz = 38000,
+                carrierHzRange = 36000..40000,
+                repeatPolicy = RepeatPolicy.SPECIAL_REPEAT_FRAME,
+                status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+                goldenVectorCount = 10,
+                variants = listOf(
+                    ProtocolVariant("NECx_32", 32, 16, 8, "NEC Extended 16-bit address")
+                )
+            ),
+            "SAMSUNG" to CodecSpec(
+                codecId = "SAMSUNG",
+                protocol = IrProtocol.Samsung,
+                aliases = setOf("SAMSUNG32", "Samsung32"),
+                defaultCarrierHz = 38000,
+                carrierHzRange = 36000..40000,
+                repeatPolicy = RepeatPolicy.FULL_FRAME,
+                status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+                goldenVectorCount = 8,
+                variants = listOf(
+                    ProtocolVariant("SAMSUNG_32", 32, 8, 8, "Samsung 32-bit standard"),
+                    ProtocolVariant("SAMSUNG_20", 20, 5, 8, "Samsung 20-bit short")
+                )
+            ),
+            "SIRC" to CodecSpec(
+                codecId = "SIRC",
+                protocol = IrProtocol.SonySirc,
+                aliases = setOf("SONY", "SONYSIRC"),
+                defaultCarrierHz = 40000,
+                carrierHzRange = 38000..42000,
+                repeatPolicy = RepeatPolicy.FULL_FRAME,
+                status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+                goldenVectorCount = 6,
+                variants = listOf(
+                    ProtocolVariant("SIRC_12", 12, 5, 7, "SIRC 12-bit (address 5, command 7)"),
+                    ProtocolVariant("SIRC_15", 15, 8, 7, "SIRC 15-bit (address 8, command 7)"),
+                    ProtocolVariant("SIRC_20", 20, 5, 7, "SIRC 20-bit extended (5-bit address, 8-bit sub, 7-bit command)")
+                )
+            ),
+            "RC5" to CodecSpec(
+                codecId = "RC5",
+                protocol = IrProtocol.Rc5,
+                aliases = setOf("RC5X"),
+                defaultCarrierHz = 36000,
+                carrierHzRange = 35000..38000,
+                repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
+                status = CodecVerificationStatus.EXPERIMENTAL,
+                goldenVectorCount = 5,
+                variants = listOf(
+                    ProtocolVariant("RC5_14", 14, 5, 6, "RC5 standard 14-bit (1 start + 1 toggle + 5 addr + 6 cmd)"),
+                    ProtocolVariant("RC5X_16", 16, 5, 8, "RC5X extended 16-bit")
+                )
+            ),
+            "RC6" to CodecSpec(
+                codecId = "RC6",
+                protocol = IrProtocol.Rc6,
+                aliases = setOf("RC6_0", "RC6MODE0"),
+                defaultCarrierHz = 36000,
+                carrierHzRange = 35000..38000,
+                repeatPolicy = RepeatPolicy.TOGGLE_PER_NEW_PRESS,
+                status = CodecVerificationStatus.EXPERIMENTAL,
+                goldenVectorCount = 4,
+                variants = listOf(
+                    ProtocolVariant("RC6_16", 16, 8, 8, "RC6 Mode 0 standard 16-bit"),
+                    ProtocolVariant("RC6_20", 20, 16, 8, "RC6 Mode 0 extended 20-bit")
+                )
+            ),
+            "KASEIKYO" to CodecSpec(
+                codecId = "KASEIKYO",
+                protocol = IrProtocol.Kaseikyo,
+                aliases = setOf("PANASONIC"),
+                defaultCarrierHz = 38000,
+                carrierHzRange = 36000..40000,
+                repeatPolicy = RepeatPolicy.FULL_FRAME,
+                status = CodecVerificationStatus.EXPERIMENTAL,
+                goldenVectorCount = 4,
+                variants = listOf(
+                    ProtocolVariant("KASEIKYO_48", 48, 16, 8, "Kaseikyo/Panasonic 48-bit standard")
+                )
             )
         )
-    )
+        // Build normalized map: all keys UPPERCASE, aliases UPPERCASE
+        registeredCodecs = mutableMapOf<String, CodecSpec>().apply {
+            for ((_, spec) in raw) {
+                val upperKey = spec.codecId.uppercase()
+                put(upperKey, spec)
+                for (alias in spec.aliases) {
+                    put(alias.uppercase(), spec)
+                }
+            }
+        }
+    }
 
     /**
-     * Get codec by ID — resolves case-insensitively and via aliases.
+     * Get codec by ID — resolves case-insensitively via normalized UPPERCASE map.
      */
     fun getCodec(codecId: String): CodecSpec? {
         val key = codecId.trim().uppercase()
         return registeredCodecs[key]
-            ?: registeredCodecs.values.firstOrNull { spec ->
-                key in spec.aliases.map { it.uppercase() }
-            }
     }
 
     /**

@@ -141,13 +141,22 @@ class IrCatalogRepository private constructor(
         results
     }
 
+    private data class PendingBinding(
+        val action: IrAction,
+        val signal: IrSignal,
+        val signalId: String,
+        val bindingId: String,
+        val physicalSha256: String,
+        val encodingType: String
+    )
+
     private fun getCommandsForCodeSetInternal(
         database: SQLiteDatabase,
         codeSetId: String
     ): CodeSetCommandsResult {
-        val commands = mutableMapOf<IrAction, IrSignal>()
-        val commandSignalIds = mutableMapOf<IrAction, String>()
-        val commandBindings = mutableListOf<CatalogCommandBinding>()
+        // §7 Collect ALL bindings per action, then select deterministically
+        val allBindingsPerAction = mutableMapOf<IrAction, MutableList<PendingBinding>>()
+        val allBindings = mutableListOf<CatalogCommandBinding>()
 
         val query = """
             SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
@@ -198,9 +207,9 @@ class IrCatalogRepository private constructor(
                 } else null
 
                 if (signal != null) {
-                    commands[irAction] = signal
-                    commandSignalIds[irAction] = signalId
-                    commandBindings.add(
+                    val pending = PendingBinding(irAction, signal, signalId, bindingId, physicalSha256, encodingType)
+                    allBindingsPerAction.getOrPut(irAction) { mutableListOf() }.add(pending)
+                    allBindings.add(
                         CatalogCommandBinding(
                             bindingId = bindingId,
                             codeSetId = codeSetId,
@@ -214,7 +223,19 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        return CodeSetCommandsResult(commands, commandSignalIds, commandBindings)
+        // §7 Deterministic selection: prefer PARAMETRIC over RAW, then by bindingId (stable)
+        val commands = mutableMapOf<IrAction, IrSignal>()
+        val commandSignalIds = mutableMapOf<IrAction, String>()
+        for ((action, bindings) in allBindingsPerAction) {
+            val selected = bindings.sortedWith(
+                compareBy<PendingBinding> { it.encodingType != "PARAMETRIC" }
+                    .thenBy { it.bindingId }
+            ).first()
+            commands[action] = selected.signal
+            commandSignalIds[action] = selected.signalId
+        }
+
+        return CodeSetCommandsResult(commands, commandSignalIds, allBindings)
     }
 
     override suspend fun getSignal(signalId: String): IrSignal? = withContext(Dispatchers.IO) {
@@ -330,6 +351,160 @@ class IrCatalogRepository private constructor(
         database.close()
 
         CatalogStats(brands, types, remotes, codeSets, signals, bindings, 7)
+    }
+
+    // §7 New interface methods — authoritative re-read and metadata
+
+    override suspend fun getCommandsForCodeSet(codeSetId: String): Map<IrAction, List<CatalogCommandBinding>> = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val result = mutableMapOf<IrAction, MutableList<CatalogCommandBinding>>()
+
+        val query = """
+            SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
+                   sig.address_value, sig.sub_device_value, sig.command_value,
+                   sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
+                   sig.physical_sha256
+            FROM command_bindings cb
+            JOIN actions a ON cb.action_id = a.id
+            JOIN signals sig ON cb.signal_id = sig.id
+            WHERE cb.code_set_id = ?
+        """.trimIndent()
+
+        database.rawQuery(query, arrayOf(codeSetId)).use { cursor ->
+            while (cursor.moveToNext()) {
+                val actionStr = cursor.getString(0) ?: continue
+                val encodingType = cursor.getString(1)
+                val codecId = cursor.getString(2)
+                val carrierHz = cursor.getInt(3)
+                val address = cursor.getInt(4)
+                val subDevice = cursor.getInt(5)
+                val command = cursor.getInt(6)
+                val blob = cursor.getBlob(7)
+                val signalId = cursor.getString(8)
+                val bindingId = cursor.getString(9)
+                val physicalSha256 = cursor.getString(10) ?: signalId
+
+                val irAction = mapActionKeyToIrAction(actionStr) ?: continue
+
+                val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
+                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
+                    codecSpec?.let {
+                        IrSignal.Encoded(
+                            carrierHz = carrierHz,
+                            protocol = it.protocol,
+                            address = address,
+                            subDevice = if (subDevice >= 0) subDevice else null,
+                            command = command
+                        )
+                    }
+                } else if (encodingType == "RAW" && blob != null) {
+                    val pattern = decompressPattern(blob)
+                    if (pattern != null && pattern.all { it > 0 }) {
+                        IrSignal.Raw(carrierHz = carrierHz, patternUs = pattern)
+                    } else null
+                } else null
+
+                if (signal != null) {
+                    result.getOrPut(irAction) { mutableListOf() }.add(
+                        CatalogCommandBinding(
+                            bindingId = bindingId,
+                            codeSetId = codeSetId,
+                            action = irAction,
+                            signalId = signalId,
+                            physicalSha256 = physicalSha256,
+                            signal = signal
+                        )
+                    )
+                }
+            }
+        }
+
+        database.close()
+        result
+    }
+
+    override suspend fun getSignalMetadata(signalId: String): SignalMetadata? = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        var metadata: SignalMetadata? = null
+
+        val query = """
+            SELECT sig.encoding_type, sig.codec_id, sig.carrier_hz,
+                   sig.address_value, sig.sub_device_value, sig.command_value,
+                   sig.physical_sha256, sr.version AS source_revision_sha
+            FROM signals sig
+            LEFT JOIN command_bindings cb ON cb.signal_id = sig.id
+            LEFT JOIN code_sets cs ON cb.code_set_id = cs.id
+            LEFT JOIN source_revisions sr ON cs.source_revision_id = sr.id
+            WHERE sig.id = ?
+            LIMIT 1
+        """.trimIndent()
+
+        database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+            if (cursor.moveToFirst()) {
+                metadata = SignalMetadata(
+                    signalId = signalId,
+                    encodingType = cursor.getString(0) ?: "",
+                    codecId = cursor.getString(1),
+                    carrierHz = cursor.getInt(2),
+                    addressValue = cursor.getInt(3),
+                    subDeviceValue = cursor.getInt(4),
+                    commandValue = cursor.getInt(5),
+                    physicalSha256 = cursor.getString(6) ?: "",
+                    sourceRevisionSha = cursor.getString(7)
+                )
+            }
+        }
+
+        database.close()
+        metadata
+    }
+
+    override suspend fun getCodeSet(codeSetId: String): IrCodeSet? = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        var result: IrCodeSet? = null
+
+        val query = """
+            SELECT cs.id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
+            FROM code_sets cs
+            JOIN remotes r ON cs.remote_id = r.id
+            JOIN brands b ON r.brand_id = b.id
+            JOIN device_types dt ON r.device_type_id = dt.id
+            JOIN source_revisions sr ON cs.source_revision_id = sr.id
+            JOIN sources s ON sr.source_id = s.id
+            WHERE cs.id = ?
+        """.trimIndent()
+
+        database.rawQuery(query, arrayOf(codeSetId)).use { cursor ->
+            if (cursor.moveToFirst()) {
+                val brandName = cursor.getString(1) ?: ""
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+
+                val codeSetResult = getCommandsForCodeSetInternal(database, codeSetId)
+                if (codeSetResult.commands.isNotEmpty()) {
+                    result = IrCodeSet(
+                        id = codeSetId,
+                        brand = brandName,
+                        modelPatterns = setOf(remoteModel),
+                        remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                        commands = codeSetResult.commands,
+                        commandSignalIds = codeSetResult.commandSignalIds,
+                        commandBindings = codeSetResult.commandBindings,
+                        provenance = CodeProvenance(
+                            sourceName = sourceName,
+                            sourceUrl = "",
+                            licenseSpdx = licenseSpdx
+                        ),
+                        verification = VerificationStatus.UNVERIFIED
+                    )
+                }
+            }
+        }
+
+        database.close()
+        result
     }
 
     private fun mapActionKeyToIrAction(actionKey: String): IrAction? = try {

@@ -18,11 +18,20 @@ private const val TAG = "ElysiumNexus.ProfileRepo"
 private const val PROFILES_FILE = "installed_ir_profiles.json"
 
 /**
+ * §9 Save result — UI must not navigate until Saved is received.
+ */
+sealed interface SaveProfileResult {
+    data class Saved(val profileId: String) : SaveProfileResult
+    data class ValidationFailure(val reason: String) : SaveProfileResult
+    data class StorageFailure(val cause: Throwable) : SaveProfileResult
+}
+
+/**
  * §2/§9 Authoritative IR Profile Repository.
  *
  * Room is the single source of truth. JSON is used ONLY as a one-shot
  * migration path for profiles created before Room integration.
- * After migration, JSON is deleted.
+ * After migration, JSON is deleted and never written again.
  *
  * All public methods are either suspend (coroutine-safe) or synchronous
  * read-only from an in-memory cache populated from Room at startup.
@@ -93,9 +102,9 @@ class InstalledIrProfileRepository(
             if (migrated.isNotEmpty() && context != null) {
                 val db = ElysiumUserDatabase.getInstance(context)
                 for (profile in migrated) {
-                    val pe = mapProfileToEntity(profile)
+                    val pe = mapProfileToEntity(profile, setOf())
                     val ces = profile.commands.map { (action, binding) ->
-                        mapBindingToEntity(profile.id, action, binding, profile)
+                        mapBindingToEntity(profile.id, action, binding, VerificationStatus.PARTIALLY_VERIFIED)
                     }
                     db.profileDao().saveProfileWithCommands(pe, ces)
                     memoryCache[profile.id] = profile
@@ -114,40 +123,62 @@ class InstalledIrProfileRepository(
     // Save: Room authoritative + in-memory cache
     // ═══════════════════════════════════════════════════════════════════
 
-    fun saveProfile(profile: InstalledIrProfile) {
+    fun saveProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
+        if (profile.codeSetId.isBlank()) {
+            return SaveProfileResult.ValidationFailure("codeSetId is blank")
+        }
+        if (profile.commands.isEmpty()) {
+            return SaveProfileResult.ValidationFailure("commands map is empty")
+        }
+
         memoryCache[profile.id] = profile
         if (context != null) {
-            runBlocking {
+            val storageResult = runBlocking {
                 try {
                     val db = ElysiumUserDatabase.getInstance(context)
-                    val pe = mapProfileToEntity(profile)
+                    val pe = mapProfileToEntity(profile, verifiedActions)
                     val ces = profile.commands.map { (action, binding) ->
-                        mapBindingToEntity(profile.id, action, binding, profile)
+                        val wasVerified = action in verifiedActions
+                        mapBindingToEntity(profile.id, action, binding, profile.verificationStatus, wasVerified)
                     }
                     db.profileDao().saveProfileWithCommands(pe, ces)
-                    Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands")
+                    Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
+                    SaveProfileResult.Saved(profile.id)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
+                    SaveProfileResult.StorageFailure(e)
                 }
             }
+            return storageResult
         }
+        return SaveProfileResult.Saved(profile.id)
     }
 
-    suspend fun saveProfileSuspend(profile: InstalledIrProfile) {
+    suspend fun saveProfileSuspend(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
+        if (profile.codeSetId.isBlank()) {
+            return SaveProfileResult.ValidationFailure("codeSetId is blank")
+        }
+        if (profile.commands.isEmpty()) {
+            return SaveProfileResult.ValidationFailure("commands map is empty")
+        }
+
         memoryCache[profile.id] = profile
         if (context != null) {
             try {
                 val db = ElysiumUserDatabase.getInstance(context)
-                val pe = mapProfileToEntity(profile)
+                val pe = mapProfileToEntity(profile, verifiedActions)
                 val ces = profile.commands.map { (action, binding) ->
-                    mapBindingToEntity(profile.id, action, binding, profile)
+                    val wasVerified = action in verifiedActions
+                    mapBindingToEntity(profile.id, action, binding, profile.verificationStatus, wasVerified)
                 }
                 db.profileDao().saveProfileWithCommands(pe, ces)
-                Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands")
+                Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
+                return SaveProfileResult.StorageFailure(e)
             }
         }
+        return SaveProfileResult.Saved(profile.id)
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -334,7 +365,7 @@ class InstalledIrProfileRepository(
         )
     }
 
-    private fun mapProfileToEntity(profile: InstalledIrProfile): InstalledIrProfileEntity {
+    private fun mapProfileToEntity(profile: InstalledIrProfile, verifiedActions: Set<IrAction>): InstalledIrProfileEntity {
         return InstalledIrProfileEntity(
             profileId = profile.id,
             displayName = profile.displayName,
@@ -348,7 +379,7 @@ class InstalledIrProfileRepository(
             verificationStatus = profile.verificationStatus.name,
             createdAtEpochMs = profile.createdAtEpochMs,
             updatedAtEpochMs = System.currentTimeMillis(),
-            lastSuccessfulUseEpochMs = System.currentTimeMillis(),
+            lastSuccessfulUseEpochMs = 0L,
             needsRevalidation = false,
             isEnabled = true
         )
@@ -358,19 +389,20 @@ class InstalledIrProfileRepository(
         profileId: String,
         action: IrAction,
         binding: IrCommandBinding,
-        profile: InstalledIrProfile
+        verificationStatus: VerificationStatus,
+        wasVerified: Boolean = false
     ): InstalledIrCommandEntity {
         return InstalledIrCommandEntity(
             profileId = profileId,
             actionKey = action.name,
             signalId = binding.signalId,
-            codeSetId = profile.codeSetId,
+            codeSetId = binding.sourceId,
             physicalSha256 = binding.physicalFingerprint,
             sourceRevisionId = binding.sourceId,
-            verificationStatus = profile.verificationStatus.name,
-            successCount = 1,
+            verificationStatus = verificationStatus.name,
+            successCount = if (wasVerified) 1 else 0,
             failureCount = 0,
-            lastSuccessEpochMs = System.currentTimeMillis(),
+            lastSuccessEpochMs = if (wasVerified) System.currentTimeMillis() else 0L,
             lastFailureEpochMs = 0L
         )
     }

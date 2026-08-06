@@ -43,3 +43,4 @@ macos-agent/.build/
 apps/mac-agent/.build/
 .agents/
 .gemini/
+__pycache__/
