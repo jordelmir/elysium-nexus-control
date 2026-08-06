@@ -2,6 +2,7 @@ package com.elysium.nexus.fabric.infrared.database
 
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
+import com.elysium.nexus.core.device.IrSignal
 
 data class DeviceSearchResult(
     val id: String,
@@ -47,6 +48,11 @@ interface IrCatalog {
     ): List<IrCodeSet>
 
     /**
+     * Retrieve single physical [IrSignal] by exact signal ID.
+     */
+    suspend fun getSignal(signalId: String): IrSignal?
+
+    /**
      * Query overall catalog statistics.
      */
     suspend fun getStats(): CatalogStats
@@ -57,7 +63,8 @@ interface IrCatalog {
  */
 class InMemoryIrCatalog(
     private val candidateMap: Map<String, List<IrCodeSet>> = emptyMap(),
-    private val devices: List<DeviceSearchResult> = emptyList()
+    private val devices: List<DeviceSearchResult> = emptyList(),
+    private val signalMap: Map<String, IrSignal> = emptyMap()
 ) : IrCatalog {
 
     override suspend fun searchBrands(query: String): List<String> {
@@ -79,6 +86,10 @@ class InMemoryIrCatalog(
         return candidateMap[brand] ?: candidateMap.entries.firstOrNull {
             it.key.equals(brand, ignoreCase = true)
         }?.value ?: emptyList()
+    }
+
+    override suspend fun getSignal(signalId: String): IrSignal? {
+        return signalMap[signalId]
     }
 
     override suspend fun getStats(): CatalogStats {
