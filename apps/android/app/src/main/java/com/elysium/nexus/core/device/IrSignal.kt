@@ -11,6 +11,7 @@ sealed interface IrSignal {
 
     /**
      * Protocol-encoded signal with address, optional sub-device, command, and repeat parameters.
+     * P0-13: codecId + variantId preserve protocol variant through to encoder.
      */
     data class Encoded(
         override val carrierHz: Int,
@@ -19,7 +20,11 @@ sealed interface IrSignal {
         val subDevice: Int? = null,
         val command: Int,
         val repeats: Int = 0,
-        val toggle: Int = 0
+        val toggle: Int = 0,
+        /** P0-13: Canonical codec ID (e.g., "NEC", "SIRC", "SAMSUNG"). Preserves identity through dispatch. */
+        val codecId: String? = null,
+        /** P0-13: Protocol variant ID (e.g., "SIRC_12", "SIRC_15", "NEC_32"). Selects encoding shape. */
+        val variantId: String? = null
     ) : IrSignal
 
     /**

@@ -79,6 +79,11 @@ android {
     }
 }
 
+// P0-12: Room schema export for migration testing
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     // No third-party deps in 0.1. See ADR-0001.
     //

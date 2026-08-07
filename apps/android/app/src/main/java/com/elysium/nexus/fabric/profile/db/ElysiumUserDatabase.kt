@@ -11,6 +11,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
 import android.content.Context
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -242,8 +243,8 @@ interface InstalledProfileDao {
         CandidatePenaltyEntity::class,
         CatalogMigrationEntity::class
     ],
-    version = 2,
-    exportSchema = false
+    version = 3,
+    exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
     abstract fun profileDao(): InstalledProfileDao
@@ -252,13 +253,23 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: ElysiumUserDatabase? = null
 
+        // P0-12: Explicit migrations. No fallbackToDestructiveMigration.
+        // v2→v3: empty migration (no schema change, but forces version bump for exportSchema)
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // No schema changes — version bump to enable exportSchema tracking.
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     ElysiumUserDatabase::class.java,
                     "elysium_user_database.db"
-                ).fallbackToDestructiveMigration().build()
+                )
+                    .addMigrations(MIGRATION_2_3)
+                    .build()
                 INSTANCE = instance
                 instance
             }

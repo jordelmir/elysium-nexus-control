@@ -11,6 +11,7 @@ import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
+import com.elysium.nexus.fabric.infrared.CodecVerificationStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -322,13 +323,20 @@ class IrCatalogRepository private constructor(
                     if (codecSpec == null) {
                         Log.w(TAG, "Unsupported codec '$codecId' for signalId=$signalId in codeSetId=$codeSetId. Skipping without NEC fallback.")
                         null
+                    } else if (codecSpec.status == CodecVerificationStatus.EXPERIMENTAL) {
+                        // P0-14: EXPERIMENTAL codecs are blocked from production signals.
+                        Log.d(TAG, "EXPERIMENTAL codec '${codecSpec.codecId}' blocked for signalId=$signalId")
+                        null
                     } else {
+                        // P0-13: Populate codecId + variantId for lossless dispatch
                         IrSignal.Encoded(
                             carrierHz = carrierHz,
                             protocol = codecSpec.protocol,
                             address = address,
                             subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command
+                            command = command,
+                            codecId = codecSpec.codecId,
+                            variantId = codecSpec.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -356,18 +364,20 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        // §7 Deterministic selection policy:
-        //   VERIFIED_LAB > VERIFIED_COMMUNITY > raw exacto del modelo > paramétrico validado >
-        //   mayor source_priority > orden estable por bindingId.
+        // P0-15: Deterministic selection policy (clear priority order):
+        //   1. VERIFIED_LAB > VERIFIED_COMMUNITY > PARTIALLY_VERIFIED > UNVERIFIED
+        //   2. RAW signals preferred over PARAMETRIC
+        //   3. Higher source_priority wins
+        //   4. Stable tie-break by bindingId (alphabetical)
         val commands = mutableMapOf<IrAction, IrSignal>()
         val commandSignalIds = mutableMapOf<IrAction, String>()
         for ((action, bindings) in allBindingsPerAction) {
-            val selected = bindings.maxWithOrNull(
-                compareBy<PendingBinding> { verificationRank(it.verificationStatus) }
-                    .thenBy { if (it.encodingType == "RAW") 1 else 0 }
+            val selected = bindings.sortedWith(
+                compareByDescending<PendingBinding> { verificationRank(it.verificationStatus) }
+                    .thenByDescending { if (it.encodingType == "RAW") 1 else 0 }
                     .thenByDescending { it.sourcePriority }
-                    .thenByDescending { it.bindingId }
-            ) ?: continue
+                    .thenBy { it.bindingId }
+            ).firstOrNull() ?: continue
             commands[action] = selected.signal
             commandSignalIds[action] = selected.signalId
         }
@@ -404,7 +414,9 @@ class IrCatalogRepository private constructor(
                             protocol = codecSpec.protocol,
                             address = address,
                             subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command
+                            command = command,
+                            codecId = codecSpec.codecId,
+                            variantId = codecSpec.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -527,7 +539,9 @@ class IrCatalogRepository private constructor(
                             protocol = it.protocol,
                             address = address,
                             subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command
+                            command = command,
+                            codecId = it.codecId,
+                            variantId = it.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {

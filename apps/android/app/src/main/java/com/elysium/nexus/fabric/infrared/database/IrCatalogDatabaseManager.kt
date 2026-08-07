@@ -90,42 +90,47 @@ class IrCatalogDatabaseManager private constructor(
         }
 
         Log.i(TAG, "Installing IR catalog database from assets to ${dbFile.absolutePath}...")
-        // §7 Install straight to the target path with overwrite, on a single open
-        // stream. IMPORTANT: never reopen the file with a bare FileOutputStream()
-        // for fsync — the default constructor truncates to 0 bytes, which silently
-        // produced an empty catalog (quick_check on an empty DB returns "ok" and the
-        // result looked "Installed" while every query then hit OS error - 2). The
-        // repository caches ONE connection opened only after this returns, so there
-        // is no concurrent reader to race against during the write.
+        // P0-16: Atomic installation — write to temp file, verify, then rename.
+        // Prevents corrupt DB if process dies during copy.
+        val tempFile = File(targetDirectory, "$DB_FILE_NAME.tmp")
         try {
             assetManager.open("ir/$DB_FILE_NAME").use { input ->
-                dbFile.outputStream().use { output ->
+                tempFile.outputStream().use { output ->
                     input.copyTo(output)
-                    // §7 fsync before the write is considered durable.
                     output.fd.sync()
                 }
             }
 
-            // §7 Verify the freshly written file is a real, non-empty, valid DB.
-            val computedHash = computeSha256(dbFile)
-            Log.i(TAG, "Database asset extracted. Size: ${dbFile.length()} bytes, SHA256: $computedHash")
+            // P0-16: Verify temp file before atomic rename
+            val computedHash = computeSha256(tempFile)
+            Log.i(TAG, "Database asset extracted to temp. Size: ${tempFile.length()} bytes, SHA256: $computedHash")
 
             if (EXPECTED_MANIFEST_HASH.isNotBlank() && computedHash != EXPECTED_MANIFEST_HASH) {
-                dbFile.delete()
+                tempFile.delete()
                 return InstallResult.Failed("Checksum mismatch: expected=$EXPECTED_MANIFEST_HASH, actual=$computedHash")
             }
 
-            if (dbFile.length() <= 0L) {
-                Log.e(TAG, "Database file is empty after copy (${dbFile.length()} bytes)")
+            if (tempFile.length() <= 0L) {
+                Log.e(TAG, "Database file is empty after copy (${tempFile.length()} bytes)")
+                tempFile.delete()
                 return InstallResult.Failed("Installed database is empty after copy")
             }
 
-            if (!verifyDatabaseIntegrity(dbFile)) {
-                dbFile.delete()
+            if (!verifyDatabaseIntegrity(tempFile)) {
+                tempFile.delete()
                 return InstallResult.Failed("Post-install integrity check failed on extracted asset")
             }
 
-            Log.i(TAG, "Successfully installed ir_catalog.db")
+            // P0-16: Atomic rename — temp → target. On Android/Linux, rename is atomic
+            // for same-filesystem moves. Old file is replaced only after temp is verified.
+            if (dbFile.exists()) dbFile.delete()
+            val renamed = tempFile.renameTo(dbFile)
+            if (!renamed) {
+                tempFile.delete()
+                return InstallResult.Failed("Atomic rename failed: temp=${tempFile.absolutePath} → target=${dbFile.absolutePath}")
+            }
+
+            Log.i(TAG, "Successfully installed ir_catalog.db (atomic swap)")
             return InstallResult.Installed(computedHash)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to install ir_catalog.db asset: ${e.message}", e)
