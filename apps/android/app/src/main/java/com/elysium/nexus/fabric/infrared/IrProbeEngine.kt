@@ -11,11 +11,31 @@ data class CandidateScore(
     val rationale: String
 )
 
+/**
+ * P1-EVIDENCE: Candidate scoring with penalty awareness.
+ * Integrates verification status, model match, command completeness,
+ * and community penalty data into a single ranking score.
+ */
 object CandidateScorer {
-    fun scoreCandidate(candidate: IrCodeSet, targetModel: String? = null): CandidateScore {
+    /**
+     * Score a candidate for ranking in the probe engine.
+     * @param candidate The code set to score
+     * @param targetModel Optional exact model name for model-match bonus
+     * @param penaltyScore Optional penalty score from CandidatePenaltyEntity (higher = worse)
+     * @param successCount Optional evidence success count for this code set
+     * @param failCount Optional evidence failure count for this code set
+     */
+    fun scoreCandidate(
+        candidate: IrCodeSet,
+        targetModel: String? = null,
+        penaltyScore: Int = 0,
+        successCount: Int = 0,
+        failCount: Int = 0
+    ): CandidateScore {
         var score = 0
         val reasons = mutableListOf<String>()
 
+        // Model match (highest priority)
         if (!targetModel.isNullOrBlank()) {
             if (candidate.modelPatterns.any { it.equals(targetModel, ignoreCase = true) }) {
                 score += 120
@@ -26,17 +46,40 @@ object CandidateScorer {
             }
         }
 
-        if (candidate.verification == VerificationStatus.VERIFIED_LAB) {
-            score += 50
-            reasons.add("+50 VERIFIED_LAB")
-        } else if (candidate.verification == VerificationStatus.VERIFIED_COMMUNITY) {
-            score += 35
-            reasons.add("+35 VERIFIED_COMMUNITY")
+        // Verification status
+        when (candidate.verification) {
+            VerificationStatus.VERIFIED_LAB -> { score += 50; reasons.add("+50 VERIFIED_LAB") }
+            VerificationStatus.VERIFIED_COMMUNITY -> { score += 35; reasons.add("+35 VERIFIED_COMMUNITY") }
+            VerificationStatus.PARTIALLY_VERIFIED -> { score += 15; reasons.add("+15 PARTIALLY_VERIFIED") }
+            else -> {}
         }
 
+        // Command completeness
         if (candidate.commands.size >= 4) {
             score += 30
             reasons.add("+30 complete remote (${candidate.commands.size} bindings)")
+        } else if (candidate.commands.size >= 2) {
+            score += 10
+            reasons.add("+10 partial remote (${candidate.commands.size} bindings)")
+        }
+
+        // P1-EVIDENCE: Community evidence adjustments
+        if (successCount > 0) {
+            val bonus = (successCount * 15).coerceAtMost(60)
+            score += bonus
+            reasons.add("+$bonus evidence success×$successCount")
+        }
+        if (failCount > 0) {
+            val penalty = (failCount * 10).coerceAtMost(40)
+            score -= penalty
+            reasons.add("-$penalty evidence fail×$failCount")
+        }
+
+        // P1-PENALTY: Candidate penalty from repeated failures
+        if (penaltyScore > 0) {
+            val adjusted = penaltyScore.coerceAtMost(80)
+            score -= adjusted
+            reasons.add("-$adjusted penalty(${penaltyScore})")
         }
 
         return CandidateScore(candidate.id, score, reasons.joinToString(", "))
@@ -47,16 +90,24 @@ object CandidateScorer {
  * Ranked IR Candidate Probe Engine for physical connection probing.
  *
  * Implements [IrAction.VOLUME_UP] probing to give immediate visual feedback on TV OSD,
- * ranks candidates by [CandidateScorer] scoring, deduplicates candidates by signal fingerprint,
+ * ranks candidates by [CandidateScorer] scoring (with penalty/evidence awareness),
+ * deduplicates candidates by signal fingerprint,
  * and ensures every probe attempt advances to a distinct candidate code set.
  */
 class IrProbeEngine(
     rawCandidates: List<IrCodeSet>,
-    targetModel: String? = null
+    targetModel: String? = null,
+    /** P1-EVIDENCE: Penalty scores per codeSetId from CandidatePenaltyEntity */
+    private val penaltyMap: Map<String, Int> = emptyMap(),
+    /** P1-EVIDENCE: Success counts per codeSetId from CompatibilityEvidenceEntity */
+    private val successMap: Map<String, Int> = emptyMap(),
+    /** P1-EVIDENCE: Failure counts per codeSetId from CompatibilityEvidenceEntity */
+    private val failMap: Map<String, Int> = emptyMap()
 ) {
     /**
      * Distinct candidate code sets containing a [IrAction.VOLUME_UP] command,
-     * deduplicated by signal fingerprint and ordered by [CandidateScorer] ranking score.
+     * deduplicated by signal fingerprint and ordered by [CandidateScorer] ranking score
+     * (incorporating penalty and evidence data).
      */
     val candidates: List<IrCodeSet> = rawCandidates
         .filter { IrAction.VOLUME_UP in it.commands }
@@ -64,7 +115,15 @@ class IrProbeEngine(
             val signal = candidate.commands.getValue(IrAction.VOLUME_UP)
             fingerprintSignal(signal)
         }
-        .sortedByDescending { CandidateScorer.scoreCandidate(it, targetModel).score }
+        .sortedByDescending {
+            CandidateScorer.scoreCandidate(
+                it,
+                targetModel,
+                penaltyScore = penaltyMap[it.id] ?: 0,
+                successCount = successMap[it.id] ?: 0,
+                failCount = failMap[it.id] ?: 0
+            ).score
+        }
 
     private var currentIndex = 0
 

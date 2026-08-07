@@ -26,5 +26,21 @@ enum class IrAction(val displayNameEs: String, val displayNameEn: String) {
     MENU("Menú", "Menu"),
     PLAY("Reproducir", "Play"),
     PAUSE("Pausar", "Pause"),
-    STOP("Detener", "Stop")
+    STOP("Detener", "Stop"),
+    NUM_0("0", "0"),
+    NUM_1("1", "1"),
+    NUM_2("2", "2"),
+    NUM_3("3", "3"),
+    NUM_4("4", "4"),
+    NUM_5("5", "5"),
+    NUM_6("6", "6"),
+    NUM_7("7", "7"),
+    NUM_8("8", "8"),
+    NUM_9("9", "9"),
+    NUM_DASH("-", "-"),
+    NUM_PLUS("+", "+"),
+    INFO("Info", "Info"),
+    LAST_CHANNEL("Último Canal", "Last Channel"),
+    NETFLIX("Netflix", "Netflix"),
+    YOUTUBE("YouTube", "YouTube")
 }

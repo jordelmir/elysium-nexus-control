@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeOff
@@ -117,6 +120,7 @@ fun TvControlScreen(
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
+    var showFullRemote by remember { mutableStateOf(true) }
     var transmitStatusText by remember { mutableStateOf<String?>(null) }
     var isStatusError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -186,11 +190,25 @@ fun TvControlScreen(
                 if (transmitStatusText != null) {
                     NeonStatusPill(label = transmitStatusText!!, color = if (isStatusError) ElysiumColors.NeonOrange else ElysiumColors.NeonGreen)
                 }
-                Box(
-                    modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonPurple.copy(alpha = 0.6f)).clickable { showHelp = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.HelpOutline, contentDescription = "Ayuda", tint = Color.White, modifier = Modifier.size(22.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Toggle grid / full remote
+                    Box(
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonCyan.copy(alpha = 0.6f)).clickable { showFullRemote = !showFullRemote },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (showFullRemote) Icons.Filled.GridView else Icons.Filled.SettingsRemote,
+                            contentDescription = if (showFullRemote) "Vista grid" else "Control completo",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(ElysiumColors.NeonPurple.copy(alpha = 0.6f)).clickable { showHelp = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.HelpOutline, contentDescription = "Ayuda", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
 
@@ -234,6 +252,31 @@ fun TvControlScreen(
                         }
                     }
 
+                    // === BUTTON AREA ===
+                    if (showFullRemote) {
+                        FullRemoteLayout(
+                            profile = profile,
+                            onAction = { action ->
+                                val buttonModel = effectiveButtons.firstOrNull { it.action == action }
+                                if (buttonModel != null) {
+                                    val result = sendProfileCommand(catalogRepo, irTransmitter, profile, buttonModel)
+                                    when (result) {
+                                        is IrTransmitResult.Success -> { isStatusError = false; transmitStatusText = "Enviado: ${buttonModel.label}" }
+                                        is IrTransmitResult.NoEmitter -> { isStatusError = true; transmitStatusText = "Sin emisor IR" }
+                                        is IrTransmitResult.PermissionDenied -> { isStatusError = true; transmitStatusText = "Permiso denegado" }
+                                        is IrTransmitResult.UnsupportedCarrier -> { isStatusError = true; transmitStatusText = "Frecuencia no soportada" }
+                                        is IrTransmitResult.InvalidPattern -> { isStatusError = true; transmitStatusText = "Error: ${result.reason}" }
+                                        is IrTransmitResult.Busy -> { isStatusError = true; transmitStatusText = "Emisor ocupado" }
+                                        is IrTransmitResult.PlatformFailure -> { isStatusError = true; transmitStatusText = "Error Android" }
+                                    }
+                                } else {
+                                    isStatusError = true
+                                    transmitStatusText = "Acción $action no disponible en este perfil"
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize().padding(horizontal = info.sidePadding, vertical = 4.dp)
+                        )
+                    } else {
                     // === BUTTON GRID ===
                     val columns = when (info.size) {
                         com.elysium.nexus.ui.responsive.ScreenSize.Compact -> 4
@@ -267,6 +310,7 @@ fun TvControlScreen(
                                 }
                             }
                         )
+                    }
                     }
                     }
                 }
@@ -364,10 +408,26 @@ private fun mapButtonToIrAction(buttonId: String): IrAction? = when (buttonId) {
     "menu" -> IrAction.MENU
     "home" -> IrAction.HOME
     "back" -> IrAction.BACK
-    "play" -> IrAction.PLAY
+    "play", "play_pause" -> IrAction.PLAY
     "pause" -> IrAction.PAUSE
     "stop" -> IrAction.STOP
     "source", "input" -> IrAction.INPUT
+    "n1" -> IrAction.NUM_1
+    "n2" -> IrAction.NUM_2
+    "n3" -> IrAction.NUM_3
+    "n4" -> IrAction.NUM_4
+    "n5" -> IrAction.NUM_5
+    "n6" -> IrAction.NUM_6
+    "n7" -> IrAction.NUM_7
+    "n8" -> IrAction.NUM_8
+    "n9" -> IrAction.NUM_9
+    "n0" -> IrAction.NUM_0
+    "dash" -> IrAction.NUM_DASH
+    "plus" -> IrAction.NUM_PLUS
+    "info" -> IrAction.INFO
+    "last" -> IrAction.LAST_CHANNEL
+    "netflix" -> IrAction.NETFLIX
+    "youtube" -> IrAction.YOUTUBE
     else -> null
 }
 

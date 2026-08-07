@@ -169,10 +169,11 @@ fun IrConnectFlow(
     // TV code sets in the catalog so every tap tests a new candidate.
     val isUniversalSweep = template.id == "tv-universal-generic"
 
-    // Async SQLite Candidate Loading
+    // Async SQLite Candidate Loading + P1-EVIDENCE: penalty/evidence data
     LaunchedEffect(template) {
         probeUiState = ProbeUiState.LoadingCatalog
         val repo = IrCatalogRepository.getInstance(context)
+        val profileRepo = InstalledIrProfileRepository(context)
         val sqliteCandidates = if (isUniversalSweep) {
             repo.getAllCandidates(
                 deviceType = "TV",
@@ -187,11 +188,39 @@ fun IrConnectFlow(
             )
         }
 
+        // P1-EVIDENCE: Load penalty and evidence data from Room
+        val penaltyMap = mutableMapOf<String, Int>()
+        val successMap = mutableMapOf<String, Int>()
+        val failMap = mutableMapOf<String, Int>()
+        try {
+            val db = com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(context)
+            // Load penalties
+            val penalties = db.profileDao().getTopPenalties(100)
+            for (p in penalties) {
+                penaltyMap[p.codeSetId] = p.penaltyScore
+            }
+            // Load evidence counts per codeSet
+            for (cs in sqliteCandidates) {
+                val successEvidence = db.profileDao().getSuccessfulEvidence(cs.id, "VOLUME_UP")
+                if (successEvidence.isNotEmpty()) {
+                    successMap[cs.id] = successEvidence.size
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load penalty/evidence data: ${e.message}")
+        }
+
         if (sqliteCandidates.isNotEmpty()) {
-            val engine = IrProbeEngine(sqliteCandidates, targetModel)
+            val engine = IrProbeEngine(
+                rawCandidates = sqliteCandidates,
+                targetModel = targetModel,
+                penaltyMap = penaltyMap,
+                successMap = successMap,
+                failMap = failMap
+            )
             if (engine.totalCandidates > 0) {
                 probeUiState = ProbeUiState.Ready(engine)
-                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel")
+                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel, penalties=${penaltyMap.size}, evidence=${successMap.size}")
             } else {
                 probeUiState = ProbeUiState.NoCompatibleCandidates
                 Log.w(TAG, "SQLite returned ${sqliteCandidates.size} code sets but none had VOLUME_UP after dedup")
@@ -259,6 +288,48 @@ fun IrConnectFlow(
         isAutoScanning = false
         autoScanJob?.cancel()
         autoScanJob = null
+    }
+
+    // P1-EVIDENCE: Record when a candidate is rejected by the user
+    fun recordCandidateRejection(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+        scope.launch {
+            try {
+                val profileRepo = InstalledIrProfileRepository(context)
+                profileRepo.penalizeCandidate(
+                    codeSetId = candidate.id,
+                    reason = "user_rejected_vup"
+                )
+                profileRepo.recordCompatibilityEvidence(
+                    codeSetId = candidate.id,
+                    brand = candidate.brand,
+                    deviceType = "TV",
+                    actionKey = "VOLUME_UP",
+                    success = false,
+                    source = "local_probe_rejection"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to record rejection evidence: ${e.message}")
+            }
+        }
+    }
+
+    // P1-EVIDENCE: Record when a candidate is confirmed by the user
+    fun recordCandidateConfirmation(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+        scope.launch {
+            try {
+                val profileRepo = InstalledIrProfileRepository(context)
+                profileRepo.recordCompatibilityEvidence(
+                    codeSetId = candidate.id,
+                    brand = candidate.brand,
+                    deviceType = "TV",
+                    actionKey = "VOLUME_UP",
+                    success = true,
+                    source = "local_probe_confirmation"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to record confirmation evidence: ${e.message}")
+            }
+        }
     }
 
     fun buildAndPersistInstalledProfile(winnerCandidate: com.elysium.nexus.core.device.IrCodeSet, verifiedActions: Set<IrAction>): InstalledIrProfile? {
@@ -429,6 +500,9 @@ fun IrConnectFlow(
                                     },
                                     onNextCandidate = {
                                         if (isAutoScanning) return@TestStep
+                                        // P1-EVIDENCE: Record rejection before advancing
+                                        val rejected = engine.currentCandidate()
+                                        if (rejected != null) recordCandidateRejection(rejected)
                                         engine.nextCandidate()
                                         lastProbedCandidate = engine.currentCandidate()
                                         currentResult = null
@@ -450,6 +524,9 @@ fun IrConnectFlow(
                                         }
                                     },
                                     onNo = {
+                                        // P1-EVIDENCE: Record rejection on challenge failure
+                                        val rejected = engine.currentCandidate()
+                                        if (rejected != null) recordCandidateRejection(rejected)
                                         // Challenge failed — the re-transmit didn't work. Try next.
                                         engine.nextCandidate()
                                         currentResult = null
