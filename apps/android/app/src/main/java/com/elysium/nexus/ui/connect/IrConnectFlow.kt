@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -66,6 +68,8 @@ import com.elysium.nexus.ui.theme.NeonChip
 import com.elysium.nexus.ui.theme.NeonFab
 import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonStatusPill
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -148,32 +152,47 @@ fun IrConnectFlow(
     var currentAttempt by remember { mutableStateOf<ProbeAttempt?>(null) }
     var currentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var verifiedActions by remember { mutableStateOf<Set<IrAction>>(emptySet()) }
+    var autoScanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var isAutoScanning by remember { mutableStateOf(false) }
+    var lastProbedCandidate by remember { mutableStateOf<com.elysium.nexus.core.device.IrCodeSet?>(null) }
 
     // §6 Pass targetModel for real ranking
     val targetModel = template.model
+
+    // "Control Universal" is the first card: sweep ALL production-approved
+    // TV code sets in the catalog so every tap tests a new candidate.
+    val isUniversalSweep = template.id == "tv-universal-generic"
 
     // Async SQLite Candidate Loading
     LaunchedEffect(template) {
         probeUiState = ProbeUiState.LoadingCatalog
         val repo = IrCatalogRepository.getInstance(context)
-        val sqliteCandidates = repo.getCandidatesForBrand(
-            brand = template.brand,
-            deviceType = "",
-            action = IrAction.VOLUME_UP
-        )
+        val sqliteCandidates = if (isUniversalSweep) {
+            repo.getAllCandidates(
+                deviceType = "TV",
+                action = IrAction.VOLUME_UP,
+                limit = 400
+            )
+        } else {
+            repo.getCandidatesForBrand(
+                brand = template.brand,
+                deviceType = "",
+                action = IrAction.VOLUME_UP
+            )
+        }
 
         if (sqliteCandidates.isNotEmpty()) {
             val engine = IrProbeEngine(sqliteCandidates, targetModel)
             if (engine.totalCandidates > 0) {
                 probeUiState = ProbeUiState.Ready(engine)
-                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand}, targetModel=$targetModel")
+                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel")
             } else {
                 probeUiState = ProbeUiState.NoCompatibleCandidates
                 Log.w(TAG, "SQLite returned ${sqliteCandidates.size} code sets but none had VOLUME_UP after dedup")
             }
         } else {
             probeUiState = ProbeUiState.NoCompatibleCandidates
-            Log.w(TAG, "No SQLite candidates found for brand=${template.brand}. Zero fallbacks.")
+            Log.w(TAG, "No SQLite candidates found for brand=${template.brand} (universal=$isUniversalSweep). Zero fallbacks.")
         }
     }
 
@@ -205,6 +224,35 @@ fun IrConnectFlow(
                 }
             }
         }
+    }
+
+    // §38 Auto-sweep: transmit candidate N, pause, advance, repeat until the
+    // user confirms or candidates are exhausted. Every stop leaves the engine
+    // positioned on the LAST transmitted candidate (never a stuck state).
+    fun startAutoScan(engine: IrProbeEngine) {
+        if (isAutoScanning) return
+        isAutoScanning = true
+        currentResult = null
+        autoScanJob?.cancel()
+        autoScanJob = scope.launch {
+            while (isActive) {
+                val candidate = engine.currentCandidate() ?: break
+                lastProbedCandidate = candidate
+                sendTestAction(candidate, IrAction.VOLUME_UP)
+                // Give the TV OSD time to react before the next candidate.
+                delay(3_500)
+                if (!engine.hasMore) break
+                engine.nextCandidate()
+            }
+            isAutoScanning = false
+            autoScanJob = null
+        }
+    }
+
+    fun stopAutoScan() {
+        isAutoScanning = false
+        autoScanJob?.cancel()
+        autoScanJob = null
     }
 
     fun buildAndPersistInstalledProfile(winnerCandidate: com.elysium.nexus.core.device.IrCodeSet, verifiedActions: Set<IrAction>): InstalledIrProfile? {
@@ -352,17 +400,35 @@ fun IrConnectFlow(
                                     template = template,
                                     probeEngine = engine,
                                     lastResult = currentResult,
+                                    isAutoScanning = isAutoScanning,
                                     onSendTest = {
+                                        if (isAutoScanning) {
+                                            // During sweep the user only stops; taps are confirmations.
+                                            return@TestStep
+                                        }
                                         val candidate = engine.currentCandidate() ?: return@TestStep
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
                                     },
-                                    onDidWork = { step = IrStep.CONFIRM },
+                                    onDidWork = {
+                                        // §38 Whichever candidate the sweep last transmitted
+                                        // (or the current one in manual mode) is the winner.
+                                        val winner = lastProbedCandidate ?: engine.currentCandidate()
+                                        if (winner != null) {
+                                            stopAutoScan()
+                                            engine.selectById(winner.id)
+                                            step = IrStep.CONFIRM
+                                        }
+                                    },
                                     onNextCandidate = {
+                                        if (isAutoScanning) return@TestStep
                                         engine.nextCandidate()
+                                        lastProbedCandidate = engine.currentCandidate()
                                         currentResult = null
                                         val candidate = engine.currentCandidate() ?: return@TestStep
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
                                     },
+                                    onStartAutoScan = { startAutoScan(engine) },
+                                    onStopAutoScan = { stopAutoScan() },
                                     hasIrBlaster = hasIrBlaster
                                 )
                                 IrStep.CONFIRM -> ConfirmStep(
@@ -566,9 +632,12 @@ private fun TestStep(
     template: DeviceTemplate,
     probeEngine: IrProbeEngine,
     lastResult: IrTransmitResult?,
+    isAutoScanning: Boolean,
     onSendTest: () -> Unit,
     onDidWork: () -> Unit,
     onNextCandidate: () -> Unit,
+    onStartAutoScan: () -> Unit,
+    onStopAutoScan: () -> Unit,
     hasIrBlaster: Boolean
 ) {
     val currentCand = probeEngine.currentCandidate()
@@ -576,7 +645,11 @@ private fun TestStep(
 
     NeonCard(modifier = Modifier.fillMaxWidth(), accent = ElysiumColors.NeonPurple, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Prueba de Volumen — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
+            Text(
+                if (isAutoScanning) "Barrido Automático Activo — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}"
+                else "Prueba de Volumen — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}",
+                style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface
+            )
             Text(
                 "Perfil: ${currentCand?.brand ?: template.brand} (${currentCand?.id?.take(12) ?: "?"})\n" +
                 "Acción: VOLUME_UP\n" +
@@ -601,10 +674,17 @@ private fun TestStep(
                 NeonStatusPill(label = resultText, color = color)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NeonChip(label = "Sí, subió el volumen", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
-                if (probeEngine.hasMore) {
-                    NeonChip(label = "No / Siguiente", onClick = onNextCandidate, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
+            if (isAutoScanning) {
+                // §38 While sweeping: one big action — stop and confirm.
+                NeonChip(label = "¡Funcionó! Detener barrido", onClick = onDidWork, accent = ElysiumColors.NeonGreen, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
+                NeonChip(label = "Pausar barrido", onClick = onStopAutoScan, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Pause, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
+            } else {
+                NeonChip(label = "▶ Barrido automático (probar todas las marcas)", onClick = onStartAutoScan, accent = ElysiumColors.NeonCyan, icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NeonChip(label = "Sí, subió el volumen", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                    if (probeEngine.hasMore) {
+                        NeonChip(label = "No / Siguiente", onClick = onNextCandidate, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }

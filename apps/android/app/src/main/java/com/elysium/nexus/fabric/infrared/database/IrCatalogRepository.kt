@@ -151,6 +151,70 @@ class IrCatalogRepository private constructor(
         results
     }
 
+    override suspend fun getAllCandidates(
+        deviceType: String,
+        action: IrAction,
+        limit: Int
+    ): List<IrCodeSet> = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val actionKey = action.name
+        val results = mutableListOf<IrCodeSet>()
+
+        val query = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
+            FROM code_sets cs
+            JOIN remotes r ON cs.remote_id = r.id
+            JOIN brands b ON r.brand_id = b.id
+            JOIN device_types dt ON r.device_type_id = dt.id
+            JOIN source_revisions sr ON cs.source_revision_id = sr.id
+            JOIN sources s ON sr.source_id = s.id
+            JOIN command_bindings cb ON cb.code_set_id = cs.id
+            JOIN actions a ON cb.action_id = a.id
+            WHERE a.canonical_key = ?
+              AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
+              AND s.production_approved = 1
+            GROUP BY cs.id
+            ORDER BY b.display_name, cs.id
+            LIMIT ?
+        """.trimIndent()
+
+        val devTypeArg = deviceType.trim()
+        database.rawQuery(query, arrayOf(actionKey, "$devTypeArg%", devTypeArg, limit.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                val csId = cursor.getString(0)
+                val brandName = cursor.getString(1) ?: "Desconocido"
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+
+                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                    results.add(
+                        IrCodeSet(
+                            id = csId,
+                            brand = brandName,
+                            modelPatterns = setOf(remoteModel),
+                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                            commands = codeSetResult.commands,
+                            commandSignalIds = codeSetResult.commandSignalIds,
+                            commandBindings = codeSetResult.commandBindings,
+                            provenance = CodeProvenance(
+                                sourceName = sourceName,
+                                sourceUrl = "",
+                                licenseSpdx = licenseSpdx
+                            ),
+                            verification = VerificationStatus.UNVERIFIED
+                        )
+                    )
+                }
+            }
+        }
+
+        Log.d(TAG, "getAllCandidates(deviceType=$deviceType, action=$actionKey): ${results.size} Code Sets across all brands")
+        results
+    }
+
     private data class PendingBinding(
         val action: IrAction,
         val signal: IrSignal,

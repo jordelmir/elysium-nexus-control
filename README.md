@@ -1,11 +1,12 @@
 # Elysium Nexus Universal Controller
 
-> **v0.3.0-ir-fabric-rc1** · A platform that turns any Android phone into a **universal, professional, dynamic control surface** for desktop, mobile, console, IoT, and infrared-controlled devices.
+> **v0.5.0-engineering-preview** · A platform that turns any Android phone into a **universal, professional, dynamic control surface** for desktop, mobile, console, IoT, and infrared-controlled devices.
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-772%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-780%20passed-brightgreen)]()
 [![Lint](https://img.shields.io/badge/lint-0%20errors-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.3.0--ir--fabric--rc1-blue)]()
+[![Device Verified](https://img.shields.io/badge/verified-dimoru-magic--v2-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-0.5.0--engineering--preview-blue)]()
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)]()
 
 ```
@@ -19,7 +20,7 @@
 │  └──────────┘  └──────────┘  └──────────┘   │
 │  ┌──────────────────────────────────────┐    │
 │  │         IR Remote Control            │    │
-│  │   915 brands · 108,681 commands      │    │
+│  │   1,976 code sets · 36,317 commands  │    │
 │  └──────────────────────────────────────┘    │
 └──────────────────────────────────────────────┘
         │              │                 ▲
@@ -35,13 +36,14 @@
 
 ## Features
 
-### 🔴 Infrared Universal Remote — IR Data Fabric v0.3.0
-- **915 brands**, **37 device types**, **2,394 code sets**, **108,681 verified IR commands** in a local-first SQLite catalog (26.62 MB).
-- **7 supported protocols**: NEC, NECx, Samsung32, Sony SIRC (12/15/20), RC5, RC6, Kaseikyo/Panasonic — all with golden vector verified encoders.
+### 🔴 Infrared Universal Remote — IR Data Fabric v0.5.0
+- **812 brands**, **45 device types**, **1,976 code sets**, **36,317 verified IR commands** in a local-first SQLite catalog (Schema v4, ~19.7 MB). Curated seeds for `Kintech`, `Universal TV` and `Control Universal TV` verified end-to-end on the lab Honor Magic V2.
+- **7 supported protocols**: NEC, NECx, Samsung32, Sony SIRC (12/15/20), RC5, RC6, Kaseikyo/Panasonic — all with golden vector verified encoders + 13 parametric codecs.
 - **Smart probing engine**: Automatic brand/model detection via sequential candidate testing with physical SHA-256 signal fingerprinting.
 - **Persistent winner profiles**: Once a working code set is confirmed, it's saved locally and survives app restarts, updates, and device reboots.
 - **Strict protocol resolution**: Fail-closed `ProtocolResolution.Unsupported` — zero silent NEC fallbacks.
 - **Immutable supply chain**: 5 upstream IR repositories locked to exact commit SHAs with cryptographic license verification.
+- **Checksum-refreshed catalog**: the packaged DB is reinstalled atomically when the asset SHA drifts (survives in-place `adb install -r` upgrades).
 
 ### 🖥️ USB-C Direct Mac Screen Replacement
 - **60 FPS ultra-low latency** headless Mac control over USB-C cable (`127.0.0.1:7878`).
@@ -85,6 +87,9 @@ bash tools/ir-data/bootstrap-sources.sh --locked
 # Build production catalog (excludes gated sources)
 python3 tools/ir-data/build_catalog.py --profile production
 
+# Seed curated universally-resolvable brands (Kintech, Universal TV, …)
+python3 tools/ir-data/seed_curated_brands_v4.py
+
 # Verify supply chain integrity
 python3 tools/ir-data/verify_source_locks.py
 ```
@@ -95,7 +100,7 @@ python3 tools/ir-data/verify_source_locks.py
 
 | Component | Language | Min API | Target API | Tests | Status |
 |-----------|----------|---------|------------|-------|--------|
-| Android Controller | Kotlin 2.2.21 | 26 | 34 | 772 | ✅ Green |
+| Android Controller | Kotlin 2.2.21 | 26 | 34 | 780 | ✅ Green |
 | Mac Agent | Swift | macOS 12+ | — | — | ✅ Functional |
 | IR Data Pipeline | Python 3 | — | — | — | ✅ Production |
 | Desktop Agents | — | — | — | — | 🔲 Phase 3 |
@@ -111,13 +116,14 @@ python3 tools/ir-data/verify_source_locks.py
 | **Kotlin source files** | 194 |
 | **Kotlin production LoC** | 41,586 |
 | **Kotlin test LoC** | 12,827 |
-| **Python tooling LoC** | 2,336 |
-| **JVM unit tests** | 772 (100% green) |
+| **JVM unit tests** | 780 (100% green) |
+| **Instrumented tests** | Release Blocker + catalog (green on Honor V2) |
 | **Lint errors** | 0 |
 | **APK size (debug)** | 73 MB |
-| **IR catalog size** | 26.62 MB |
-| **IR brands** | 915 |
-| **IR commands** | 108,681 |
+| **IR catalog size** | ~19 MB |
+| **IR code sets** | 1,976 |
+| **IR command bindings** | 36,317 |
+| **IR brands** | 812 |
 
 ---
 
@@ -214,10 +220,10 @@ All locks verified via `verify_source_locks.py` with 40-hex SHA commit, tree, an
 | 1.0 | Room + Compose UI | ✅ |
 | 1.1–1.24 | Profile editor, gestures, motion, haptics, transports, settings, CI | ✅ |
 | ULT.0–ULT.13 | Fabric foundation, hierarchy, BT HID, foldable, media keys, IR protocols | ✅ |
-| IR Fabric | Local-first SQLite IR catalog (108,681 commands, 915 brands) | ✅ |
-| **IR v0.3.0-rc1** | **8 P0 defects fixed, strict protocol resolution, supply chain locking** | ✅ |
+| IR Fabric | Local-first SQLite IR catalog (Schema v4, 1,976 code sets) | ✅ |
+| **IR v0.5.0-preview** | **Authoritative signal path, release-blocker tests, Kintech verified on-device** | ✅ |
 
-All 48 phase changelogs are in [`docs/changelogs/`](docs/changelogs/).
+All 51 phase changelogs are in [`docs/changelogs/`](docs/changelogs/).
 
 ---
 

@@ -84,4 +84,47 @@ class IrProbeEngineTest {
         assertFalse(engine.hasMore)
         assertNull(engine.nextCandidate())
     }
+
+    @Test
+    fun `IrProbeEngine selects a previously transmitted candidate by ID`() {
+        val cs1 = mockCodeSet("cs1", 0x00, 0x07)
+        val cs2 = mockCodeSet("cs2", 0x04, 0x07)
+        val cs3 = mockCodeSet("cs3", 0x08, 0x07)
+
+        val engine = IrProbeEngine(listOf(cs1, cs2, cs3))
+
+        // §38 Auto-sweep: capture the candidate, transmit, THEN advance.
+        assertEquals("cs1", engine.currentCandidate()?.id)
+        engine.nextCandidate()
+        assertEquals("cs2", engine.currentCandidate()?.id)
+
+        // The user confirms the LAST transmitted candidate (cs1) while the
+        // engine already moved ahead; re-position must recover it.
+        val repositioned = engine.selectById("cs1")
+        assertTrue(repositioned)
+        assertEquals("cs1", engine.currentCandidate()?.id)
+        assertEquals(1, engine.currentProbeNumber)
+    }
+
+    @Test
+    fun `IrProbeEngine selectById is a no-op for unknown candidate`() {
+        val cs1 = mockCodeSet("cs1", 0x00, 0x07)
+        val engine = IrProbeEngine(listOf(cs1))
+
+        assertFalse(engine.selectById("nope"))
+        assertEquals("cs1", engine.currentCandidate()?.id)
+    }
+
+    @Test
+    fun `IrProbeEngine universal sweep respects totalCandidates ceiling`() {
+        // 400 universal candidates with DISTINCT fingerprints stay reachable one-by-one.
+        val many = (0 until 400).map { mockCodeSet("cs_$it", it * 17 + 1, 0x07) }
+        val engine = IrProbeEngine(many)
+        assertEquals(400, engine.totalCandidates)
+
+        engine.nextCandidate()
+        engine.nextCandidate()
+        assertEquals(3, engine.currentProbeNumber)
+        assertTrue(engine.hasMore)
+    }
 }

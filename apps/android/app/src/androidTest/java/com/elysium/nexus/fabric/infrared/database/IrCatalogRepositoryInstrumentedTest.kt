@@ -83,4 +83,49 @@ class IrCatalogRepositoryInstrumentedTest {
         assertTrue("Search for 'Samsung' must return device results", results.isNotEmpty())
         assertTrue("Result brand must contain 'Samsung'", results.first().brand.contains("Samsung", ignoreCase = true))
     }
+
+    @Test
+    fun sankeyNowOffersMultipleCodeSetsForAutoSweep() = runBlocking {
+        val candidates = repository.getCandidatesForBrand(
+            brand = "Sankey",
+            deviceType = "",
+            action = IrAction.VOLUME_UP
+        )
+
+        assertTrue(
+            "Sankey must expose 5 variants (flipper + 4 seeded templates) for the sweep, got ${candidates.size}",
+            candidates.size >= 5
+        )
+
+        val distinctNecAddresses = candidates.mapNotNull { cs ->
+            (cs.commands[IrAction.VOLUME_UP] as? IrSignal.Encoded)?.address
+        }.distinct()
+        assertTrue(
+            "Sankey sweep must include the seeded template NEC addresses (0x00, 4, 8, 64): $distinctNecAddresses",
+            distinctNecAddresses.containsAll(listOf(0x00, 0x04, 0x08, 0x40))
+        )
+    }
+
+    @Test
+    fun universalSweepReturnsCandidatesAcrossEveryBrand() = runBlocking {
+        // §38 "Control Universal" = sweep the whole production-approved TV catalog.
+        val all = repository.getAllCandidates(
+            deviceType = "TV",
+            action = IrAction.VOLUME_UP,
+            limit = 400
+        )
+
+        assertTrue("Universal sweep must return a large cross-brand pool", all.size >= 100)
+        val brands = all.map { it.brand }.distinct()
+        assertTrue("Universal sweep must include multiple brands, got ${brands.size}", brands.size >= 5)
+        assertTrue("Universal sweep must include Sankey", brands.contains("Sankey"))
+        assertTrue("Universal sweep must include Kintech", brands.contains("Kintech"))
+
+        all.forEach { cs ->
+            val sig = cs.commands[IrAction.VOLUME_UP] ?: error("Candidate ${cs.id} missing VOLUME_UP")
+            assertNotNull("VOLUME_UP signalId must exist for ${cs.id}", cs.commandSignalIds[IrAction.VOLUME_UP])
+            val fp = IrProbeEngine.fingerprintSignal(sig)
+            assertTrue("Fingerprint must be non-empty for ${cs.id}", fp.isNotBlank())
+        }
+    }
 }

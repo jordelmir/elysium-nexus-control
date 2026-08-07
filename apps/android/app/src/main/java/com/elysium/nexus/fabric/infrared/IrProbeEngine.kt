@@ -88,6 +88,19 @@ class IrProbeEngine(
         currentIndex = 0
     }
 
+    /**
+     * Re-position the probe on a specific candidate by ID.
+     * Used by the auto-sweep: the user confirms the LAST transmitted
+     * candidate, so the engine must point at it before verification.
+     * Returns false if no candidate matches (position unchanged).
+     */
+    fun selectById(candidateId: String): Boolean {
+        val idx = candidates.indexOfFirst { it.id == candidateId }
+        if (idx < 0) return false
+        currentIndex = idx
+        return true
+    }
+
     companion object {
         fun fingerprintSignal(signal: IrSignal): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")

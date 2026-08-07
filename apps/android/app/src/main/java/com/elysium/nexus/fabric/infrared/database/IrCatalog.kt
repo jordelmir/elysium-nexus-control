@@ -61,6 +61,17 @@ interface IrCatalog {
     ): List<IrCodeSet>
 
     /**
+     * Universal sweep: query ALL production-approved code sets of a device
+     * type that contain [action], across every brand in the catalog.
+     * Powers the "Control Universal" auto-sweep experience.
+     */
+    suspend fun getAllCandidates(
+        deviceType: String = "TV",
+        action: IrAction = IrAction.VOLUME_UP,
+        limit: Int = 400
+    ): List<IrCodeSet>
+
+    /**
      * Retrieve single physical [IrSignal] by exact signal ID.
      */
     suspend fun getSignal(signalId: String): IrSignal?
@@ -114,6 +125,16 @@ class InMemoryIrCatalog(
         return candidateMap[brand] ?: candidateMap.entries.firstOrNull {
             it.key.equals(brand, ignoreCase = true)
         }?.value ?: emptyList()
+    }
+
+    override suspend fun getAllCandidates(
+        deviceType: String,
+        action: IrAction,
+        limit: Int
+    ): List<IrCodeSet> {
+        return candidateMap.values.flatten()
+            .filter { action in it.commands }
+            .take(limit)
     }
 
     override suspend fun getSignal(signalId: String): IrSignal? {
