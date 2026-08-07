@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.cyclonedx)
 }
 
 android {
@@ -35,12 +36,13 @@ android {
             isMinifyEnabled = false
         }
         release {
-            // We do not sign release builds until Phase 4+. A release
-            // build is a "this would package, but you have not provided
-            // a keystore" build. That's intentional — the project does
-            // not target Play Store (§1 of AGENTS.md), and we have no
-            // signing identity to claim.
-            isMinifyEnabled = false
+            // R8 minification + resource shrinking for release builds.
+            // Signing uses the debug keystore until a proper release
+            // identity is provisioned. The proguard-rules.pro file
+            // contains keep rules for Room, Coroutines, Compose, and
+            // enum serialization.
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
