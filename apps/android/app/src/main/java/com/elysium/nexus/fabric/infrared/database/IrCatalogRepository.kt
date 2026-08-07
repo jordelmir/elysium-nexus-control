@@ -13,7 +13,6 @@ import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.Inflater
@@ -52,26 +51,34 @@ class IrCatalogRepository private constructor(
         }
     }
 
+    /**
+     * §7 The catalog is installed exactly once per process and a single read-only
+     * connection is cached for its lifetime. Never open a fresh connection per
+     * query: the manager replaces the on-disk file (delete + re-copy) when the
+     * asset hash drifts, which orphans any previously opened descriptor and
+     * surfaces as "no such table: code_sets / brands (OS error - 2)" on the next
+     * prepare. The connection is only opened AFTER a successful install, so the
+     * replace window can never overlap a live connection.
+     */
+    private val databaseLock = Any()
+    private var database: SQLiteDatabase? = null
+
     private fun getDatabase(): SQLiteDatabase {
-        val manager = IrCatalogDatabaseManager.getInstance(context)
-        val dbFile = manager.databaseFile
-        if (!dbFile.exists() || dbFile.length() == 0L) {
-            val assetManager = context.assets
-            val targetDir = manager.targetDirectory
-            val tmpFile = File(targetDir, "ir_catalog.db.tmp")
-            assetManager.open("ir/ir_catalog.db").use { input ->
-                tmpFile.outputStream().use { output -> input.copyTo(output) }
+        database?.let { return it }
+        synchronized(databaseLock) {
+            database?.let { return it }
+            val manager = IrCatalogDatabaseManager.getInstance(context)
+            val result = manager.ensureDatabaseInstalled()
+            if (result is IrCatalogDatabaseManager.InstallResult.Failed) {
+                throw IllegalStateException("IR catalog unavailable: ${result.reason}", result.cause)
             }
-            if (!tmpFile.renameTo(dbFile)) {
-                tmpFile.copyTo(dbFile, overwrite = true)
-                tmpFile.delete()
-            }
+            val dbFile = manager.databaseFile
+            return SQLiteDatabase.openDatabase(
+                dbFile.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
+            ).also { database = it }
         }
-        return SQLiteDatabase.openDatabase(
-            dbFile.absolutePath,
-            null,
-            SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
-        )
     }
 
     override suspend fun getCandidatesForBrand(
@@ -139,7 +146,7 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        database.close()
+        // §7 Connection is cached per-process; do NOT close it here.
         Log.d(TAG, "getCandidatesForBrand(brand=$brand, deviceType=$deviceType, action=$actionKey): ${results.size} multi-command Code Sets from Schema v4")
         results
     }
@@ -311,7 +318,6 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        database.close()
         resultSignal
     }
 
@@ -328,7 +334,6 @@ class IrCatalogRepository private constructor(
                 results.add(cursor.getString(0))
             }
         }
-        database.close()
         results
     }
 
@@ -365,7 +370,6 @@ class IrCatalogRepository private constructor(
                 )
             }
         }
-        database.close()
         results
     }
 
@@ -380,7 +384,6 @@ class IrCatalogRepository private constructor(
         database.rawQuery("SELECT COUNT(*) FROM code_sets", null).use { if (it.moveToFirst()) codeSets = it.getInt(0) }
         database.rawQuery("SELECT COUNT(*) FROM signals", null).use { if (it.moveToFirst()) signals = it.getInt(0) }
         database.rawQuery("SELECT COUNT(*) FROM command_bindings", null).use { if (it.moveToFirst()) bindings = it.getInt(0) }
-        database.close()
 
         CatalogStats(brands, types, remotes, codeSets, signals, bindings, 7)
     }
@@ -451,7 +454,6 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        database.close()
         result
     }
 
@@ -487,7 +489,6 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        database.close()
         metadata
     }
 
@@ -535,7 +536,6 @@ class IrCatalogRepository private constructor(
             }
         }
 
-        database.close()
         result
     }
 

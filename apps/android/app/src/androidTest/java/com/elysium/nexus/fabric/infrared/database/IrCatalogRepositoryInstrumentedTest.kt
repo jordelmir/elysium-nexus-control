@@ -42,7 +42,10 @@ class IrCatalogRepositoryInstrumentedTest {
 
     @Test
     fun catalogReturnsVolumeUpCandidatesForMajorBrands() = runBlocking {
-        val testBrands = listOf("Samsung", "LG", "Sony", "Panasonic", "Philips")
+        val testBrands = listOf(
+            "Samsung", "LG", "Sony", "Panasonic", "Philips",
+            "Kintech", "Control Universal TV"
+        )
 
         for (brand in testBrands) {
             val candidates = repository.getCandidatesForBrand(

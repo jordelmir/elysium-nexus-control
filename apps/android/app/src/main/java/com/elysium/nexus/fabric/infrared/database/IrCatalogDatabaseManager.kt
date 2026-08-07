@@ -56,61 +56,79 @@ class IrCatalogDatabaseManager private constructor(
         repo
     }
 
-    private fun ensureDatabaseInstalled(): InstallResult {
+        /**
+     * §7 Public path used by [IrCatalogRepository] to guarantee the on-disk
+     * catalog always matches the packaged asset before any query runs.
+     * Does NOT take the mutex (callers own their own serialization).
+     */
+    fun ensureDatabaseInstalled(): InstallResult = ensureDatabaseInstalledInternal()
+
+    private fun ensureDatabaseInstalledInternal(): InstallResult {
         val dbFile = databaseFile
         val assetManager = applicationContext.assets
 
-        // If database already exists and is non-empty, verify integrity
+        // If database already exists and is non-empty, verify it matches the shipped asset.
+        // §7 API up-sell: an in-place `adb install -r` (or Play update) must refresh the
+        // catalog — reusing a stale copy silently ships a DB that lacks new brands/code
+        // sets (e.g. curated Kintech / Control Universal TV). We compare the SHA-256 of
+        // the installed file with the asset; any drift triggers a reinstall.
         if (dbFile.exists() && dbFile.length() > 0L) {
-            // §7 Verify integrity with foreign_key_check and quick_check
-            val integrityOk = verifyDatabaseIntegrity(dbFile)
-            if (integrityOk) {
-                Log.d(TAG, "Existing IR catalog database verified at ${dbFile.absolutePath} (${dbFile.length()} bytes)")
-                return InstallResult.AlreadyInstalled
+            val installedHash = computeSha256(dbFile)
+            val assetHash = computeAssetSha256()
+            if (installedHash == assetHash) {
+                val integrityOk = verifyDatabaseIntegrity(dbFile)
+                if (integrityOk) {
+                    Log.d(TAG, "Existing IR catalog database matches asset at ${dbFile.absolutePath} (${dbFile.length()} bytes)")
+                    return InstallResult.AlreadyInstalled
+                }
+                Log.w(TAG, "Existing database failed integrity check, reinstalling from assets")
+            } else {
+                Log.i(TAG, "Asset SHA256 differs from installed database — refreshing catalog (installed=$installedHash asset=$assetHash)")
             }
-            Log.w(TAG, "Existing database failed integrity check, reinstalling from assets")
-            dbFile.delete()
+        } else if (dbFile.exists()) {
+            Log.i(TAG, "Existing database file is empty (0 bytes), reinstalling from assets")
         }
 
         Log.i(TAG, "Installing IR catalog database from assets to ${dbFile.absolutePath}...")
-        val tmpFile = File(targetDirectory, "$DB_FILE_NAME.tmp")
-
+        // §7 Install straight to the target path with overwrite, on a single open
+        // stream. IMPORTANT: never reopen the file with a bare FileOutputStream()
+        // for fsync — the default constructor truncates to 0 bytes, which silently
+        // produced an empty catalog (quick_check on an empty DB returns "ok" and the
+        // result looked "Installed" while every query then hit OS error - 2). The
+        // repository caches ONE connection opened only after this returns, so there
+        // is no concurrent reader to race against during the write.
         try {
             assetManager.open("ir/$DB_FILE_NAME").use { input ->
-                tmpFile.outputStream().use { output ->
+                dbFile.outputStream().use { output ->
                     input.copyTo(output)
+                    // §7 fsync before the write is considered durable.
+                    output.fd.sync()
                 }
             }
 
-            // §7 Verify copied file hash against manifest if available
-            val computedHash = computeSha256(tmpFile)
-            Log.i(TAG, "Database asset extracted. Size: ${tmpFile.length()} bytes, SHA256: $computedHash")
+            // §7 Verify the freshly written file is a real, non-empty, valid DB.
+            val computedHash = computeSha256(dbFile)
+            Log.i(TAG, "Database asset extracted. Size: ${dbFile.length()} bytes, SHA256: $computedHash")
 
             if (EXPECTED_MANIFEST_HASH.isNotBlank() && computedHash != EXPECTED_MANIFEST_HASH) {
-                tmpFile.delete()
+                dbFile.delete()
                 return InstallResult.Failed("Checksum mismatch: expected=$EXPECTED_MANIFEST_HASH, actual=$computedHash")
             }
 
-            // §7 fsync before rename for crash safety
-            tmpFile.outputStream().fd.sync()
-
-            if (!tmpFile.renameTo(dbFile)) {
-                tmpFile.copyTo(dbFile, overwrite = true)
-                tmpFile.delete()
+            if (dbFile.length() <= 0L) {
+                Log.e(TAG, "Database file is empty after copy (${dbFile.length()} bytes)")
+                return InstallResult.Failed("Installed database is empty after copy")
             }
 
-            // §7 Post-install integrity check
-            val postInstallOk = verifyDatabaseIntegrity(dbFile)
-            if (!postInstallOk) {
+            if (!verifyDatabaseIntegrity(dbFile)) {
                 dbFile.delete()
-                return InstallResult.Failed("Post-install integrity check failed")
+                return InstallResult.Failed("Post-install integrity check failed on extracted asset")
             }
 
             Log.i(TAG, "Successfully installed ir_catalog.db")
             return InstallResult.Installed(computedHash)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to install ir_catalog.db asset: ${e.message}", e)
-            if (tmpFile.exists()) tmpFile.delete()
             return InstallResult.Failed("Installation exception: ${e.message}", e)
         }
     }
@@ -156,6 +174,23 @@ class IrCatalogDatabaseManager private constructor(
     private fun computeSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            while (input.read(buffer).also { bytesRead = it } != -1) {
+                digest.update(buffer, 0, bytesRead)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * §7 Stream the packed asset and compute its SHA-256 without loading the whole
+     * ~19 MB into memory. `AssetManager` does not expose a File handle, so we hash
+     * while streaming from the open stream.
+     */
+    private fun computeAssetSha256(): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        applicationContext.assets.open("ir/$DB_FILE_NAME").use { input ->
             val buffer = ByteArray(8192)
             var bytesRead: Int
             while (input.read(buffer).also { bytesRead = it } != -1) {
