@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.security.MessageDigest
@@ -12,7 +13,7 @@ import java.security.MessageDigest
 private const val TAG = "ElysiumNexus.DbManager"
 private const val DB_DIR_NAME = "ir-catalog"
 private const val DB_FILE_NAME = "ir_catalog.db"
-private const val EXPECTED_MANIFEST_HASH = ""
+private const val EXPECTED_MANIFEST_HASH = "0381332dfeef257b6f5d1aba9c03cf5be07b19fd6c4b446aafd889b03b7c3a3e"
 
 /**
  * §7.1 Application Singleton Database Manager for IR Catalog.
@@ -110,6 +111,13 @@ class IrCatalogDatabaseManager private constructor(
                 return InstallResult.Failed("Checksum mismatch: expected=$EXPECTED_MANIFEST_HASH, actual=$computedHash")
             }
 
+            // P0-16: Cross-validate against manifest's declared databaseSha256
+            val manifestHash = readManifestDatabaseHash()
+            if (manifestHash != null && manifestHash != computedHash) {
+                tempFile.delete()
+                return InstallResult.Failed("Manifest databaseSha256 mismatch: manifest=$manifestHash, actual=$computedHash")
+            }
+
             if (tempFile.length() <= 0L) {
                 Log.e(TAG, "Database file is empty after copy (${tempFile.length()} bytes)")
                 tempFile.delete()
@@ -203,6 +211,23 @@ class IrCatalogDatabaseManager private constructor(
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * §7 Read the declared databaseSha256 from ir_catalog.manifest.json.
+     * Returns null if manifest is missing or unparseable (non-fatal).
+     */
+    private fun readManifestDatabaseHash(): String? {
+        return try {
+            applicationContext.assets.open("ir/ir_catalog.manifest.json").bufferedReader().use { reader ->
+                val json = JSONObject(reader.readText())
+                val hash = json.optString("databaseSha256", "")
+                if (hash.isNotBlank()) hash else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read manifest databaseSha256: ${e.message}")
+            null
+        }
     }
 
     override fun close() {
