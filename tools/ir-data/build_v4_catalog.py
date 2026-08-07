@@ -198,17 +198,23 @@ def build_v4_catalog(profile: str = "production"):
                 elif line.startswith("address:"):
                     try:
                         curr_addr = int(line.split(":", 1)[1].strip().split()[0], 16)
-                    except: curr_addr = 0
+                    except (ValueError, IndexError):
+                        curr_addr = 0
                 elif line.startswith("command:"):
                     try:
                         curr_cmd = int(line.split(":", 1)[1].strip().split()[0], 16)
-                    except: curr_cmd = 0
+                    except (ValueError, IndexError):
+                        curr_cmd = 0
                 elif line.startswith("frequency:"):
-                    try: curr_freq = int(line.split(":", 1)[1].strip())
-                    except: curr_freq = 38000
+                    try:
+                        curr_freq = int(line.split(":", 1)[1].strip())
+                    except (ValueError, IndexError):
+                        curr_freq = 38000
                 elif line.startswith("data:"):
-                    try: curr_data = [int(x) for x in line.split(":", 1)[1].strip().split()]
-                    except: curr_data = None
+                    try:
+                        curr_data = [int(x) for x in line.split(":", 1)[1].strip().split()]
+                    except (ValueError, IndexError):
+                        curr_data = None
 
             if curr_name and curr_type:
                 commands.append((curr_name, curr_type, curr_proto, curr_addr, curr_cmd, curr_freq, curr_data))

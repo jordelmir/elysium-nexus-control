@@ -701,4 +701,65 @@ class IrCatalogRepository private constructor(
             null
         }
     }
+
+    // P1-PROVENANCE: Multi-source provenance lookup
+
+    override suspend fun getSignalProvenance(signalId: String): List<SignalProvenance> = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val results = mutableListOf<SignalProvenance>()
+
+        // Query from SQLite catalog signal_sources (if table exists)
+        try {
+            val query = """
+                SELECT signalId, sourceId, sourceRevisionId, evidenceLevel,
+                       verificationSource, verifiedAtEpochMs, deviceModel, notes
+                FROM signal_sources
+                WHERE signalId = ?
+            """.trimIndent()
+            database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+                while (cursor.moveToNext()) {
+                    results.add(SignalProvenance(
+                        signalId = cursor.getString(0) ?: signalId,
+                        sourceId = cursor.getString(1) ?: "",
+                        sourceRevisionId = cursor.getString(2) ?: "",
+                        evidenceLevel = cursor.getString(3) ?: "INTERNAL_UNVERIFIED",
+                        verificationSource = cursor.getString(4),
+                        verifiedAtEpochMs = cursor.getLong(5).takeIf { it > 0 },
+                        deviceModel = cursor.getString(6),
+                        notes = cursor.getString(7)
+                    ))
+                }
+            }
+        } catch (_: Exception) {
+            // signal_sources table may not exist in older catalogs
+        }
+
+        // Fallback: derive provenance from command_bindings → source_revisions
+        if (results.isEmpty()) {
+            val query = """
+                SELECT DISTINCT sr.version, s.id, s.license_id
+                FROM command_bindings cb
+                JOIN code_sets cs ON cb.code_set_id = cs.id
+                JOIN source_revisions sr ON cs.source_revision_id = sr.id
+                JOIN sources s ON sr.source_id = s.id
+                WHERE cb.signal_id = ?
+            """.trimIndent()
+            database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+                while (cursor.moveToNext()) {
+                    results.add(SignalProvenance(
+                        signalId = signalId,
+                        sourceId = cursor.getString(1) ?: "",
+                        sourceRevisionId = cursor.getString(0) ?: "",
+                        evidenceLevel = "INTERNAL_UNVERIFIED",
+                        verificationSource = null,
+                        verifiedAtEpochMs = null,
+                        deviceModel = null,
+                        notes = "Derived from source_revisions (legacy fallback)"
+                    ))
+                }
+            }
+        }
+
+        results
+    }
 }

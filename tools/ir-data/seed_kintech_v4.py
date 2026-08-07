@@ -165,7 +165,7 @@ def main() -> int:
         (r_id, file_id, b_id, t_type_id))
 
     # Code set
-    cs_id = short_sha(f"cs:{SOURCE_TYPE}:{r_id}:{len(mapped) + 1}")
+    cs_id = short_sha(f"cs:{SOURCE_ID}:{r_id}:{len(mapped) + 1}")
     cur.execute(
         "INSERT OR IGNORE INTO code_sets (id, remote_id, source_revision_id, protocol_family, protocol_variant, region, verification_status, runtime_status) "
         "VALUES (?, ?, ?, ?, ?, NULL, 'UNVERIFIED', 'ACTIVE')",

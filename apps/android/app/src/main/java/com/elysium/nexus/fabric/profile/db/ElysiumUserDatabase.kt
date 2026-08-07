@@ -133,6 +133,27 @@ data class CatalogMigrationEntity(
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Signal Source — §14 Provenance tracking for catalog signals
+// Maps each signalId to its originating source(s) with evidence level.
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Entity(
+    tableName = "signal_sources",
+    primaryKeys = ["signalId", "sourceId"]
+)
+data class SignalSourceEntity(
+    val signalId: String,
+    val sourceId: String,
+    val sourceRevisionId: String,
+    val evidenceLevel: String,
+    /** INTERNAL_UNVERIFIED | INTERNAL_DEVICE_OBSERVED | HIL_CAPTURED | REAL_DEVICE_VERIFIED | PRODUCTION_APPROVED */
+    val verificationSource: String?,
+    val verifiedAtEpochMs: Long?,
+    val deviceModel: String?,
+    val notes: String?
+)
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DAO — Complete CRUD for all entities
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -227,6 +248,23 @@ interface InstalledProfileDao {
 
     @Query("SELECT * FROM catalog_migrations ORDER BY migratedAtEpochMs DESC LIMIT 1")
     suspend fun getLastMigration(): CatalogMigrationEntity?
+
+    // ── Signal Sources (Provenance) ────────────────────────────────
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSignalSource(source: SignalSourceEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSignalSources(sources: List<SignalSourceEntity>)
+
+    @Query("SELECT * FROM signal_sources WHERE signalId = :signalId")
+    suspend fun getSourcesForSignal(signalId: String): List<SignalSourceEntity>
+
+    @Query("SELECT * FROM signal_sources WHERE signalId = :signalId AND evidenceLevel = :level")
+    suspend fun getSourcesByLevel(signalId: String, level: String): List<SignalSourceEntity>
+
+    @Query("SELECT DISTINCT signalId FROM signal_sources WHERE evidenceLevel IN (:levels)")
+    suspend fun getSignalsWithEvidenceLevels(levels: List<String>): List<String>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -241,9 +279,10 @@ interface InstalledProfileDao {
         ProbeAttemptEntity::class,
         CompatibilityEvidenceEntity::class,
         CandidatePenaltyEntity::class,
-        CatalogMigrationEntity::class
+        CatalogMigrationEntity::class,
+        SignalSourceEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
@@ -261,6 +300,25 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
             }
         }
 
+        // P1-SIGNAL-SOURCES: Add signal_sources table for provenance tracking
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS signal_sources (
+                        signalId TEXT NOT NULL,
+                        sourceId TEXT NOT NULL,
+                        sourceRevisionId TEXT NOT NULL,
+                        evidenceLevel TEXT NOT NULL,
+                        verificationSource TEXT,
+                        verifiedAtEpochMs INTEGER,
+                        deviceModel TEXT,
+                        notes TEXT,
+                        PRIMARY KEY(signalId, sourceId)
+                    )"""
+                )
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -268,7 +326,7 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                     ElysiumUserDatabase::class.java,
                     "elysium_user_database.db"
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

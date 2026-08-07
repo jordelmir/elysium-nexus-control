@@ -37,6 +37,21 @@ data class SignalMetadata(
 )
 
 /**
+ * P1-PROVENANCE: Multi-source provenance for a single signal.
+ * A signal may originate from Flipper, SmartIR, local capture, etc.
+ */
+data class SignalProvenance(
+    val signalId: String,
+    val sourceId: String,
+    val sourceRevisionId: String,
+    val evidenceLevel: String,
+    val verificationSource: String?,
+    val verifiedAtEpochMs: Long?,
+    val deviceModel: String?,
+    val notes: String?
+)
+
+/**
  * Domain interface for querying IR remote control catalogs.
  * Decouples the UI and probe engine from concrete SQLite or in-memory persistence.
  */
@@ -101,6 +116,12 @@ interface IrCatalog {
      * Query overall catalog statistics.
      */
     suspend fun getStats(): CatalogStats
+
+    /**
+     * P1-PROVENANCE: Get all source provenance records for a signal.
+     * A single signal may have multiple sources (Flipper + SmartIR + local capture).
+     */
+    suspend fun getSignalProvenance(signalId: String): List<SignalProvenance>
 }
 
 /**
@@ -170,5 +191,9 @@ class InMemoryIrCatalog(
             totalCommands = totalRemotes,
             protocols = 1
         )
+    }
+
+    override suspend fun getSignalProvenance(signalId: String): List<SignalProvenance> {
+        return emptyList()
     }
 }
