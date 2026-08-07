@@ -160,7 +160,14 @@ class IrCatalogRepository private constructor(
         val actionKey = action.name
         val results = mutableListOf<IrCodeSet>()
 
-        val query = """
+        // P0-8: Progressive brand-first heuristic.
+        // Tier 1: Popular global brands (most likely to match any TV)
+        // Tier 2: Regional/Latin American brands
+        // Tier 3: All remaining brands
+        val tier1 = listOf("Samsung", "LG", "Sony", "Panasonic", "Philips")
+        val tier2 = listOf("Sankey", "Kintech", "Kalley", "Challenger", "Daewoo", "Hyundai", "Hisense", "TCL", "Noblex", "RCA", "Akai", "Sanyo", "Funai", "Magnavox")
+
+        val baseQuery = """
             SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
                    s.id AS source_name, s.license_id, dt.canonical_name AS device_type
             FROM code_sets cs
@@ -176,42 +183,69 @@ class IrCatalogRepository private constructor(
               AND s.production_approved = 1
             GROUP BY cs.id
             ORDER BY b.display_name, cs.id
-            LIMIT ?
         """.trimIndent()
 
         val devTypeArg = deviceType.trim()
-        database.rawQuery(query, arrayOf(actionKey, "$devTypeArg%", devTypeArg, limit.toString())).use { cursor ->
-            while (cursor.moveToNext()) {
-                val csId = cursor.getString(0)
-                val brandName = cursor.getString(1) ?: "Desconocido"
-                val remoteModel = cursor.getString(2) ?: ""
-                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
-                val licenseSpdx = cursor.getString(4) ?: "MIT"
 
-                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
-                if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
-                    results.add(
-                        IrCodeSet(
-                            id = csId,
-                            brand = brandName,
-                            modelPatterns = setOf(remoteModel),
-                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
-                            commands = codeSetResult.commands,
-                            commandSignalIds = codeSetResult.commandSignalIds,
-                            commandBindings = codeSetResult.commandBindings,
-                            provenance = CodeProvenance(
-                                sourceName = sourceName,
-                                sourceUrl = "",
-                                licenseSpdx = licenseSpdx
-                            ),
-                            verification = VerificationStatus.UNVERIFIED
+        // Execute progressive search: tier1 → tier2 → remaining
+        for (tierBrands in listOf(tier1, tier2, listOf<String>())) {
+            if (results.size >= limit) break
+            val query = if (tierBrands.isEmpty()) {
+                // Remaining brands: exclude already-seen brand names
+                val seenBrands = results.map { it.brand }.distinct()
+                if (seenBrands.isEmpty()) {
+                    "$baseQuery LIMIT ?"
+                } else {
+                    val placeholders = seenBrands.joinToString(",") { "?" }
+                    "$baseQuery AND b.display_name NOT IN ($placeholders) LIMIT ?"
+                }
+            } else {
+                "$baseQuery AND b.display_name IN (${
+                    tierBrands.joinToString(",") { "?" }
+                }) LIMIT ?"
+            }
+
+            val remaining = limit - results.size
+            val params = if (tierBrands.isEmpty()) {
+                val seenBrands = results.map { it.brand }.distinct()
+                arrayOf(actionKey, "$devTypeArg%", devTypeArg, *seenBrands.toTypedArray(), remaining.toString())
+            } else {
+                arrayOf(actionKey, "$devTypeArg%", devTypeArg, *tierBrands.toTypedArray(), remaining.toString())
+            }
+
+            database.rawQuery(query, params).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val csId = cursor.getString(0)
+                    val brandName = cursor.getString(1) ?: "Desconocido"
+                    val remoteModel = cursor.getString(2) ?: ""
+                    val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                    val licenseSpdx = cursor.getString(4) ?: "MIT"
+
+                    val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                    if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                        results.add(
+                            IrCodeSet(
+                                id = csId,
+                                brand = brandName,
+                                modelPatterns = setOf(remoteModel),
+                                remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                                commands = codeSetResult.commands,
+                                commandSignalIds = codeSetResult.commandSignalIds,
+                                commandBindings = codeSetResult.commandBindings,
+                                provenance = CodeProvenance(
+                                    sourceName = sourceName,
+                                    sourceUrl = "",
+                                    licenseSpdx = licenseSpdx
+                                ),
+                                verification = VerificationStatus.UNVERIFIED
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
 
-        Log.d(TAG, "getAllCandidates(deviceType=$deviceType, action=$actionKey): ${results.size} Code Sets across all brands")
+        Log.d(TAG, "getAllCandidates(deviceType=$deviceType, action=$actionKey): ${results.size} Code Sets (progressive brand-first)")
         results
     }
 

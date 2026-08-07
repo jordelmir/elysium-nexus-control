@@ -119,17 +119,17 @@ class ActionDispatcher(
             val deviceState = if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
                 when (val resolution = resolveIrCommand(action, route)) {
                     is CommandResolution.Resolved -> {
-                        val encoded = resolution.signal as? com.elysium.nexus.core.device.IrSignal.Encoded
                         DeviceState.IrCommand(
-                            protocolName = encoded?.protocol?.name ?: resolution.signalId,
-                            address = encoded?.address ?: 0,
-                            command = encoded?.command ?: 0,
+                            protocolName = resolution.signalId,
+                            address = 0,
+                            command = 0,
                             extras = mapOf(
                                 "signalId" to resolution.signalId,
                                 "codeSetId" to resolution.codeSetId,
                                 "profileId" to resolution.profileId,
                                 "fingerprint" to resolution.physicalSha256.take(16)
-                            )
+                            ),
+                            irSignal = resolution.signal
                         )
                     }
                     is CommandResolution.ProfileMissing -> {
@@ -208,12 +208,12 @@ class ActionDispatcher(
             val state = if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
                 when (val resolution = resolveIrCommand(action, route)) {
                     is CommandResolution.Resolved -> {
-                        val encoded = resolution.signal as? com.elysium.nexus.core.device.IrSignal.Encoded
                         DeviceState.IrCommand(
-                            protocolName = encoded?.protocol?.name ?: resolution.signalId,
-                            address = encoded?.address ?: 0,
-                            command = encoded?.command ?: 0,
-                            extras = mapOf("signalId" to resolution.signalId)
+                            protocolName = resolution.signalId,
+                            address = 0,
+                            command = 0,
+                            extras = mapOf("signalId" to resolution.signalId),
+                            irSignal = resolution.signal
                         )
                     }
                     else -> null

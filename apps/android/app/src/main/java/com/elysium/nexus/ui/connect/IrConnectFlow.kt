@@ -104,6 +104,12 @@ sealed interface ProbeUiState {
         val secondaryAction: IrAction,
         val verifiedActions: Set<IrAction>
     ) : ProbeUiState
+    data class ChallengeConfirmation(
+        val candidateId: String,
+        val codeSetId: String,
+        val attemptId: String,
+        val action: IrAction
+    ) : ProbeUiState
     data object SavingProfile : ProbeUiState
     data class Completed(val profile: InstalledIrProfile) : ProbeUiState
     data class Error(val message: String) : ProbeUiState
@@ -410,13 +416,15 @@ fun IrConnectFlow(
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
                                     },
                                     onDidWork = {
-                                        // §38 Whichever candidate the sweep last transmitted
-                                        // (or the current one in manual mode) is the winner.
+                                        // §38 P0-3 Challenge confirmation: re-transmit to prevent
+                                        // wrong candidate selection from timing race.
                                         val winner = lastProbedCandidate ?: engine.currentCandidate()
                                         if (winner != null) {
                                             stopAutoScan()
                                             engine.selectById(winner.id)
-                                            step = IrStep.CONFIRM
+                                            // Re-transmit VOLUME_UP as challenge before accepting
+                                            step = IrStep.CHALLENGE
+                                            sendTestAction(winner, IrAction.VOLUME_UP)
                                         }
                                     },
                                     onNextCandidate = {
@@ -430,6 +438,27 @@ fun IrConnectFlow(
                                     onStartAutoScan = { startAutoScan(engine) },
                                     onStopAutoScan = { stopAutoScan() },
                                     hasIrBlaster = hasIrBlaster
+                                )
+                                IrStep.CHALLENGE -> ChallengeStep(
+                                    lastResult = currentResult,
+                                    onDidWork = {
+                                        // Manual mode: also requires challenge confirmation
+                                        val winner = engine.currentCandidate()
+                                        if (winner != null) {
+                                            step = IrStep.CHALLENGE
+                                            sendTestAction(winner, IrAction.VOLUME_UP)
+                                        }
+                                    },
+                                    onNo = {
+                                        // Challenge failed — the re-transmit didn't work. Try next.
+                                        engine.nextCandidate()
+                                        currentResult = null
+                                        currentAttempt = null
+                                        verifiedActions = emptySet()
+                                        step = IrStep.TEST
+                                        val candidate = engine.currentCandidate() ?: return@ChallengeStep
+                                        sendTestAction(candidate, IrAction.VOLUME_UP)
+                                    }
                                 )
                                 IrStep.CONFIRM -> ConfirmStep(
                                     onYes = {
@@ -548,8 +577,8 @@ fun IrConnectFlow(
                         }
                     }
                     is ProbeUiState.Transmitting, is ProbeUiState.AwaitingConfirmation,
-                    is ProbeUiState.VerifyingSecondaryAction, is ProbeUiState.SavingProfile,
-                    is ProbeUiState.Completed -> {
+                    is ProbeUiState.VerifyingSecondaryAction, is ProbeUiState.ChallengeConfirmation,
+                    is ProbeUiState.SavingProfile, is ProbeUiState.Completed -> {
                         // States handled by navigation, not rendered here
                     }
                     is ProbeUiState.Error -> {
@@ -579,10 +608,11 @@ fun IrConnectFlow(
 private enum class IrStep(val number: Int, val labelEn: String, val labelEs: String) {
     ORIENT(1, "Aim", "Apuntar"),
     TEST(2, "Test", "Probar"),
-    CONFIRM(3, "Confirm", "Confirmar"),
-    VERIFY_SECONDARY(4, "Down", "Bajar"),
-    VERIFY_TERTIARY(5, "Mute", "Mute"),
-    SAVE(6, "Save", "Guardar")
+    CHALLENGE(3, "Verify", "Re-verificar"),
+    CONFIRM(4, "Confirm", "Confirmar"),
+    VERIFY_SECONDARY(5, "Down", "Bajar"),
+    VERIFY_TERTIARY(6, "Mute", "Mute"),
+    SAVE(7, "Save", "Guardar")
 }
 
 @Composable
@@ -686,6 +716,47 @@ private fun TestStep(
                         NeonChip(label = "No / Siguiente", onClick = onNextCandidate, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChallengeStep(
+    lastResult: IrTransmitResult?,
+    onDidWork: () -> Unit,
+    onNo: () -> Unit
+) {
+    val canConfirm = lastResult is IrTransmitResult.Success
+
+    NeonCard(modifier = Modifier.fillMaxWidth(), accent = ElysiumColors.NeonCyan, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Re-verificación de señal", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
+            Text(
+                "Se reenvió VOLUME_UP para confirmar que este candidato funciona. ¿La TV reaccionó?",
+                style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                NeonFab(icon = { Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(36.dp)) }, onClick = {}, accent = ElysiumColors.NeonCyan, fabSize = 80.dp)
+            }
+            lastResult?.let { res ->
+                val resultText = when (res) {
+                    is IrTransmitResult.Success -> "Re-transmitido: ${res.carrierHz} Hz"
+                    is IrTransmitResult.NoEmitter -> "Sin emisor IR"
+                    is IrTransmitResult.PermissionDenied -> "Permiso denegado"
+                    is IrTransmitResult.UnsupportedCarrier -> "Frecuencia no soportada"
+                    is IrTransmitResult.InvalidPattern -> "Patrón inválido"
+                    is IrTransmitResult.Busy -> "Emisor ocupado"
+                    is IrTransmitResult.PlatformFailure -> "Error Android"
+                }
+                val color = if (res is IrTransmitResult.Success) ElysiumColors.NeonGreen else ElysiumColors.NeonOrange
+                NeonStatusPill(label = resultText, color = color)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NeonChip(label = "Sí, funcionó", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                NeonChip(label = "No, siguiente", onClick = onNo, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
             }
         }
     }

@@ -64,6 +64,12 @@ interface IrCatalog {
      * Universal sweep: query ALL production-approved code sets of a device
      * type that contain [action], across every brand in the catalog.
      * Powers the "Control Universal" auto-sweep experience.
+     *
+     * P0-8: Progressive search — returns candidates ordered by probability:
+     *   1. Popular global brands (Samsung, LG, Sony, Panasonic, Philips)
+     *   2. Regional brands (Sankey, Kintech, Kalley, Hisense, TCL)
+     *   3. All remaining brands
+     * No LIMIT 400 — caller drains via IrProbeEngine.nextCandidate().
      */
     suspend fun getAllCandidates(
         deviceType: String = "TV",

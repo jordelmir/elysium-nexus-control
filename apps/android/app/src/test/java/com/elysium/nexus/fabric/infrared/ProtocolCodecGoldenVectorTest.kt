@@ -61,6 +61,9 @@ class ProtocolCodecGoldenVectorTest {
         // Honest state: unit-shape validated until decoder round-trip + HIL proof exist (dictamen P1).
         assertEquals(CodecVerificationStatus.UNIT_SHAPE_VALIDATED, necSpec?.status)
         assertTrue(ProtocolCodecRegistry.isCodecTransmittable("NEC"))
-        assertTrue(ProtocolCodecRegistry.isCodecTransmittable("RC5"))
+        // P0-7: EXPERIMENTAL codecs (RC5, RC6, Kaseikyo) are blocked in production
+        assertFalse(ProtocolCodecRegistry.isCodecTransmittable("RC5"))
+        assertFalse(ProtocolCodecRegistry.isCodecTransmittable("RC6"))
+        assertFalse(ProtocolCodecRegistry.isCodecTransmittable("KASEIKYO"))
     }
 }

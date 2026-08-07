@@ -23,6 +23,7 @@ import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.IrTransmitResult
 import com.elysium.nexus.fabric.infrared.IrWaveform
+import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,32 +76,61 @@ class InfraredAdapter(
                 "No IR emitter available."
             )
         }
-        val twins = DeviceCatalog.all.map { template ->
+
+        // P0-5: Discover installed IR profiles from Room, not from DeviceCatalog.
+        // deviceId = "ir-${profile.id}" so DeviceCommandResolver can resolve by profile UUID.
+        val profileRepo = context?.let { InstalledIrProfileRepository(it) }
+        val installedProfiles = profileRepo?.getAllProfilesSuspend() ?: emptyList()
+
+        val twins = installedProfiles.map { profile ->
             DeviceTwin(
-                deviceId = DeviceId("ir-${template.id}"),
-                manufacturer = template.brand,
-                model = template.model,
-                deviceType = when (template.category) {
-                    DeviceCategory.TV -> DeviceType.Television
-                    DeviceCategory.ANDROID_TV -> DeviceType.Television
-                    DeviceCategory.SOUNDBAR -> DeviceType.Soundbar
-                    DeviceCategory.PROJECTOR -> DeviceType.Projector
-                    else -> DeviceType.Unknown
-                },
-                capabilities = setOf(Capability.OnOff),
-                // Fix Section 10.5: Unidirectional IR devices must NOT be marked "Online"
+                deviceId = DeviceId("ir-${profile.id}"),
+                manufacturer = profile.brand,
+                model = profile.model ?: profile.remoteModel ?: profile.displayName,
+                deviceType = DeviceType.Television,
+                capabilities = setOf(Capability.OnOff, Capability.Level, Capability.Volume),
                 connectivity = ConnectivityState.Unknown,
                 protocolBindings = setOf(
                     ProtocolBinding(
                         protocol = Protocol.DirectIr,
-                        endpoint = "ir-${template.id}",
-                        capabilities = setOf(Capability.OnOff)
+                        endpoint = "ir-${profile.id}",
+                        capabilities = setOf(Capability.OnOff, Capability.Level, Capability.Volume)
                     )
                 )
             )
         }
-        _devices.value = twins
-        return ScanResult.Ok(deviceCount = twins.size)
+
+        // Also include template-based discovery for uninstalled brands
+        val templateTwins = DeviceCatalog.all
+            .filter { template ->
+                installedProfiles.none { it.codeSetId.contains(template.id) || it.brand.equals(template.brand, ignoreCase = true) }
+            }
+            .map { template ->
+                DeviceTwin(
+                    deviceId = DeviceId("ir-${template.id}"),
+                    manufacturer = template.brand,
+                    model = template.model,
+                    deviceType = when (template.category) {
+                        DeviceCategory.TV -> DeviceType.Television
+                        DeviceCategory.ANDROID_TV -> DeviceType.Television
+                        DeviceCategory.SOUNDBAR -> DeviceType.Soundbar
+                        DeviceCategory.PROJECTOR -> DeviceType.Projector
+                        else -> DeviceType.Unknown
+                    },
+                    capabilities = setOf(Capability.OnOff),
+                    connectivity = ConnectivityState.Unknown,
+                    protocolBindings = setOf(
+                        ProtocolBinding(
+                            protocol = Protocol.DirectIr,
+                            endpoint = "ir-${template.id}",
+                            capabilities = setOf(Capability.OnOff)
+                        )
+                    )
+                )
+            }
+
+        _devices.value = twins + templateTwins
+        return ScanResult.Ok(deviceCount = twins.size + templateTwins.size)
     }
 
     override suspend fun read(deviceId: DeviceId): ReadResult {
@@ -120,7 +150,16 @@ class InfraredAdapter(
         }
         return when (state) {
             is DeviceState.IrCommand -> {
-                val waveform = encodeIrCommand(state)
+                // P0-6: Prefer full IrSignal for lossless transmission
+                val waveform = if (state.irSignal != null) {
+                    val encodeResult = com.elysium.nexus.fabric.infrared.IrProtocol.encode(state.irSignal)
+                    when (encodeResult) {
+                        is com.elysium.nexus.fabric.infrared.EncodeResult.Success -> encodeResult.waveform
+                        else -> encodeIrCommand(state)
+                    }
+                } else {
+                    encodeIrCommand(state)
+                }
                 if (waveform == null) {
                     return WriteResult.Error(
                         ErrorCode.UnsupportedOperation,

@@ -22,7 +22,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Dictamen v0.5.0 — Release-blocker instrumented test.
+ * P0-10 (renamed): Profile resolution instrumented integration test.
+ *
+ * NOTE: Despite the filename, this test does NOT prove physical IR response.
+ * It tests Room database resolution and DeviceCommandResolver on a real device.
+ * Renamed to avoid false HIL claims. Actual HIL requires external IR receiver.
  *
  * Test #38-adjacent scenario, on the real device catalog:
  *

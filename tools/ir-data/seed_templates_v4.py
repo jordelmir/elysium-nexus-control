@@ -101,11 +101,14 @@ def main() -> int:
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.cursor()
 
-    # ── Source (same curated source as Kintech seed) ──
+    # ── Source (template-derived, NOT production-approved) ──
+    # Templates are protocol-knowledge-based guesses, not HIL-verified signals.
+    # production_approved=0 keeps them out of the universal sweep until physical
+    # capture证明 they actually work on real hardware.
     cur.execute(
         "INSERT OR IGNORE INTO sources (id, display_name, repository_url, license_id, production_approved) "
-        "VALUES (?, ?, ?, ?, 1)",
-        (SOURCE_ID, "Elysium Nexus Curated TV", "", "MIT"))
+        "VALUES (?, ?, ?, ?, 0)",
+        (SOURCE_ID, "Elysium Nexus Curated TV (Templates)", "", "MIT"))
     cur.execute(
         "INSERT OR IGNORE INTO source_revisions (id, source_id, commit_sha, tree_sha, content_sha256, license_sha256) "
         "VALUES (?, ?, ?, ?, ?, ?)",

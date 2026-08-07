@@ -118,9 +118,6 @@ PARSERS = {
     "SINC": parse_sirc,
 }
 
-DEFAULT_PARSER = parse_nec_32
-
-
 def brand_resolvable(cur, normalized: str) -> bool:
     """True when the brand already has at least one TV code set in the catalog."""
     cur.execute(
@@ -196,8 +193,11 @@ def main() -> int:
             cs_name = (codeset.get("name") or brand_name).strip()
             proto_orig = (codeset.get("protocol") or "NEC").strip()
             freq = codeset.get("frequency_hz", 38000)
-            codec_id = JSON_PROTOCOL_CODEC.get(proto_orig, "NEC")
-            parser = PARSERS.get(proto_orig, DEFAULT_PARSER)
+            codec_id = JSON_PROTOCOL_CODEC.get(proto_orig)
+            parser = PARSERS.get(proto_orig)
+            if codec_id is None or parser is None:
+                print(f"  ! {brand_name} / {cs_id}: unknown protocol '{proto_orig}' — REJECTED (no silent NEC fallback)")
+                continue
 
             commands = codeset.get("commands", {})
             mapped = []

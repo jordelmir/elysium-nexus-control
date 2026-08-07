@@ -106,7 +106,7 @@ def main() -> int:
         if canonical is None:
             skipped.append(raw_key)
             continue
-        addr, cmd = parse_ij(hex_code)
+        addr, cmd = parse_nec(hex_code)
         mapped[canonical] = (addr, cmd)
 
     if "VOLUME_UP" not in mapped or "MUTE" not in mapped:
@@ -123,15 +123,15 @@ def main() -> int:
     cur.execute(
         "INSERT OR IGNORE INTO sources (id, display_name, repository_url, license_id, production_approved) "
         "VALUES (?, ?, ?, ?, 1)",
-        (SOURCE_TYPE, "Elysium Nexus Curated TV", "", "MIT"),)
+        (SOURCE_ID, "Elysium Nexus Curated TV", "", "MIT"),)
     cur.execute(
         "INSERT OR IGNORE INTO source_revisions (id, source_id, commit_sha, tree_sha, content_sha256, license_sha256) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (SOURCE_REV, SOURCE_TYPE, SOURCE_COMMIT, SOURCE_COMMIT,
+        (SOURCE_REV, SOURCE_ID, SOURCE_COMMIT, SOURCE_COMMIT,
          sha256t(JSON_PATH.read_bytes().hex()), "0" * 64))
 
     # Source file row (page model used by remotes.source_file_id)
-    file_id = short_sha(f"file:{SOURCE_TYPE}:kintech_smart_tv.ir")
+    file_id = short_sha(f"file:{SOURCE_ID}:kintech_smart_tv.ir")
     cur.execute(
         "INSERT OR IGNORE INTO source_files (id, source_revision_id, relative_path, blob_sha, content_sha256, introduced_commit, last_modified_commit, license_status, rejection_reason) "
         "VALUES (?, ?, ?, NULL, ?, ?, ?, 'APPROVED', NULL)",
@@ -158,7 +158,7 @@ def main() -> int:
         t_type_id = t_row[0]
 
     # Remote
-    r_id = short_sha(f"remote:{SOURCE_TYPE}:{b_id}:{t_type_id}:kintech_smart_tv")
+    r_id = short_sha(f"remote:{SOURCE_ID}:{b_id}:{t_type_id}:kintech_smart_tv")
     cur.execute(
         "INSERT OR IGNORE INTO remotes (id, source_file_id, brand_id, device_type_id, normalized_remote_model, display_remote_model, region) "
         "VALUES (?, ?, ?, ?, 'kintech_smart_tv', 'Kintech Smart / LED TV', NULL)",
@@ -181,13 +181,13 @@ def main() -> int:
             cur.execute(
                 "INSERT OR IGNORE INTO signals (id, encoding_type, codec_id, protocol_name_original, protocol_variant, carrier_hz, address_value, sub_device_value, command_value, repeat_count, toggle_policy, pattern_blob, compression, slice_count, duration_us, uncompressed_bytes, physical_sha256, canonical_sha256, runtime_status, validation_status, rejection_reason) "
                 "VALUES (?, 'PARAMETRIC', 'NEC', ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, 'SUPPORTED_PARAMETRIC', 'PASSED', NULL)",
-                (sig_id, proto, proto, __carrier_to_str(carrier),
+                (sig_id, proto, proto, str(carrier),
                  addr, cmd, signature, signature))
         except sqlite3.Error as e:
             print(f"  signal insert error: {e}")
             conn.rollback()
             return 1
-        sig[canonical] = sig_id
+        sig_ids[canonical] = sig_id
         # Canonical action id
         act_id = short_sha(f"action:{canonical}")
         cur.execute("INSERT OR IGNORE INTO actions (id, canonical_key, action_family) VALUES (?, ?, 'STANDARD')", (act_id, canonical))
@@ -205,16 +205,10 @@ def main() -> int:
 
     print(f"  brand        : {BRAND} (id={b_id})")
     print(f"  code_set     : {cs_id} ({proto} {carrier}Hz)")
-    print(f"  signals      : {len(sig)} inserted")
+    print(f"  signals      : {len(sig_ids)} inserted")
     print(f"  bindings     : {bound} bound to code set")
     print("  ✓ Kintech seeded into Schema v4 catalog")
     return 0
-
-def __carrier_to_hig(h: int) -> str:
-    return h
-
-# helper — fix typo above
-lastcarrier = None
 
 if __name__ == "__main__":
     sys.exit(main())

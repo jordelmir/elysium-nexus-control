@@ -349,6 +349,13 @@ class InstalledIrProfileRepository(
         } catch (e: Exception) {
             VerificationStatus.PARTIALLY_VERIFIED
         }
+        // P0-4: verifiedActions derived from actual successCount, NOT commandsMap.keys
+        val verifiedFromDb = commandEntities
+            .filter { it.successCount > 0 }
+            .mapNotNull { ce ->
+                try { IrAction.valueOf(ce.actionKey) } catch (e: Exception) { null }
+            }
+            .toSet()
         return InstalledIrProfile(
             id = pe.profileId,
             displayName = pe.displayName,
@@ -359,7 +366,7 @@ class InstalledIrProfileRepository(
             codeSetId = pe.codeSetId,
             sourceRevision = pe.catalogVersion,
             commands = commandsMap,
-            verifiedActions = commandsMap.keys,
+            verifiedActions = verifiedFromDb,
             verificationStatus = status,
             createdAtEpochMs = pe.createdAtEpochMs
         )
@@ -409,14 +416,27 @@ class InstalledIrProfileRepository(
     }
 
     private fun computeCatalogHash(profile: InstalledIrProfile): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        digest.update(profile.codeSetId.toByteArray())
-        digest.update(profile.commands.size.toString().toByteArray())
-        for ((action, binding) in profile.commands) {
-            digest.update(action.name.toByteArray())
-            digest.update(binding.signalId.toByteArray())
+        // P0-9: Read the real canonicalContentSha256 from ir_catalog.manifest.json
+        // instead of computing a hash from profile data (which is wrong).
+        return try {
+            if (context != null) {
+                val manifestJson = context.assets.open("ir/ir_catalog.manifest.json").bufferedReader().use { it.readText() }
+                val manifest = org.json.JSONObject(manifestJson)
+                manifest.optString("canonicalContentSha256", "unknown")
+            } else {
+                "unknown"
+            }
+        } catch (e: Exception) {
+            // Fallback to profile-based hash if manifest unavailable
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            digest.update(profile.codeSetId.toByteArray())
+            digest.update(profile.commands.size.toString().toByteArray())
+            for ((action, binding) in profile.commands) {
+                digest.update(action.name.toByteArray())
+                digest.update(binding.signalId.toByteArray())
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     // ═══════════════════════════════════════════════════════════════════

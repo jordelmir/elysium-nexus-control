@@ -215,10 +215,14 @@ object ProtocolCodecRegistry {
 
     /**
      * Check if a codec can be used in production transmission.
+     * P0-7: EXPERIMENTAL and CODEC_BLOCKED are both forbidden in production.
+     * Only UNIT_SHAPE_VALIDATED, GOLDEN_VECTOR_VERIFIED, DECODER_ROUNDTRIP_VERIFIED,
+     * and HIL_VERIFIED are allowed.
      */
     fun isCodecTransmittable(codecId: String): Boolean {
         val codec = getCodec(codecId) ?: return false
-        return codec.status != CodecVerificationStatus.CODEC_BLOCKED
+        return codec.status != CodecVerificationStatus.CODEC_BLOCKED &&
+               codec.status != CodecVerificationStatus.EXPERIMENTAL
     }
 
     fun allRegistered(): List<CodecSpec> = registeredCodecs.values.toList()

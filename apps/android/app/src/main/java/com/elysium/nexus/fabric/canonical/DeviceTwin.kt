@@ -241,7 +241,9 @@ sealed class DeviceState {
         val protocolName: String,
         val address: Int,
         val command: Int,
-        val extras: Map<String, String> = emptyMap()
+        val extras: Map<String, String> = emptyMap(),
+        /** P0-6: Full IrSignal for lossless transmission. Adapter should use this when available. */
+        val irSignal: com.elysium.nexus.core.device.IrSignal? = null
     ) : DeviceState()
 }
 
