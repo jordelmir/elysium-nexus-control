@@ -225,7 +225,7 @@ def build_v4_catalog(profile: str = "production"):
             # Create SINGLE Code Set for this entire Remote
             code_set_id = sha256_text(f"cs:flipper:{remote_id}:{len(commands)}")[:16]
             cur.execute("INSERT OR REPLACE INTO code_sets (id, remote_id, source_revision_id, protocol_family, verification_status, runtime_status) VALUES (?, ?, ?, ?, ?, ?)",
-                        (code_set_id, remote_id, rev_id, commands[0][2] or "RAW", "UNVERIFIED", "ACTIVE"))
+                        (code_set_id, remote_id, rev_id, commands[0][2] or "RAW", "INTERNAL_UNVERIFIED", "ACTIVE"))
 
             for name, stype, proto, addr, cmd, freq, data in commands:
                 act_key = normalize_action(name)

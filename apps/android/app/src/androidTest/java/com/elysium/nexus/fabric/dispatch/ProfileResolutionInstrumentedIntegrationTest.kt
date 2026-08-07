@@ -44,7 +44,7 @@ import org.junit.runner.RunWith
  *   AND    the transmitted frame is TV B's frame — NOT NEC-fabricated
  */
 @RunWith(AndroidJUnit4::class)
-class ReleaseBlockerInstrumentedTest {
+class ProfileResolutionInstrumentedIntegrationTest {
 
     private lateinit var context: android.content.Context
     private lateinit var profileRepo: InstalledIrProfileRepository

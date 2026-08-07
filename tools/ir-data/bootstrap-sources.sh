@@ -54,11 +54,24 @@ checkout_source() {
     fi
 }
 
-checkout_source "flipper-irdb" "https://github.com/Lucaslhm/Flipper-IRDB.git" "d126fb1b6f1e114c52b4a8c19839ea65e3a9c24d"
-checkout_source "smartir" "https://github.com/smartHomeHub/SmartIR.git" "e4df2957ad915536f41ffb39daa96886d7cfe040"
-checkout_source "probonopd-irdb" "https://github.com/probonopd/irdb.git" "11aa5eb3ad9fec9e5c03f170c29c1467733d9f3e"
-checkout_source "radioxoma-infrared" "https://github.com/radioxoma/infrared.git" "96179666ea236e33dc9ca9350d92c0ae69eec956"
-checkout_source "irp-transmogrifier" "https://github.com/bengtmartensson/IrpTransmogrifier.git" "8636d20a5036c542a54fa815ee45415537011d45"
+# P1-BOOTSTRAP: Read sources from sources.lock.json — single source of truth
+# No hardcoded URLs or commits. The lockfile IS the authority.
+python3 -c "
+import json, sys
+with open('$LOCKFILE') as f:
+    lock = json.load(f)
+for src in lock.get('sources', []):
+    sid = src['id']
+    url = src['repository']
+    commit = src['resolvedCommit']
+    # Map lockfile IDs to directory names
+    alias = {
+        'harctoolbox-irp-protocols': 'irp-transmogrifier'
+    }.get(sid, sid)
+    print(f'{alias}|{url}|{commit}')
+" | while IFS='|' read -r name url commit; do
+    checkout_source "$name" "$url" "$commit"
+done
 
 echo "==> Verifying source locks..."
 python3 "$ROOT/tools/ir-data/verify_source_locks.py"

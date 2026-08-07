@@ -168,7 +168,7 @@ def main() -> int:
     cs_id = short_sha(f"cs:{SOURCE_ID}:{r_id}:{len(mapped) + 1}")
     cur.execute(
         "INSERT OR IGNORE INTO code_sets (id, remote_id, source_revision_id, protocol_family, protocol_variant, region, verification_status, runtime_status) "
-        "VALUES (?, ?, ?, ?, ?, NULL, 'UNVERIFIED', 'ACTIVE')",
+        "VALUES (?, ?, ?, ?, ?, NULL, 'INTERNAL_UNVERIFIED', 'ACTIVE')",
         (cs_id, r_id, SOURCE_REV, proto, "NEC_32"))
 
     # Signals + bindings — deterministic ids identical to builder shape

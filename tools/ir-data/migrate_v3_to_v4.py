@@ -95,7 +95,7 @@ def migrate():
         rev_id = sha256_text(f"{s_id}:HEAD")
         cur.execute(
             "INSERT OR REPLACE INTO source_revisions (id, source_id, commit_sha, tree_sha, content_sha256, license_sha256) VALUES (?, ?, ?, ?, ?, ?)",
-            (rev_id, s_id, "0000000000000000000000000000000000000000", "0000000000000000000000000000000000000000", "0000000000000000000000000000000000000000", "0000000000000000000000000000000000000000")
+            (rev_id, s_id, "QUARANTINED_NO_PROVENANCE", "QUARANTINED_NO_PROVENANCE", "QUARANTINED_NO_PROVENANCE", "QUARANTINED_NO_PROVENANCE")
         )
 
     # 2. Insert Brands & Device Types with Stable String IDs
@@ -124,7 +124,7 @@ def migrate():
         file_id = sha256_text(f"file:{src_id}:{file_path or r_id}")[:16]
         cur.execute(
             "INSERT OR REPLACE INTO source_files (id, source_revision_id, relative_path, content_sha256, license_status) VALUES (?, ?, ?, ?, ?)",
-            (file_id, rev_id, file_path or f"remote_{r_id}.ir", "0000000000000000000000000000000000000000", "APPROVED")
+            (file_id, rev_id, file_path or f"remote_{r_id}.ir", "QUARANTINED_NO_PROVENANCE", "QUARANTINED")
         )
 
         remote_key = sha256_text(f"remote:{src_id}:{b_id}:{dt_id}:{model}:{remote_model}")[:16]
@@ -211,7 +211,7 @@ def migrate():
             """INSERT OR REPLACE INTO code_sets (
                 id, remote_id, source_revision_id, protocol_family, verification_status, runtime_status
             ) VALUES (?, ?, ?, ?, ?, ?)""",
-            (code_set_id, remote_key, rev_id, proto_family, "UNVERIFIED", "ACTIVE")
+            (code_set_id, remote_key, rev_id, proto_family, "INTERNAL_UNVERIFIED", "ACTIVE")
         )
         code_set_count += 1
         if len(sorted_cmds) > 1:

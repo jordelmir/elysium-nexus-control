@@ -7,7 +7,7 @@ ir_catalog.db following the exact deterministic ID derivation of
 build_v4_catalog.py, so the authoritative resolution path
 (IrCatalogRepository / IrConnectFlow) can serve them.
 
-Honesty rule: code sets we seed carry verification_status='UNVERIFIED'
+Honesty rule: code sets we seed carry verification_status='INTERNAL_UNVERIFIED'
 (we have not lab-proven them), matching how the rest of the catalog
 presents community/curated data. No silent compatibility claims.
 
@@ -232,7 +232,7 @@ def main() -> int:
             code_set_id = short(f"cs:{SOURCE_ID}:{remote_id}:{len(mapped)}")
             cur.execute(
                 "INSERT OR IGNORE INTO code_sets (id, remote_id, source_revision_id, protocol_family, protocol_variant, region, verification_status, runtime_status) "
-                "VALUES (?, ?, ?, ?, ?, 'AR', 'UNVERIFIED', 'ACTIVE')",
+                "VALUES (?, ?, ?, ?, ?, 'AR', 'INTERNAL_UNVERIFIED', 'ACTIVE')",
                 (code_set_id, remote_id, REVISION, proto_orig, codec_id),
             )
 
