@@ -9,10 +9,8 @@ Post-processes ir_catalog.db to:
 4. Remove orphaned records and optimize database layout via VACUUM & ANALYZE
 """
 
-import json
 import sqlite3
 import struct
-import sys
 import zlib
 from pathlib import Path
 

@@ -37,13 +37,13 @@ def compute_content_hash(repo_dir: Path, included_paths: list[str]) -> str:
                 for p in sorted(inc_path.rglob("*")):
                     if p.is_file() and not p.name.startswith(".git"):
                         files_to_hash.append(p)
-    
+
     files_to_hash.sort()
     for f in files_to_hash:
         rel = f.relative_to(repo_dir).as_posix()
         h.update(rel.encode("utf-8"))
         h.update(f.read_bytes())
-    
+
     return h.hexdigest()
 
 def verify():
@@ -54,14 +54,14 @@ def verify():
 
     lock_data = json.loads(LOCKFILE_PATH.read_text(encoding="utf-8"))
     sources = lock_data.get("sources", [])
-    
+
     errors = 0
     for s in sources:
         sid = s["id"]
         repo_dir = CACHE / sid
         if sid == "harctoolbox-irp-protocols":
             repo_dir = CACHE / "irp-transmogrifier"
-            
+
         if not repo_dir.exists():
             print(f"  ❌ [{sid}] Repository directory missing: {repo_dir}")
             errors += 1

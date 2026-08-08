@@ -22,11 +22,8 @@ import base64
 import csv
 import hashlib
 import json
-import os
 import re
 import sqlite3
-import struct
-import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -503,11 +500,9 @@ def parse_flipper_file(cur: sqlite3.Cursor, filepath: Path,
     count = 0
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
+    except Exception:
         stats["parse_errors"] += 1
         return 0
-
-    blocks = re.split(r'\n#\s*\n|\n(?=name:)', text)
 
     current_name = None
     current_type = None
@@ -690,7 +685,7 @@ def ingest_smartir(cur: sqlite3.Cursor):
     for jf in json_files:
         try:
             data = json.loads(jf.read_text(encoding="utf-8", errors="replace"))
-        except (json.JSONDecodeError, Exception) as e:
+        except (json.JSONDecodeError, Exception):
             stats["parse_errors"] += 1
             continue
 
@@ -698,7 +693,6 @@ def ingest_smartir(cur: sqlite3.Cursor):
         models = data.get("supportedModels", [])
         model_str = ", ".join(models[:3]) if models else jf.stem
         encoding = data.get("commandsEncoding", "").lower()
-        controller = data.get("supportedController", "").lower()
 
         # Determine device type from parent directory
         parent = jf.parent.name
@@ -854,7 +848,7 @@ def ingest_probonopd(cur: sqlite3.Cursor):
                                         carrier_hz, address, sub_device, command)
                     total_commands += 1
 
-        except Exception as e:
+        except Exception:
             stats["parse_errors"] += 1
 
     stats["probonopd_total_commands"] = total_commands
@@ -1134,7 +1128,6 @@ def ingest_irp_protocols(cur: sqlite3.Cursor):
 
         # Extract bit count
         bit_count = None
-        bits_match = re.search(r"\{(\d+)\}", irp_notation)
 
         # Extract documentation
         doc_el = protocol.find("irp:documentation", ns)

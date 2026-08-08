@@ -93,36 +93,36 @@ def compute_content_hash(repo_dir: Path, included_paths: list[str]) -> str:
                 for p in sorted(inc_path.rglob("*")):
                     if p.is_file() and not p.name.startswith(".git"):
                         files_to_hash.append(p)
-    
+
     files_to_hash.sort()
     for f in files_to_hash:
         rel = f.relative_to(repo_dir).as_posix()
         h.update(rel.encode("utf-8"))
         h.update(f.read_bytes())
-    
+
     return h.hexdigest()
 
 def generate_locks():
     print("==> Generating REAL immutable source locks...")
     sources = []
-    
+
     for s in SOURCES_DEF:
         repo_dir = s["dir"]
         if not repo_dir.exists():
             print(f"Error: {repo_dir} does not exist. Run bootstrap-sources.sh first.")
             continue
-            
+
         commit = git_cmd(repo_dir, "rev-parse", "HEAD")
         tree = git_cmd(repo_dir, "rev-parse", "HEAD^{tree}")
-        
+
         lic_file = repo_dir / s["licenseFilePath"]
         if lic_file.exists():
             lic_hash = hashlib.sha256(lic_file.read_bytes()).hexdigest()
         else:
             lic_hash = "0" * 64
-            
+
         content_hash = compute_content_hash(repo_dir, s["includedPaths"])
-        
+
         entry = {
             "id": s["id"],
             "repository": s["repository"],
@@ -146,7 +146,7 @@ def generate_locks():
         "lockedAtUtc": "2026-08-06T15:40:00Z",
         "sources": sources
     }
-    
+
     LOCKFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     LOCKFILE_PATH.write_text(json.dumps(lock_data, indent=2, ensure_ascii=False))
     print(f"\n  ✓ Locks written to {LOCKFILE_PATH}")

@@ -9,17 +9,12 @@ Parses upstream IR data repositories directly into Schema v4:
 """
 
 import argparse
-import base64
-import csv
 import hashlib
 import json
-import os
-import re
 import sqlite3
 import struct
 import sys
 import zlib
-from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -117,7 +112,6 @@ def build_v4_catalog(profile: str = "production"):
 
     conn.commit()
 
-    rejections_count = 0
     signals_created = {}
     actions_created = {}
     brands_created = {}
@@ -181,8 +175,13 @@ def build_v4_catalog(profile: str = "production"):
             text = ir_file.read_text(encoding="utf-8", errors="replace")
             commands = []
 
-            curr_name = None; curr_type = None; curr_proto = None
-            curr_addr = None; curr_cmd = None; curr_freq = 38000; curr_data = None
+            curr_name = None
+            curr_type = None
+            curr_proto = None
+            curr_addr = None
+            curr_cmd = None
+            curr_freq = 38000
+            curr_data = None
 
             for line in text.splitlines():
                 line = line.strip()
@@ -190,7 +189,12 @@ def build_v4_catalog(profile: str = "production"):
                     if curr_name and curr_type:
                         commands.append((curr_name, curr_type, curr_proto, curr_addr, curr_cmd, curr_freq, curr_data))
                     curr_name = line.split(":", 1)[1].strip()
-                    curr_type = None; curr_proto = None; curr_addr = None; curr_cmd = None; curr_freq = 38000; curr_data = None
+                    curr_type = None
+                    curr_proto = None
+                    curr_addr = None
+                    curr_cmd = None
+                    curr_freq = 38000
+                    curr_data = None
                 elif line.startswith("type:"):
                     curr_type = line.split(":", 1)[1].strip()
                 elif line.startswith("protocol:"):
@@ -264,7 +268,6 @@ def build_v4_catalog(profile: str = "production"):
     conn.commit()
 
     # Calculate Canonical Content SHA-256 and Database SHA-256
-    db_sha256 = sha256_text(DB_PATH.read_bytes().decode("latin1")) if DB_PATH.exists() else ""
     canonical_hash, entity_counts = export_canonical_catalog.compute_canonical_hash(DB_PATH)
 
     # Manifest
@@ -288,7 +291,7 @@ def build_v4_catalog(profile: str = "production"):
     }
     REJECTIONS_PATH.write_text(json.dumps(rejections, indent=2, ensure_ascii=False))
 
-    print(f"\n  ✓ Native Schema v4 Database Built Successfully!")
+    print("\n  ✓ Native Schema v4 Database Built Successfully!")
     print(f"    Code Sets:         {entity_counts.get('code_sets', 0)}")
     print(f"    Command Bindings:  {entity_counts.get('command_bindings', 0)}")
     print(f"    Signals:           {entity_counts.get('signals', 0)}")

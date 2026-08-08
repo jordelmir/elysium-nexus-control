@@ -110,7 +110,7 @@ def main() -> int:
         mapped[canonical] = (addr, cmd)
 
     if "VOLUME_UP" not in mapped or "MUTE" not in mapped:
-        print(f"ERROR: Kintech set lacks required VOLUME_UP/MUTE binding")
+        print("ERROR: Kintech set lacks required VOLUME_UP/MUTE binding")
         return 1
     print(f"  mapped       : {len(mapped)} canonical actions")
     print(f"  skipped      : {skipped} (no canonical IrAction)")
@@ -152,7 +152,7 @@ def main() -> int:
         cur.execute("SELECT id FROM device_types WHERE canonical_name = 'Tv'")
         t_row = cur.fetchone()
     if t_row is None:
-        t_type_id = short_sha(f"dtype:tv")
+        t_type_id = short_sha("dtype:tv")
         cur.execute("INSERT OR IGNORE INTO device_types (id, canonical_name) VALUES (?, ?)", (t_type_id, "Tv"))
     else:
         t_type_id = t_row[0]

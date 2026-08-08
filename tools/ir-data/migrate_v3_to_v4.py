@@ -12,7 +12,6 @@ import hashlib
 import json
 import sqlite3
 import sys
-import zlib
 from collections import defaultdict
 from pathlib import Path
 
@@ -72,7 +71,7 @@ def migrate():
 
     # Apply v4 DDL Schema
     ddl_sql = SCHEMA_PATH.read_text(encoding="utf-8")
-    
+
     # Drop old tables
     cur.executescript("""
         DROP TABLE IF EXISTS commands_encoded;
@@ -250,7 +249,7 @@ def migrate():
     }
     MIGRATION_REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False))
 
-    print(f"\n  ✓ Migration to Schema v4 SUCCESSFUL!")
+    print("\n  ✓ Migration to Schema v4 SUCCESSFUL!")
     print(f"    Code Sets:            {code_set_count} (Multi-command: {code_sets_multi_command})")
     print(f"    Unique Signals:       {len(signals_created)}")
     print(f"    Command Bindings:     {binding_count}")
