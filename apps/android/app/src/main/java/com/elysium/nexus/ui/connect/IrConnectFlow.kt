@@ -360,7 +360,7 @@ fun IrConnectFlow(
         }
 
         val status = when {
-            verifiedActions.size >= 3 -> VerificationStatus.VERIFIED_COMMUNITY
+            verifiedActions.size >= 3 -> VerificationStatus.SESSION_VERIFIED
             verifiedActions.size >= 2 -> VerificationStatus.PARTIALLY_VERIFIED
             verifiedActions.isNotEmpty() -> VerificationStatus.PARTIALLY_VERIFIED
             else -> VerificationStatus.UNVERIFIED

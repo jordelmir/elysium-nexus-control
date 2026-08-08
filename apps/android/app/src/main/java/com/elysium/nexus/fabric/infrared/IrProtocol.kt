@@ -106,9 +106,17 @@ enum class IrProtocol(
                             Samsung -> EncodeResult.Success(
                                 IrWaveform.encodeSamsung(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
-                            SonySirc -> EncodeResult.Success(
-                                IrWaveform.encodeSonySirc(signal.address, signal.command, carrierHz = signal.carrierHz)
-                            )
+                            SonySirc -> {
+                                // P0-8: Use variant addressBits for SIRC12/15/20
+                                val addressBits = when (signal.variantId) {
+                                    "SIRC_15" -> 8
+                                    "SIRC_20" -> 13
+                                    else -> 5
+                                }
+                                EncodeResult.Success(
+                                    IrWaveform.encodeSonySirc(signal.address, signal.command, addressBits = addressBits, carrierHz = signal.carrierHz)
+                                )
+                            }
                             Rc5 -> EncodeResult.Success(
                                 IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle, carrierHz = signal.carrierHz)
                             )

@@ -49,7 +49,8 @@ object CandidateScorer {
         // Verification status
         when (candidate.verification) {
             VerificationStatus.VERIFIED_LAB -> { score += 50; reasons.add("+50 VERIFIED_LAB") }
-            VerificationStatus.VERIFIED_COMMUNITY -> { score += 35; reasons.add("+35 VERIFIED_COMMUNITY") }
+            VerificationStatus.VERIFIED_COMMUNITY -> { score += 40; reasons.add("+40 VERIFIED_COMMUNITY") }
+            VerificationStatus.SESSION_VERIFIED -> { score += 25; reasons.add("+25 SESSION_VERIFIED") }
             VerificationStatus.PARTIALLY_VERIFIED -> { score += 15; reasons.add("+15 PARTIALLY_VERIFIED") }
             else -> {}
         }

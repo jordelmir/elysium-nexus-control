@@ -10,7 +10,9 @@ import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
+import com.elysium.nexus.fabric.infrared.CodecSpec
 import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
+import com.elysium.nexus.fabric.infrared.ProtocolVariant
 import com.elysium.nexus.fabric.infrared.CodecVerificationStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -274,6 +276,7 @@ class IrCatalogRepository private constructor(
         status == null -> VerificationStatus.UNVERIFIED
         status.startsWith("VERIFIED_LAB") -> VerificationStatus.VERIFIED_LAB
         status.startsWith("VERIFIED_COMMUNITY") -> VerificationStatus.VERIFIED_COMMUNITY
+        status.startsWith("SESSION_VERIFIED") -> VerificationStatus.SESSION_VERIFIED
         status.startsWith("PARTIALLY_VERIFIED") -> VerificationStatus.PARTIALLY_VERIFIED
         status.startsWith("STRUCTURALLY_VALID") -> VerificationStatus.STRUCTURALLY_VALID
         status.startsWith("PROTOCOL_VALIDATED") -> VerificationStatus.PROTOCOL_VALIDATED
@@ -285,12 +288,13 @@ class IrCatalogRepository private constructor(
 
     /**
      * §7 Determining selection rank for a binding, per the dictamen policy:
-     * VERIFIED_LAB > VERIFIED_COMMUNITY > raw exacto del modelo > paramétrico validado >
-     * mayor source_priority > orden estable por bindingId.
+     * VERIFIED_LAB > VERIFIED_COMMUNITY > SESSION_VERIFIED > PARTIALLY_VERIFIED >
+     * STRUCTURALLY_VALID/PROTOCOL_VALIDATED > raw.
      */
     private fun verificationRank(codeSetStatus: String): Int = when {
-        codeSetStatus == "VERIFIED_LAB" -> 5
-        codeSetStatus == "VERIFIED_COMMUNITY" -> 4
+        codeSetStatus == "VERIFIED_LAB" -> 6
+        codeSetStatus == "VERIFIED_COMMUNITY" -> 5
+        codeSetStatus == "SESSION_VERIFIED" -> 4
         codeSetStatus == "PARTIALLY_VERIFIED" -> 3
         codeSetStatus == "STRUCTURALLY_VALID" || codeSetStatus == "PROTOCOL_VALIDATED" -> 2
         codeSetStatus == "VERIFIED" -> 1
@@ -310,7 +314,7 @@ class IrCatalogRepository private constructor(
                    sig.address_value, sig.sub_device_value, sig.command_value,
                    sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
                    sig.physical_sha256, cb.source_priority, sr.content_sha256 AS revision_sha,
-                   cs.verification_status
+                   cs.verification_status, sig.protocol_name_original, sig.protocol_variant
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
@@ -335,6 +339,8 @@ class IrCatalogRepository private constructor(
                 val sourcePriority = cursor.getInt(11)
                 val revisionSha = cursor.getString(12) ?: "catalog-legacy"
                 val codeSetStatus = cursor.getString(13) ?: "UNVERIFIED"
+                val protocolNameOriginal = cursor.getString(14)
+                val protocolVariant = cursor.getString(15)
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
@@ -348,7 +354,8 @@ class IrCatalogRepository private constructor(
                         Log.d(TAG, "EXPERIMENTAL codec '${codecSpec.codecId}' blocked for signalId=$signalId")
                         null
                     } else {
-                        // P0-13: Populate codecId + variantId for lossless dispatch
+                        // P0-8: Match variant from protocol_name_original or codec_id
+                        val matchedVariant = resolveVariant(codecSpec, protocolNameOriginal, protocolVariant)
                         IrSignal.Encoded(
                             carrierHz = carrierHz,
                             protocol = codecSpec.protocol,
@@ -356,7 +363,7 @@ class IrCatalogRepository private constructor(
                             subDevice = if (subDevice >= 0) subDevice else null,
                             command = command,
                             codecId = codecSpec.codecId,
-                            variantId = codecSpec.variants.firstOrNull()?.variantId
+                            variantId = matchedVariant?.variantId ?: codecSpec.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -411,7 +418,8 @@ class IrCatalogRepository private constructor(
 
         val query = """
             SELECT encoding_type, codec_id, carrier_hz, address_value,
-                   sub_device_value, command_value, pattern_blob
+                   sub_device_value, command_value, pattern_blob,
+                   protocol_name_original, protocol_variant
             FROM signals
             WHERE id = ?
         """.trimIndent()
@@ -425,10 +433,13 @@ class IrCatalogRepository private constructor(
                 val subDevice = cursor.getInt(4)
                 val command = cursor.getInt(5)
                 val blob = cursor.getBlob(6)
+                val protocolNameOriginal = cursor.getString(7)
+                val protocolVariant = cursor.getString(8)
 
                 if (encodingType == "PARAMETRIC") {
                     val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
                     if (codecSpec != null) {
+                        val matchedVariant = resolveVariant(codecSpec, protocolNameOriginal, protocolVariant)
                         resultSignal = IrSignal.Encoded(
                             carrierHz = carrierHz,
                             protocol = codecSpec.protocol,
@@ -436,7 +447,7 @@ class IrCatalogRepository private constructor(
                             subDevice = if (subDevice >= 0) subDevice else null,
                             command = command,
                             codecId = codecSpec.codecId,
-                            variantId = codecSpec.variants.firstOrNull()?.variantId
+                            variantId = matchedVariant?.variantId ?: codecSpec.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -528,7 +539,7 @@ class IrCatalogRepository private constructor(
             SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
                    sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
-                   sig.physical_sha256
+                   sig.physical_sha256, sig.protocol_name_original, sig.protocol_variant
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
@@ -548,12 +559,15 @@ class IrCatalogRepository private constructor(
                 val signalId = cursor.getString(8)
                 val bindingId = cursor.getString(9)
                 val physicalSha256 = cursor.getString(10) ?: signalId
+                val protocolNameOriginal = cursor.getString(11)
+                val protocolVariant = cursor.getString(12)
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
                 val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
                     val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
                     codecSpec?.let {
+                        val matchedVariant = resolveVariant(it, protocolNameOriginal, protocolVariant)
                         IrSignal.Encoded(
                             carrierHz = carrierHz,
                             protocol = it.protocol,
@@ -561,7 +575,7 @@ class IrCatalogRepository private constructor(
                             subDevice = if (subDevice >= 0) subDevice else null,
                             command = command,
                             codecId = it.codecId,
-                            variantId = it.variants.firstOrNull()?.variantId
+                            variantId = matchedVariant?.variantId ?: it.variants.firstOrNull()?.variantId
                         )
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -671,6 +685,36 @@ class IrCatalogRepository private constructor(
         }
 
         result
+    }
+
+    /**
+     * P0-8: Match protocol variant from SQLite's protocol_name_original or codec_id
+     * against the CodecSpec's registered variants. This ensures SIRC12/15/20 are
+     * correctly distinguished instead of always picking the first variant.
+     */
+    private fun resolveVariant(
+        codecSpec: CodecSpec,
+        protocolNameOriginal: String?,
+        protocolVariant: String?
+    ): ProtocolVariant? {
+        // Try matching by protocol_name_original first (e.g., "SIRC15")
+        if (!protocolNameOriginal.isNullOrBlank()) {
+            val match = codecSpec.variants.firstOrNull { v ->
+                v.variantId.equals(protocolNameOriginal, ignoreCase = true) ||
+                v.variantId.replace("_", "").equals(protocolNameOriginal.replace(" ", ""), ignoreCase = true)
+            }
+            if (match != null) return match
+        }
+        // Try matching by protocol_variant (e.g., carrier Hz or other metadata)
+        if (!protocolVariant.isNullOrBlank()) {
+            val match = codecSpec.variants.firstOrNull { v ->
+                v.variantId.equals(protocolVariant, ignoreCase = true)
+            }
+            if (match != null) return match
+        }
+        // Fallback: try matching codec_id itself against variants (e.g., "SIRC" → SIRC_12)
+        // Only if there's exactly one variant, use it
+        return if (codecSpec.variants.size == 1) codecSpec.variants.firstOrNull() else null
     }
 
     private fun mapActionKeyToIrAction(actionKey: String): IrAction? = try {

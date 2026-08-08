@@ -402,6 +402,8 @@ class InstalledIrProfileRepository(
     }
 
     private fun mapProfileToEntity(profile: InstalledIrProfile, verifiedActions: Set<IrAction>): InstalledIrProfileEntity {
+        val currentCatalogHash = computeCatalogHash(profile)
+        val storedHash = profile.sourceRevision // The hash stored when profile was created
         return InstalledIrProfileEntity(
             profileId = profile.id,
             displayName = profile.displayName,
@@ -411,12 +413,13 @@ class InstalledIrProfileRepository(
             remoteId = profile.remoteModel,
             codeSetId = profile.codeSetId,
             catalogVersion = profile.sourceRevision,
-            catalogCanonicalHash = computeCatalogHash(profile),
+            catalogCanonicalHash = currentCatalogHash,
             verificationStatus = profile.verificationStatus.name,
             createdAtEpochMs = profile.createdAtEpochMs,
             updatedAtEpochMs = System.currentTimeMillis(),
             lastSuccessfulUseEpochMs = 0L,
-            needsRevalidation = false,
+            // P1-21: needsRevalidation = true when catalog has changed since profile creation
+            needsRevalidation = currentCatalogHash != "unknown" && currentCatalogHash != storedHash,
             isEnabled = true
         )
     }

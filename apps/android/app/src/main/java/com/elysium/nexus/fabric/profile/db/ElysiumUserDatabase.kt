@@ -312,14 +312,14 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
 
         // P0-12: Explicit migrations. No fallbackToDestructiveMigration.
         // v2→v3: empty migration (no schema change, but forces version bump for exportSchema)
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
+        internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 // No schema changes — version bump to enable exportSchema tracking.
             }
         }
 
         // P1-SIGNAL-SOURCES: Add signal_sources table for provenance tracking
-        private val MIGRATION_3_4 = object : Migration(3, 4) {
+        internal val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL(
                     """CREATE TABLE IF NOT EXISTS signal_sources (

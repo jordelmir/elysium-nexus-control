@@ -158,9 +158,14 @@ data class IrWaveform(
             return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeSonySirc(address: Int, command: Int, extended: Boolean = false, carrierHz: Int = IrProtocol.SonySirc.carrierHz): IrWaveform {
-            require(address in 0..0x1FF) { "SIRC address must be in [0, 511] (got $address)." }
+        /**
+         * P0-8: SIRC encoder now supports addressBits parameter for SIRC12/15/20 variants.
+         * addressBits=5 → SIRC12, addressBits=8 → SIRC15, addressBits=13 → SIRC20.
+         */
+        fun encodeSonySirc(address: Int, command: Int, addressBits: Int = 5, carrierHz: Int = IrProtocol.SonySirc.carrierHz): IrWaveform {
+            require(address in 0..0x1FFFF) { "SIRC address must be in [0, 131071] (got $address)." }
             require(command in 0..0x7F) { "SIRC command must be in [0, 127] (got $command)." }
+            require(addressBits in 5..13) { "SIRC addressBits must be in [5, 13] (got $addressBits)." }
 
             val pattern = ArrayList<Int>()
             pattern.add(2400)
@@ -172,18 +177,10 @@ data class IrWaveform(
                 pattern.add(600)
             }
 
-            for (i in 0 until 5) {
+            for (i in 0 until addressBits) {
                 val bit = (address ushr i) and 1
                 pattern.add(if (bit == 0) 600 else 1200)
                 pattern.add(600)
-            }
-
-            if (extended) {
-                for (i in 5 until 13) {
-                    val bit = (address ushr i) and 1
-                    pattern.add(if (bit == 0) 600 else 1200)
-                    pattern.add(600)
-                }
             }
 
             return IrWaveform(carrierHz, pattern.toIntArray())
