@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -148,7 +149,8 @@ fun IrConnectFlow(
     hasIrBlaster: Boolean,
     modifier: Modifier = Modifier
 ) {
-    var step by remember { mutableStateOf(IrStep.ORIENT) }
+    // P1-17: Use rememberSaveable for critical state that must survive process death
+    var step by rememberSaveable { mutableStateOf(IrStep.ORIENT) }
     var showHelp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -157,9 +159,9 @@ fun IrConnectFlow(
     var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
     var currentAttempt by remember { mutableStateOf<ProbeAttempt?>(null) }
     var currentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var verifiedActions by remember { mutableStateOf<Set<IrAction>>(emptySet()) }
+    var verifiedActions by rememberSaveable { mutableStateOf<Set<IrAction>>(emptySet()) }
     var autoScanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var isAutoScanning by remember { mutableStateOf(false) }
+    var isAutoScanning by rememberSaveable { mutableStateOf(false) }
     var lastProbedCandidate by remember { mutableStateOf<com.elysium.nexus.core.device.IrCodeSet?>(null) }
 
     // §6 Pass targetModel for real ranking
