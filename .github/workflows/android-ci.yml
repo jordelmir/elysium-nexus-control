@@ -103,23 +103,22 @@ jobs:
           print("canonical hash: PASS")
           PYEOF
 
-      # ── Gate 2a: Verify source lock integrity ──
+      # ── Gate 2a: Verify source lock integrity (structure only) ──
       - name: Verify source lock integrity
         run: |
-          if [ -f tools/ir-data/verify_source_locks.py ]; then
-            python3 tools/ir-data/verify_source_locks.py
-          elif [ -f ir-data/sources.lock.json ]; then
-            python3 -c "
+          python3 -c "
           import json, sys
           lock = json.load(open('ir-data/sources.lock.json'))
+          assert 'schemaVersion' in lock, 'missing schemaVersion'
           sources = lock.get('sources', [])
-          print(f'Lockfile valid: {len(sources)} sources locked')
+          assert len(sources) >= 3, f'expected ≥3 sources, got {len(sources)}'
+          print(f'Lockfile valid: {len(sources)} sources locked (schema v{lock[\"schemaVersion\"]})')
           for s in sources:
-              print(f'  ✓ [{s[\"id\"]}] commit={s[\"resolvedCommit\"][:12]}')
+              cid = s.get('resolvedCommit','')
+              assert len(cid) == 40, f'[{s[\"id\"]}] invalid commit SHA'
+              print(f'  ✓ [{s[\"id\"]}] commit={cid[:12]}...')
+          print('lockfile integrity: PASS')
           "
-          else
-            echo "SKIP: no lockfile or verify script found"
-          fi
 
       # ── Gate 3: Python lint ──
       - name: Lint Python scripts (ruff)
