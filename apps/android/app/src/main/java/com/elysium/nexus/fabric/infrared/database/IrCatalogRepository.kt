@@ -771,37 +771,33 @@ class IrCatalogRepository private constructor(
     // P1-PROVENANCE: Multi-source provenance lookup
 
     override suspend fun getSignalProvenance(signalId: String): List<SignalProvenance> = withContext(Dispatchers.IO) {
-        val database = getDatabase()
         val results = mutableListOf<SignalProvenance>()
 
-        // Query from SQLite catalog signal_sources (if table exists)
+        // P1-20: Query signal_sources from the USER Room DB (not the immutable catalog DB)
         try {
-            val query = """
-                SELECT signalId, sourceId, sourceRevisionId, evidenceLevel,
-                       verificationSource, verifiedAtEpochMs, deviceModel, notes
-                FROM signal_sources
-                WHERE signalId = ?
-            """.trimIndent()
-            database.rawQuery(query, arrayOf(signalId)).use { cursor ->
-                while (cursor.moveToNext()) {
+            if (context != null) {
+                val userDb = com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(context)
+                val entities = userDb.profileDao().getSourcesForSignal(signalId)
+                for (entity in entities) {
                     results.add(SignalProvenance(
-                        signalId = cursor.getString(0) ?: signalId,
-                        sourceId = cursor.getString(1) ?: "",
-                        sourceRevisionId = cursor.getString(2) ?: "",
-                        evidenceLevel = cursor.getString(3) ?: "INTERNAL_UNVERIFIED",
-                        verificationSource = cursor.getString(4),
-                        verifiedAtEpochMs = cursor.getLong(5).takeIf { it > 0 },
-                        deviceModel = cursor.getString(6),
-                        notes = cursor.getString(7)
+                        signalId = entity.signalId,
+                        sourceId = entity.sourceId,
+                        sourceRevisionId = entity.sourceRevisionId,
+                        evidenceLevel = entity.evidenceLevel,
+                        verificationSource = entity.verificationSource,
+                        verifiedAtEpochMs = entity.verifiedAtEpochMs?.takeIf { it > 0 },
+                        deviceModel = entity.deviceModel,
+                        notes = entity.notes
                     ))
                 }
             }
         } catch (_: Exception) {
-            // signal_sources table may not exist in older catalogs
+            // signal_sources table may not exist in older user DB versions
         }
 
         // Fallback: derive provenance from command_bindings → source_revisions
         if (results.isEmpty()) {
+            val database = getDatabase()
             val query = """
                 SELECT DISTINCT sr.version, s.id, s.license_id
                 FROM command_bindings cb
