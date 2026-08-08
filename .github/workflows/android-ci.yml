@@ -81,6 +81,11 @@ jobs:
               raise SystemExit(f"catalog integrity failed: quick={quick} fk={len(fk)} hash={status}")
           EOF
 
+      - name: Lint Python scripts (ruff)
+        run: |
+          pip install ruff
+          ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505
+
       - name: Run JVM unit tests
         run: |
           cd apps/android
