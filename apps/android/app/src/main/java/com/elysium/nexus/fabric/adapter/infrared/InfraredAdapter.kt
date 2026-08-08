@@ -100,37 +100,10 @@ class InfraredAdapter(
             )
         }
 
-        // Also include template-based discovery for uninstalled brands
-        val templateTwins = DeviceCatalog.all
-            .filter { template ->
-                installedProfiles.none { it.codeSetId.contains(template.id) || it.brand.equals(template.brand, ignoreCase = true) }
-            }
-            .map { template ->
-                DeviceTwin(
-                    deviceId = DeviceId("ir-${template.id}"),
-                    manufacturer = template.brand,
-                    model = template.model,
-                    deviceType = when (template.category) {
-                        DeviceCategory.TV -> DeviceType.Television
-                        DeviceCategory.ANDROID_TV -> DeviceType.Television
-                        DeviceCategory.SOUNDBAR -> DeviceType.Soundbar
-                        DeviceCategory.PROJECTOR -> DeviceType.Projector
-                        else -> DeviceType.Unknown
-                    },
-                    capabilities = setOf(Capability.OnOff),
-                    connectivity = ConnectivityState.Unknown,
-                    protocolBindings = setOf(
-                        ProtocolBinding(
-                            protocol = Protocol.DirectIr,
-                            endpoint = "ir-${template.id}",
-                            capabilities = setOf(Capability.OnOff)
-                        )
-                    )
-                )
-            }
-
-        _devices.value = twins + templateTwins
-        return ScanResult.Ok(deviceCount = twins.size + templateTwins.size)
+        // P0-10: Only Room installed profiles are DeviceTwins.
+        // Templates are DiscoveryCandidates, not real devices.
+        _devices.value = twins
+        return ScanResult.Ok(deviceCount = twins.size)
     }
 
     override suspend fun read(deviceId: DeviceId): ReadResult {

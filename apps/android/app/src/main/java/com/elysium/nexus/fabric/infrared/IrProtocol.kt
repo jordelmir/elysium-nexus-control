@@ -98,25 +98,25 @@ enum class IrProtocol(
                     try {
                         when (signal.protocol) {
                             Nec -> EncodeResult.Success(
-                                IrWaveform.encodeNec(signal.address, signal.command)
+                                IrWaveform.encodeNec(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             NecExtended -> EncodeResult.Success(
-                                IrWaveform.encodeNecExtended(signal.address, signal.command)
+                                IrWaveform.encodeNecExtended(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             Samsung -> EncodeResult.Success(
-                                IrWaveform.encodeSamsung(signal.address, signal.command)
+                                IrWaveform.encodeSamsung(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             SonySirc -> EncodeResult.Success(
-                                IrWaveform.encodeSonySirc(signal.address, signal.command)
+                                IrWaveform.encodeSonySirc(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             Rc5 -> EncodeResult.Success(
-                                IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle)
+                                IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle, carrierHz = signal.carrierHz)
                             )
                             Rc6 -> EncodeResult.Success(
-                                IrWaveform.encodeRc6(signal.address, signal.command, signal.toggle)
+                                IrWaveform.encodeRc6(signal.address, signal.command, signal.toggle, carrierHz = signal.carrierHz)
                             )
                             Kaseikyo -> EncodeResult.Success(
-                                IrWaveform.encodeKaseikyo(signal.address, signal.command)
+                                IrWaveform.encodeKaseikyo(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
                         }

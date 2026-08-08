@@ -30,7 +30,7 @@ JSON_PATH = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir_
 sys.path.insert(0, str(ROOT / "tools" / "ir-data"))
 import export_canonical_catalog
 
-SOURCE_ID = "elysium-nexus-curated"
+SOURCE_ID = "elysium-curated-observed"
 SOURCE_COMMIT = "curated-tv-v1"
 REVISION = hashlib.sha256(f"{SOURCE_ID}:{SOURCE_COMMIT}".encode()).hexdigest()
 DT_TV = "3da00d033e4ad83b"  # device_types.canonical_name = 'Tv' (already present)

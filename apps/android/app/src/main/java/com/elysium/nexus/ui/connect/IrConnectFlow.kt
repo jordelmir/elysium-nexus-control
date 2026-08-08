@@ -199,12 +199,11 @@ fun IrConnectFlow(
             for (p in penalties) {
                 penaltyMap[p.codeSetId] = p.penaltyScore
             }
-            // Load evidence counts per codeSet
-            for (cs in sqliteCandidates) {
-                val successEvidence = db.profileDao().getSuccessfulEvidence(cs.id, "VOLUME_UP")
-                if (successEvidence.isNotEmpty()) {
-                    successMap[cs.id] = successEvidence.size
-                }
+            // P1-11: Single GROUP BY query instead of N+1 per-candidate queries
+            val evidenceCounts = db.profileDao().getEvidenceCountsByCodeSet("VOLUME_UP")
+            for (row in evidenceCounts) {
+                if (row.successCount > 0) successMap[row.codeSetId] = row.successCount
+                if (row.failCount > 0) failMap[row.codeSetId] = row.failCount
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load penalty/evidence data: ${e.message}")
@@ -516,11 +515,18 @@ fun IrConnectFlow(
                                 IrStep.CHALLENGE -> ChallengeStep(
                                     lastResult = currentResult,
                                     onDidWork = {
-                                        // Manual mode: also requires challenge confirmation
+                                        // P0-1: Challenge confirmed — VOLUME_UP verified twice.
+                                        // Record evidence, advance to VERIFY_SECONDARY (VOLUME_DOWN).
                                         val winner = engine.currentCandidate()
                                         if (winner != null) {
-                                            step = IrStep.CHALLENGE
-                                            sendTestAction(winner, IrAction.VOLUME_UP)
+                                            verifiedActions = setOf(IrAction.VOLUME_UP)
+                                            recordCandidateConfirmation(winner)
+                                            if (IrAction.VOLUME_DOWN in winner.commands) {
+                                                step = IrStep.VERIFY_SECONDARY
+                                                sendTestAction(winner, IrAction.VOLUME_DOWN)
+                                            } else {
+                                                step = IrStep.SAVE
+                                            }
                                         }
                                     },
                                     onNo = {

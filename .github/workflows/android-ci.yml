@@ -63,7 +63,7 @@ jobs:
           sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
           manifest = json.load(open("ir_catalog.manifest.json"))
           expected = manifest.get("databaseSha256")
-          status = "PASS" if expected is None or sha == expected else "FAIL"
+          status = "PASS" if (expected is not None and sha == expected) else "FAIL"
           print(f"catalog sha256   : {sha}")
           print(f"manifest expected: {expected}")
           print(f"hash check       : {status}")
@@ -80,8 +80,41 @@ jobs:
           print("catalog integrity: PASS")
           PYEOF
 
-      # ── Gate 2: Source lock verification ──
-      - name: Verify source locks
+      # ── Gate 1b: Canonical hash reproducibility ──
+      - name: Verify canonical content hash matches manifest
+        run: |
+          cd apps/android/app/src/main/assets/ir
+          python3 - <<'PYEOF'
+          import json, sys
+          sys.path.insert(0, "../../../../../../tools/ir-data")
+          from export_canonical_catalog import compute_canonical_hash
+          from pathlib import Path
+          db_path = Path("ir_catalog.db")
+          manifest = json.load(open("ir_catalog.manifest.json"))
+          expected = manifest.get("canonicalContentSha256")
+          actual, _ = compute_canonical_hash(db_path)
+          print(f"canonical expected: {expected}")
+          print(f"canonical actual  : {actual}")
+          if expected is None:
+              print("FATAL: manifest missing canonicalContentSha256", file=sys.stderr)
+              sys.exit(1)
+          if actual != expected:
+              print(f"FATAL: canonical hash mismatch", file=sys.stderr)
+              sys.exit(1)
+          print("canonical hash: PASS")
+          PYEOF
+
+      # ── Gate 2a: Bootstrap locked sources ──
+      - name: Bootstrap IR sources (locked SHAs)
+        run: |
+          if [ -f tools/ir-data/bootstrap-sources.sh ]; then
+            bash tools/ir-data/bootstrap-sources.sh --locked
+          else
+            echo "SKIP: bootstrap-sources.sh not found"
+          fi
+
+      # ── Gate 2b: Verify source locks ──
+      - name: Verify source lock integrity
         run: |
           if [ -f tools/ir-data/verify_source_locks.py ]; then
             python3 tools/ir-data/verify_source_locks.py

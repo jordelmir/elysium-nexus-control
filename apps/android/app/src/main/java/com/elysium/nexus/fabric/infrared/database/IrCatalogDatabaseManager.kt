@@ -13,7 +13,7 @@ import java.security.MessageDigest
 private const val TAG = "ElysiumNexus.DbManager"
 private const val DB_DIR_NAME = "ir-catalog"
 private const val DB_FILE_NAME = "ir_catalog.db"
-private const val EXPECTED_MANIFEST_HASH = "d41e9264444a63f7cfc4d712e3fa98c80696aa32174eaabd7de58c0227d6e93d"
+private const val EXPECTED_MANIFEST_HASH = "7099ade2698fca85c416db67e719ea8656246314abb0f4793347e25c62ee795c"
 
 /**
  * §7.1 Application Singleton Database Manager for IR Catalog.

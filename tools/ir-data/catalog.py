@@ -65,8 +65,8 @@ def step_verify_locks():
         verify_source_locks.verify()
         log("Source locks verified.")
     except Exception as e:
-        log(f"WARNING: Source lock verification failed: {e}")
-        log("Continuing with existing checkouts (may produce inconsistent build).")
+        log(f"FATAL: Source lock verification failed: {e}")
+        sys.exit(1)
 
 
 def step_ingest(profile: str):
@@ -81,7 +81,7 @@ def step_seed_brands():
     """Step 3: Seed curated brands from ir_codes_db.json."""
     log("Seeding curated brands...")
     import seed_curated_brands_v4
-    seed_curated_brands_v4.seed()
+    seed_curated_brands_v4.main()
     log("Curated brands seeded.")
 
 
@@ -89,7 +89,7 @@ def step_seed_templates():
     """Step 4: Seed DeviceTemplate-based TV brands."""
     log("Seeding device templates...")
     import seed_templates_v4
-    seed_templates_v4.seed()
+    seed_templates_v4.main()
     log("Device templates seeded.")
 
 
@@ -97,7 +97,7 @@ def step_seed_kintech():
     """Step 5: Seed Kintech brand."""
     log("Seeding Kintech...")
     import seed_kintech_v4
-    seed_kintech_v4.seed()
+    seed_kintech_v4.main()
     log("Kintech seeded.")
 
 
@@ -109,12 +109,13 @@ def step_optimize():
     log("Optimization complete.")
 
 
-def step_export_hash():
+def step_export_hash() -> tuple[str, dict]:
     """Step 7: Export canonical hash and entity counts."""
     log("Computing canonical hash...")
     import export_canonical_catalog
-    export_canonical_catalog.export()
-    log("Canonical hash computed.")
+    canonical_hash, counts = export_canonical_catalog.compute_canonical_hash(DB_PATH)
+    log(f"Canonical hash computed: {canonical_hash[:16]}...")
+    return canonical_hash, counts
 
 
 def step_write_manifest(profile: str, db_sha256: str, canonical_hash: str, counts: dict):
@@ -168,23 +169,6 @@ def step_verify_manifest():
     return True
 
 
-def step_count_entities() -> dict:
-    """Count entities in the catalog for the manifest."""
-    conn = sqlite3.connect(str(DB_PATH))
-    try:
-        counts = {}
-        for table in ["sources", "source_revisions", "source_files", "brands",
-                       "device_types", "device_models", "remotes", "code_sets",
-                       "actions", "signals", "command_bindings", "code_set_models"]:
-            try:
-                counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            except sqlite3.OperationalError:
-                counts[table] = 0
-        return counts
-    finally:
-        conn.close()
-
-
 def main():
     parser = argparse.ArgumentParser(description="Elysium Nexus — Unified IR Catalog Builder")
     parser.add_argument("--profile", choices=["production", "research"], default="production",
@@ -234,14 +218,12 @@ def main():
     # Step 6: Optimize
     step_optimize()
 
-    # Step 7: Compute canonical hash + counts
-    counts = step_count_entities()
+    # Step 7: Compute canonical hash + counts (canonical content hash, not DB binary)
+    canonical_hash, counts = step_export_hash()
 
     # Step 8: Write manifest
     db_sha256 = calculate_file_sha256(DB_PATH)
-    # Canonical hash is computed by export_canonical_catalog
-    # For now we use the DB sha256 as a proxy
-    step_write_manifest(args.profile, db_sha256, db_sha256, counts)
+    step_write_manifest(args.profile, db_sha256, canonical_hash, counts)
 
     # Step 9: Verify
     ok = step_verify_manifest()

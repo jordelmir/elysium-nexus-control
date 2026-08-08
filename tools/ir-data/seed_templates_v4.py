@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 DB_PATH = ROOT / "apps/android/app/src/main/assets/ir/ir_catalog.db"
 
-SOURCE_ID = "elysium-nexus-curated"
+SOURCE_ID = "elysium-template-hypotheses"
 SOURCE_REV = "c9b1f3e8a1d2c4f6b8a0e2d4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2"
 SOURCE_COMMIT = "curated-templates-v1"
 

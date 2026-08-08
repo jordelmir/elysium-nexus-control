@@ -105,6 +105,13 @@ data class CompatibilityEvidenceEntity(
     val notes: String?
 )
 
+/** P1-11: Projection for batch evidence GROUP BY queries. Not an Entity — room infers mapping. */
+data class EvidenceCountRow(
+    val codeSetId: String,
+    val successCount: Int,
+    val failCount: Int
+)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Candidate Penalty — §23 Penalizes candidates that repeatedly fail
 // ═══════════════════════════════════════════════════════════════════════════
@@ -229,6 +236,17 @@ interface InstalledProfileDao {
 
     @Query("SELECT * FROM compatibility_evidence WHERE codeSetId = :codeSetId AND actionKey = :actionKey AND success = 1")
     suspend fun getSuccessfulEvidence(codeSetId: String, actionKey: String): List<CompatibilityEvidenceEntity>
+
+    /** P1-11: Batch evidence counts — single GROUP BY instead of N+1 per-candidate queries. */
+    @Query("""
+        SELECT codeSetId,
+               SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successCount,
+               SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failCount
+        FROM compatibility_evidence
+        WHERE actionKey = :actionKey
+        GROUP BY codeSetId
+    """)
+    suspend fun getEvidenceCountsByCodeSet(actionKey: String): List<EvidenceCountRow>
 
     // ── Candidate Penalties ───────────────────────────────────────────
 

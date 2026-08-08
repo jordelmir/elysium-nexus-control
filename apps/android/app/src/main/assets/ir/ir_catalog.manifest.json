@@ -3,8 +3,8 @@
   "profile": "production",
   "generatedAtUtc": "2026-08-07T00:00:00Z",
   "pipelineVersion": "0.5.0-universal-sweep-rc1",
-  "databaseSha256": "d41e9264444a63f7cfc4d712e3fa98c80696aa32174eaabd7de58c0227d6e93d",
-  "canonicalContentSha256": "383889cd1b08a544b058ebfa6975b34082f7d85fb9bde7858cec49fe53254592",
+  "databaseSha256": "7099ade2698fca85c416db67e719ea8656246314abb0f4793347e25c62ee795c",
+  "canonicalContentSha256": "11c02ae03355c9ba98f5f7304b17c75a86ab1a9f23e3198e25a651ba9069d5fd",
   "databaseSizeBytes": 20062208,
   "counts": {
     "sources": 6,
@@ -12,12 +12,12 @@
     "source_files": 1976,
     "brands": 812,
     "device_types": 45,
-    "device_models": 31,
+    "device_models": 0,
     "remotes": 1976,
     "code_sets": 1976,
     "actions": 6762,
     "signals": 15550,
     "command_bindings": 36317,
-    "code_set_models": 1773
+    "code_set_models": 0
   }
 }

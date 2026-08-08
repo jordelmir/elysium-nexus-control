@@ -93,7 +93,8 @@ class IrCatalogRepository private constructor(
 
         val query = """
             SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
-                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
             FROM code_sets cs
             JOIN remotes r ON cs.remote_id = r.id
             JOIN brands b ON r.brand_id = b.id
@@ -106,6 +107,7 @@ class IrCatalogRepository private constructor(
               AND a.canonical_key = ?
               AND (dt.canonical_name = ? OR ? = '')
               AND s.production_approved = 1
+              AND cs.verification_status NOT IN ('INTERNAL_UNVERIFIED', 'BLOCKED')
             GROUP BY cs.id
             ORDER BY cs.id
             LIMIT 200
@@ -120,6 +122,7 @@ class IrCatalogRepository private constructor(
                 val remoteModel = cursor.getString(2) ?: ""
                 val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
                 val licenseSpdx = cursor.getString(4) ?: "MIT"
+                val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
 
                 val codeSetResult = getCommandsForCodeSetInternal(database, csId)
                 // §7 A candidate is only a candidate for `action` if that
@@ -140,7 +143,7 @@ class IrCatalogRepository private constructor(
                                 sourceUrl = "",
                                 licenseSpdx = licenseSpdx
                             ),
-                            verification = VerificationStatus.UNVERIFIED
+                            verification = parseVerificationStatus(verificationStr)
                         )
                     )
                 }
@@ -168,9 +171,7 @@ class IrCatalogRepository private constructor(
         val tier1 = listOf("Samsung", "LG", "Sony", "Panasonic", "Philips")
         val tier2 = listOf("Sankey", "Kintech", "Kalley", "Challenger", "Daewoo", "Hyundai", "Hisense", "TCL", "Noblex", "RCA", "Akai", "Sanyo", "Funai", "Magnavox")
 
-        val baseQuery = """
-            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
-                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
+        val baseWhere = """
             FROM code_sets cs
             JOIN remotes r ON cs.remote_id = r.id
             JOIN brands b ON r.brand_id = b.id
@@ -182,8 +183,13 @@ class IrCatalogRepository private constructor(
             WHERE a.canonical_key = ?
               AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
               AND s.production_approved = 1
-            GROUP BY cs.id
-            ORDER BY b.display_name, cs.id
+              AND cs.verification_status NOT IN ('INTERNAL_UNVERIFIED', 'BLOCKED')
+        """.trimIndent()
+
+        val selectCols = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
         """.trimIndent()
 
         val devTypeArg = deviceType.trim()
@@ -191,27 +197,26 @@ class IrCatalogRepository private constructor(
         // Execute progressive search: tier1 → tier2 → remaining
         for (tierBrands in listOf(tier1, tier2, listOf<String>())) {
             if (results.size >= limit) break
-            val query = if (tierBrands.isEmpty()) {
+            val remaining = limit - results.size
+
+            val query: String
+            val params: Array<String>
+
+            if (tierBrands.isEmpty()) {
                 // Remaining brands: exclude already-seen brand names
                 val seenBrands = results.map { it.brand }.distinct()
                 if (seenBrands.isEmpty()) {
-                    "$baseQuery LIMIT ?"
+                    query = "$selectCols $baseWhere GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                    params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, remaining.toString())
                 } else {
                     val placeholders = seenBrands.joinToString(",") { "?" }
-                    "$baseQuery AND b.display_name NOT IN ($placeholders) LIMIT ?"
+                    query = "$selectCols $baseWhere AND b.display_name NOT IN ($placeholders) GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                    params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, *seenBrands.toTypedArray(), remaining.toString())
                 }
             } else {
-                "$baseQuery AND b.display_name IN (${
-                    tierBrands.joinToString(",") { "?" }
-                }) LIMIT ?"
-            }
-
-            val remaining = limit - results.size
-            val params = if (tierBrands.isEmpty()) {
-                val seenBrands = results.map { it.brand }.distinct()
-                arrayOf(actionKey, "$devTypeArg%", devTypeArg, *seenBrands.toTypedArray(), remaining.toString())
-            } else {
-                arrayOf(actionKey, "$devTypeArg%", devTypeArg, *tierBrands.toTypedArray(), remaining.toString())
+                val placeholders = tierBrands.joinToString(",") { "?" }
+                query = "$selectCols $baseWhere AND b.display_name IN ($placeholders) GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, *tierBrands.toTypedArray(), remaining.toString())
             }
 
             database.rawQuery(query, params).use { cursor ->
@@ -221,6 +226,7 @@ class IrCatalogRepository private constructor(
                     val remoteModel = cursor.getString(2) ?: ""
                     val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
                     val licenseSpdx = cursor.getString(4) ?: "MIT"
+                    val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
 
                     val codeSetResult = getCommandsForCodeSetInternal(database, csId)
                     if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
@@ -238,7 +244,7 @@ class IrCatalogRepository private constructor(
                                     sourceUrl = "",
                                     licenseSpdx = licenseSpdx
                                 ),
-                                verification = VerificationStatus.UNVERIFIED
+                                verification = parseVerificationStatus(verificationStr)
                             )
                         )
                     }
@@ -262,6 +268,20 @@ class IrCatalogRepository private constructor(
         val sourceRevisionSha: String,
         val verificationStatus: String
     )
+
+    /** P0-14: Parse verification_status from SQLite into VerificationStatus enum. */
+    private fun parseVerificationStatus(status: String?): VerificationStatus = when {
+        status == null -> VerificationStatus.UNVERIFIED
+        status.startsWith("VERIFIED_LAB") -> VerificationStatus.VERIFIED_LAB
+        status.startsWith("VERIFIED_COMMUNITY") -> VerificationStatus.VERIFIED_COMMUNITY
+        status.startsWith("PARTIALLY_VERIFIED") -> VerificationStatus.PARTIALLY_VERIFIED
+        status.startsWith("STRUCTURALLY_VALID") -> VerificationStatus.STRUCTURALLY_VALID
+        status.startsWith("PROTOCOL_VALIDATED") -> VerificationStatus.PROTOCOL_VALIDATED
+        status.startsWith("IMPORTED_UNREVIEWED") -> VerificationStatus.IMPORTED_UNREVIEWED
+        status.startsWith("REGRESSION") -> VerificationStatus.REGRESSION
+        status.startsWith("BLOCKED") -> VerificationStatus.BLOCKED
+        else -> VerificationStatus.UNVERIFIED
+    }
 
     /**
      * §7 Determining selection rank for a binding, per the dictamen policy:
@@ -610,7 +630,8 @@ class IrCatalogRepository private constructor(
 
         val query = """
             SELECT cs.id, b.display_name AS brand_name, r.display_remote_model,
-                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
             FROM code_sets cs
             JOIN remotes r ON cs.remote_id = r.id
             JOIN brands b ON r.brand_id = b.id
@@ -626,6 +647,7 @@ class IrCatalogRepository private constructor(
                 val remoteModel = cursor.getString(2) ?: ""
                 val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
                 val licenseSpdx = cursor.getString(4) ?: "MIT"
+                val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
 
                 val codeSetResult = getCommandsForCodeSetInternal(database, codeSetId)
                 if (codeSetResult.commands.isNotEmpty()) {
@@ -642,7 +664,7 @@ class IrCatalogRepository private constructor(
                             sourceUrl = "",
                             licenseSpdx = licenseSpdx
                         ),
-                        verification = VerificationStatus.UNVERIFIED
+                        verification = parseVerificationStatus(verificationStr)
                     )
                 }
             }

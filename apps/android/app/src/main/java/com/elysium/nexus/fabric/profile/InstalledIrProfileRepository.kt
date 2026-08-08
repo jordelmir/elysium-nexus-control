@@ -9,6 +9,9 @@ import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase
 import com.elysium.nexus.fabric.profile.db.InstalledIrCommandEntity
 import com.elysium.nexus.fabric.profile.db.InstalledIrProfileEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,7 +41,8 @@ sealed interface SaveProfileResult {
  */
 class InstalledIrProfileRepository(
     private val storageDir: File,
-    private val context: Context? = null
+    private val context: Context? = null,
+    private val scope: CoroutineScope? = null
 ) {
     constructor(context: Context) : this(context.noBackupFilesDir, context)
 
@@ -47,8 +51,14 @@ class InstalledIrProfileRepository(
 
     private val memoryCache = mutableMapOf<String, InstalledIrProfile>()
 
-    init {
-        runBlocking { loadFromRoom() }
+    @Volatile
+    private var loadedFromRoom = false
+
+    private suspend fun ensureLoaded() {
+        if (!loadedFromRoom) {
+            loadFromRoom()
+            loadedFromRoom = true
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -131,9 +141,8 @@ class InstalledIrProfileRepository(
             return SaveProfileResult.ValidationFailure("commands map is empty")
         }
 
-        memoryCache[profile.id] = profile
         if (context != null) {
-            val storageResult = runBlocking {
+            val dbWrite: suspend () -> Unit = {
                 try {
                     val db = ElysiumUserDatabase.getInstance(context)
                     val pe = mapProfileToEntity(profile, verifiedActions)
@@ -142,14 +151,19 @@ class InstalledIrProfileRepository(
                         mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
                     }
                     db.profileDao().saveProfileWithCommands(pe, ces)
-                    Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
-                    SaveProfileResult.Saved(profile.id)
+                    memoryCache[profile.id] = profile
+                    Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
-                    SaveProfileResult.StorageFailure(e)
                 }
             }
-            return storageResult
+            if (scope != null) {
+                scope.launch(Dispatchers.IO) { dbWrite() }
+            } else {
+                runBlocking(Dispatchers.IO) { dbWrite() }
+            }
+        } else {
+            memoryCache[profile.id] = profile
         }
         return SaveProfileResult.Saved(profile.id)
     }
@@ -185,7 +199,12 @@ class InstalledIrProfileRepository(
     // Read: from in-memory cache (populated from Room at startup)
     // ═══════════════════════════════════════════════════════════════════
 
-    fun getProfile(id: String): InstalledIrProfile? = memoryCache[id]
+    fun getProfile(id: String): InstalledIrProfile? {
+        if (!loadedFromRoom && context != null) {
+            kotlinx.coroutines.runBlocking { ensureLoaded() }
+        }
+        return memoryCache[id]
+    }
 
     suspend fun getProfileSuspend(id: String): InstalledIrProfile? {
         memoryCache[id]?.let { return it }
@@ -204,7 +223,12 @@ class InstalledIrProfileRepository(
         return null
     }
 
-    fun getAllProfiles(): List<InstalledIrProfile> = memoryCache.values.toList()
+    fun getAllProfiles(): List<InstalledIrProfile> {
+        if (!loadedFromRoom && context != null) {
+            kotlinx.coroutines.runBlocking { ensureLoaded() }
+        }
+        return memoryCache.values.toList()
+    }
 
     suspend fun getAllProfilesSuspend(): List<InstalledIrProfile> {
         if (memoryCache.isNotEmpty()) return memoryCache.values.toList()
@@ -219,13 +243,18 @@ class InstalledIrProfileRepository(
     fun deleteProfile(id: String): Boolean {
         val removed = memoryCache.remove(id) != null
         if (removed && context != null) {
-            runBlocking {
+            val dbDelete: suspend () -> Unit = {
                 try {
                     ElysiumUserDatabase.getInstance(context).profileDao().deleteProfileWithCommands(id)
                     Log.d(TAG, "Deleted profile $id from Room")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to delete profile $id from Room: ${e.message}")
                 }
+            }
+            if (scope != null) {
+                scope.launch(Dispatchers.IO) { dbDelete() }
+            } else {
+                runBlocking(Dispatchers.IO) { dbDelete() }
             }
         }
         return removed

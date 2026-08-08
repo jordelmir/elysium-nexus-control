@@ -73,7 +73,7 @@ data class IrWaveform(
          *   - Command XOR 0xFF (8 bits LSB)
          *   - Stop mark: 560 µs (no trailing 0 space)
          */
-        fun encodeNec(address: Int, command: Int, repeat: Boolean = false): IrWaveform {
+        fun encodeNec(address: Int, command: Int, repeat: Boolean = false, carrierHz: Int = IrProtocol.Nec.carrierHz): IrWaveform {
             require(address in 0..255) { "NEC address must be in [0, 255] (got $address)." }
             require(command in 0..255) { "NEC command must be in [0, 255] (got $command)." }
 
@@ -103,10 +103,10 @@ data class IrWaveform(
                 pattern.add(560)
             }
 
-            return IrWaveform(IrProtocol.Nec.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeNecExtended(address: Int, command: Int): IrWaveform {
+        fun encodeNecExtended(address: Int, command: Int, carrierHz: Int = IrProtocol.NecExtended.carrierHz): IrWaveform {
             require(address in 0..0xFFFF) { "NECx address must be in [0, 65535] (got $address)." }
             require(command in 0..0xFF) { "NECx command must be in [0, 255] (got $command)." }
 
@@ -129,10 +129,10 @@ data class IrWaveform(
 
             pattern.add(560)
 
-            return IrWaveform(IrProtocol.NecExtended.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeSamsung(address: Int, command: Int): IrWaveform {
+        fun encodeSamsung(address: Int, command: Int, carrierHz: Int = IrProtocol.Samsung.carrierHz): IrWaveform {
             require(address in 0..0xFF) { "Samsung address must be in [0, 255] (got $address)." }
             require(command in 0..0xFF) { "Samsung command must be in [0, 255] (got $command)." }
 
@@ -155,10 +155,10 @@ data class IrWaveform(
 
             pattern.add(560)
 
-            return IrWaveform(IrProtocol.Samsung.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeSonySirc(address: Int, command: Int, extended: Boolean = false): IrWaveform {
+        fun encodeSonySirc(address: Int, command: Int, extended: Boolean = false, carrierHz: Int = IrProtocol.SonySirc.carrierHz): IrWaveform {
             require(address in 0..0x1FF) { "SIRC address must be in [0, 511] (got $address)." }
             require(command in 0..0x7F) { "SIRC command must be in [0, 127] (got $command)." }
 
@@ -186,10 +186,10 @@ data class IrWaveform(
                 }
             }
 
-            return IrWaveform(IrProtocol.SonySirc.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeRc5(address: Int, command: Int, toggle: Int = 0): IrWaveform {
+        fun encodeRc5(address: Int, command: Int, toggle: Int = 0, carrierHz: Int = IrProtocol.Rc5.carrierHz): IrWaveform {
             require(address in 0..0x1F) { "RC5 address must be in [0, 31] (got $address)." }
             require(command in 0..0x7F) { "RC5 command must be in [0, 127] (got $command)." }
             require(toggle in 0..1) { "RC5 toggle must be in [0, 1] (got $toggle)." }
@@ -247,10 +247,10 @@ data class IrWaveform(
                 pattern.toIntArray()
             }
 
-            return IrWaveform(IrProtocol.Rc5.carrierHz, finalPattern)
+            return IrWaveform(carrierHz, finalPattern)
         }
 
-        fun encodeRc6(address: Int, command: Int, toggle: Int = 0): IrWaveform {
+        fun encodeRc6(address: Int, command: Int, toggle: Int = 0, carrierHz: Int = IrProtocol.Rc6.carrierHz): IrWaveform {
             require(address in 0..0xF) { "RC6 address must be in [0, 15] (got $address)." }
             require(command in 0..0xFF) { "RC6 command must be in [0, 255] (got $command)." }
             require(toggle in 0..1) { "RC6 toggle must be in [0, 1] (got $toggle)." }
@@ -274,10 +274,10 @@ data class IrWaveform(
             for (i in 0 until 8) addBit((command ushr (7 - i)) and 1)
             pattern.add(halfPeriod)
 
-            return IrWaveform(IrProtocol.Rc6.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
-        fun encodeKaseikyo(address: Int, command: Int): IrWaveform {
+        fun encodeKaseikyo(address: Int, command: Int, carrierHz: Int = IrProtocol.Kaseikyo.carrierHz): IrWaveform {
             require(address in 0..0xFF) { "Kaseikyo address must be in [0, 255] (got $address)." }
             require(command in 0..0xFF) { "Kaseikyo command must be in [0, 255] (got $command)." }
 
@@ -304,7 +304,7 @@ data class IrWaveform(
 
             pattern.add(432)
 
-            return IrWaveform(IrProtocol.Kaseikyo.carrierHz, pattern.toIntArray())
+            return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
         // HVAC Encoders
