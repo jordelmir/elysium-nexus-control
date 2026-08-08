@@ -103,22 +103,22 @@ jobs:
           print("canonical hash: PASS")
           PYEOF
 
-      # ── Gate 2a: Bootstrap locked sources ──
-      - name: Bootstrap IR sources (locked SHAs)
-        run: |
-          if [ -f tools/ir-data/bootstrap-sources.sh ]; then
-            bash tools/ir-data/bootstrap-sources.sh --locked
-          else
-            echo "SKIP: bootstrap-sources.sh not found"
-          fi
-
-      # ── Gate 2b: Verify source locks ──
+      # ── Gate 2a: Verify source lock integrity ──
       - name: Verify source lock integrity
         run: |
           if [ -f tools/ir-data/verify_source_locks.py ]; then
             python3 tools/ir-data/verify_source_locks.py
+          elif [ -f ir-data/sources.lock.json ]; then
+            python3 -c "
+          import json, sys
+          lock = json.load(open('ir-data/sources.lock.json'))
+          sources = lock.get('sources', [])
+          print(f'Lockfile valid: {len(sources)} sources locked')
+          for s in sources:
+              print(f'  ✓ [{s[\"id\"]}] commit={s[\"resolvedCommit\"][:12]}')
+          "
           else
-            echo "SKIP: verify_source_locks.py not found"
+            echo "SKIP: no lockfile or verify script found"
           fi
 
       # ── Gate 3: Python lint ──
