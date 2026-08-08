@@ -5,12 +5,15 @@ import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import com.elysium.nexus.core.device.CatalogCommandBinding
 import com.elysium.nexus.core.device.CodeProvenance
+import com.elysium.nexus.core.device.EvidenceLevel
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
+import com.elysium.nexus.core.device.SelectedCommandBinding
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.CodecSpec
+import com.elysium.nexus.fabric.infrared.CodecResolution
 import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
 import com.elysium.nexus.fabric.infrared.ProtocolVariant
 import com.elysium.nexus.fabric.infrared.CodecVerificationStatus
@@ -28,6 +31,39 @@ private data class CodeSetCommandsResult(
     val commandSignalIds: Map<IrAction, String>,
     val commandBindings: List<CatalogCommandBinding>
 )
+
+/** P0.2: Build the single-authority selectedCommands map from parallel representations. */
+private fun buildSelectedCommands(
+    codeSetId: String,
+    commands: Map<IrAction, IrSignal>,
+    commandSignalIds: Map<IrAction, String>,
+    commandBindings: List<CatalogCommandBinding>,
+    verification: VerificationStatus
+): Map<IrAction, SelectedCommandBinding> {
+    val result = mutableMapOf<IrAction, SelectedCommandBinding>()
+    for ((action, signal) in commands) {
+        val binding = commandBindings.firstOrNull { it.action == action }
+        val signalId = commandSignalIds[action] ?: binding?.signalId ?: continue
+        result[action] = SelectedCommandBinding(
+            bindingId = binding?.bindingId ?: "binding-${codeSetId}-${action.name}",
+            action = action,
+            signalId = signalId,
+            signal = signal,
+            physicalSha256 = binding?.physicalSha256 ?: "",
+            sourceId = binding?.sourceRevisionId ?: "",
+            sourceRevisionId = binding?.sourceRevisionId ?: "",
+            verificationStatus = verification,
+            evidenceLevel = when (verification) {
+                VerificationStatus.VERIFIED_LAB -> EvidenceLevel.LAB_MATRIX_VERIFIED
+                VerificationStatus.VERIFIED_COMMUNITY -> EvidenceLevel.EXTERNAL_HIL_VERIFIED
+                VerificationStatus.SESSION_VERIFIED -> EvidenceLevel.SESSION_VERIFIED
+                VerificationStatus.PARTIALLY_VERIFIED -> EvidenceLevel.MODEL_INFERRED
+                else -> EvidenceLevel.INTERNAL_UNVERIFIED
+            }
+        )
+    }
+    return result
+}
 
 /**
  * §2 Canonical Schema v4 SQLite IR Catalog Repository.
@@ -131,6 +167,7 @@ class IrCatalogRepository private constructor(
                 // exact action is decodeable from the catalog (zero "phantom"
                 // candidates whose VOLUME_UP codec could not be decoded).
                 if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                    val verification = parseVerificationStatus(verificationStr)
                     results.add(
                         IrCodeSet(
                             id = csId,
@@ -140,12 +177,16 @@ class IrCatalogRepository private constructor(
                             commands = codeSetResult.commands,
                             commandSignalIds = codeSetResult.commandSignalIds,
                             commandBindings = codeSetResult.commandBindings,
+                            selectedCommands = buildSelectedCommands(
+                                csId, codeSetResult.commands, codeSetResult.commandSignalIds,
+                                codeSetResult.commandBindings, verification
+                            ),
                             provenance = CodeProvenance(
                                 sourceName = sourceName,
                                 sourceUrl = "",
                                 licenseSpdx = licenseSpdx
                             ),
-                            verification = parseVerificationStatus(verificationStr)
+                            verification = verification
                         )
                     )
                 }
@@ -232,6 +273,7 @@ class IrCatalogRepository private constructor(
 
                     val codeSetResult = getCommandsForCodeSetInternal(database, csId)
                     if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                        val verification = parseVerificationStatus(verificationStr)
                         results.add(
                             IrCodeSet(
                                 id = csId,
@@ -241,12 +283,16 @@ class IrCatalogRepository private constructor(
                                 commands = codeSetResult.commands,
                                 commandSignalIds = codeSetResult.commandSignalIds,
                                 commandBindings = codeSetResult.commandBindings,
+                                selectedCommands = buildSelectedCommands(
+                                    csId, codeSetResult.commands, codeSetResult.commandSignalIds,
+                                    codeSetResult.commandBindings, verification
+                                ),
                                 provenance = CodeProvenance(
                                     sourceName = sourceName,
                                     sourceUrl = "",
                                     licenseSpdx = licenseSpdx
                                 ),
-                                verification = parseVerificationStatus(verificationStr)
+                                verification = verification
                             )
                         )
                     }
@@ -355,16 +401,31 @@ class IrCatalogRepository private constructor(
                         null
                     } else {
                         // P0-8: Match variant from protocol_name_original or codec_id
-                        val matchedVariant = resolveVariant(codecSpec, protocolNameOriginal, protocolVariant)
-                        IrSignal.Encoded(
-                            carrierHz = carrierHz,
-                            protocol = codecSpec.protocol,
-                            address = address,
-                            subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command,
-                            codecId = codecSpec.codecId,
-                            variantId = matchedVariant?.variantId ?: codecSpec.variants.firstOrNull()?.variantId
+                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                        val resolved = ProtocolCodecRegistry.resolve(
+                            codecSpec.codecId,
+                            protocolNameOriginal ?: protocolVariant
                         )
+                        when (resolved) {
+                            is CodecResolution.Resolved -> {
+                                IrSignal.Encoded(
+                                    carrierHz = carrierHz,
+                                    protocol = codecSpec.protocol,
+                                    address = address,
+                                    subDevice = if (subDevice >= 0) subDevice else null,
+                                    command = command,
+                                    codecId = codecSpec.codecId,
+                                    variantId = resolved.variant?.variantId
+                                )
+                            }
+                            is CodecResolution.VariantAmbiguous -> {
+                                // P0.5: Log ambiguity — signal will be skipped rather than silently picking first
+                                Log.w(TAG, "Variant ambiguous for codec '${codecSpec.codecId}' signalId=$signalId: " +
+                                    "${resolved.candidates.size} candidates. Skipping.")
+                                null
+                            }
+                            else -> null
+                        }
                     }
                 } else if (encodingType == "RAW" && blob != null) {
                     val pattern = decompressPattern(blob)
@@ -439,16 +500,24 @@ class IrCatalogRepository private constructor(
                 if (encodingType == "PARAMETRIC") {
                     val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
                     if (codecSpec != null) {
-                        val matchedVariant = resolveVariant(codecSpec, protocolNameOriginal, protocolVariant)
-                        resultSignal = IrSignal.Encoded(
-                            carrierHz = carrierHz,
-                            protocol = codecSpec.protocol,
-                            address = address,
-                            subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command,
-                            codecId = codecSpec.codecId,
-                            variantId = matchedVariant?.variantId ?: codecSpec.variants.firstOrNull()?.variantId
+                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                        val resolved = ProtocolCodecRegistry.resolve(
+                            codecSpec.codecId,
+                            protocolNameOriginal ?: protocolVariant
                         )
+                        if (resolved is CodecResolution.Resolved) {
+                            resultSignal = IrSignal.Encoded(
+                                carrierHz = carrierHz,
+                                protocol = codecSpec.protocol,
+                                address = address,
+                                subDevice = if (subDevice >= 0) subDevice else null,
+                                command = command,
+                                codecId = codecSpec.codecId,
+                                variantId = resolved.variant?.variantId
+                            )
+                        } else if (resolved is CodecResolution.VariantAmbiguous) {
+                            Log.w(TAG, "Variant ambiguous in single-signal lookup for codec '${codecSpec.codecId}': ${resolved.candidates.size} candidates")
+                        }
                     }
                 } else if (encodingType == "RAW" && blob != null) {
                     val pattern = decompressPattern(blob)
@@ -567,16 +636,27 @@ class IrCatalogRepository private constructor(
                 val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
                     val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
                     codecSpec?.let {
-                        val matchedVariant = resolveVariant(it, protocolNameOriginal, protocolVariant)
-                        IrSignal.Encoded(
-                            carrierHz = carrierHz,
-                            protocol = it.protocol,
-                            address = address,
-                            subDevice = if (subDevice >= 0) subDevice else null,
-                            command = command,
-                            codecId = it.codecId,
-                            variantId = matchedVariant?.variantId ?: it.variants.firstOrNull()?.variantId
+                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                        val resolved = ProtocolCodecRegistry.resolve(
+                            it.codecId,
+                            protocolNameOriginal ?: protocolVariant
                         )
+                        if (resolved is CodecResolution.Resolved) {
+                            IrSignal.Encoded(
+                                carrierHz = carrierHz,
+                                protocol = it.protocol,
+                                address = address,
+                                subDevice = if (subDevice >= 0) subDevice else null,
+                                command = command,
+                                codecId = it.codecId,
+                                variantId = resolved.variant?.variantId
+                            )
+                        } else {
+                            if (resolved is CodecResolution.VariantAmbiguous) {
+                                Log.w(TAG, "Variant ambiguous in candidates query for codec '${it.codecId}': ${resolved.candidates.size} candidates")
+                            }
+                            null
+                        }
                     }
                 } else if (encodingType == "RAW" && blob != null) {
                     val pattern = decompressPattern(blob)
@@ -665,6 +745,7 @@ class IrCatalogRepository private constructor(
 
                 val codeSetResult = getCommandsForCodeSetInternal(database, codeSetId)
                 if (codeSetResult.commands.isNotEmpty()) {
+                    val verification = parseVerificationStatus(verificationStr)
                     result = IrCodeSet(
                         id = codeSetId,
                         brand = brandName,
@@ -673,12 +754,16 @@ class IrCatalogRepository private constructor(
                         commands = codeSetResult.commands,
                         commandSignalIds = codeSetResult.commandSignalIds,
                         commandBindings = codeSetResult.commandBindings,
+                        selectedCommands = buildSelectedCommands(
+                            codeSetId, codeSetResult.commands, codeSetResult.commandSignalIds,
+                            codeSetResult.commandBindings, verification
+                        ),
                         provenance = CodeProvenance(
                             sourceName = sourceName,
                             sourceUrl = "",
                             licenseSpdx = licenseSpdx
                         ),
-                        verification = parseVerificationStatus(verificationStr)
+                        verification = verification
                     )
                 }
             }

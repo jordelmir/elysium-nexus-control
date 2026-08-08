@@ -56,6 +56,12 @@ data class CodecSpec(
  */
 sealed interface CodecResolution {
     data class Resolved(val codec: CodecSpec, val variant: ProtocolVariant? = null) : CodecResolution
+    /** P0.5: Multiple variants exist but no hint was provided — caller must disambiguate. */
+    data class VariantAmbiguous(
+        val codec: CodecSpec,
+        val candidates: List<ProtocolVariant>,
+        val reason: String
+    ) : CodecResolution
     data class Unsupported(val codecId: String, val reason: String) : CodecResolution
     data class Blocked(val codec: CodecSpec, val reason: String) : CodecResolution
 }
@@ -203,14 +209,25 @@ object ProtocolCodecRegistry {
             return CodecResolution.Blocked(spec, "Codec '${spec.codecId}' is blocked for production use.")
         }
 
+        // P0.5: No silent firstOrNull() fallback. If multiple variants exist,
+        // the caller MUST provide a variantHint to disambiguate.
         val variant = variantHint?.let { hint ->
             spec.variants.firstOrNull { v ->
                 v.variantId.equals(hint, ignoreCase = true) ||
                 v.description.contains(hint, ignoreCase = true)
             }
-        } ?: spec.variants.firstOrNull()
+        }
 
-        return CodecResolution.Resolved(spec, variant)
+        if (variant == null && spec.variants.size > 1 && variantHint == null) {
+            return CodecResolution.VariantAmbiguous(
+                codec = spec,
+                candidates = spec.variants,
+                reason = "Codec '${spec.codecId}' has ${spec.variants.size} variants but no variantHint was provided. " +
+                    "Available: ${spec.variants.joinToString { it.variantId }}"
+            )
+        }
+
+        return CodecResolution.Resolved(spec, variant ?: spec.variants.firstOrNull())
     }
 
     /**

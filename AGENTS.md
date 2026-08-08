@@ -1,23 +1,16 @@
-# AGENTS.md — Elysium Nexus Universal Controller
+# AGENTS.md — Elysium Nexus Universal Control OS
 
 > Project memory for any agent (Mavis, Codex, Cursor, OpenCode, Aider, Gemini CLI, Devin, …) operating in this repository.
-> Read this file first. Then read the latest `docs/changelogs/PHASE_0_*.md`.
+> Read this file first. Then read the latest `docs/changelogs/PHASE_*.md`.
 > If the latest changelog points to specific subsystem docs, read those too.
 
 ## What this project is
 
-A platform that turns any Android (initial lab device: **Honor Magic V2**) into a **universal, professional, dynamic control surface** for:
+**Elysium Nexus Universal Control OS** — a platform that transforms any authorized control intent into the correct action on the correct device via the best available route, with minimal configuration, practical latency, execution evidence where possible, and automatic recovery from failures.
 
-* Mac / Windows / Linux desktop
-* Other Android / Android TV / Chromebook
-* PS Remote Play / Xbox Remote Play
-* Generic HID hosts (Steam, browsers, emulators, native games)
-* A future physical **Elysium Nexus Receiver** (BLE / Wi-Fi / USB)
-* Licensed console backends (PS4/5, Xbox One/Series, Switch/2) — **only after vendor authorization**
+Code name: **ELYSiUM NEXUS — UNIVERSAL INTENT FABRIC**.
 
-Code name: **Elysium Nexus Universal Controller**.
-
-The whole order lives in `docs/architecture/MASTER_ORDER.md` (mirrored from the user's first prompt). Treat it as the constitution. Every architectural decision references one or more of its sections.
+The governing constitution is `docs/architecture/MASTER_ORDER.md` (100-point Universal Intent Fabric order). Every architectural decision references one or more of its sections. The original 46-section order is preserved in `MASTER_ORDER_SECTIONS.md` for historical reference.
 
 ## Hard rules (no exceptions)
 
@@ -112,7 +105,7 @@ The loop halts only when:
 cd apps/android
 
 ./gradlew help                              # sanity-check the wrapper
-./gradlew :app:testDebugUnitTest            # JVM unit tests (814 tests)
+./gradlew :app:testDebugUnitTest            # JVM unit tests (1,021 tests)
 ./gradlew :app:assembleDebug                # builds debug APK
 ./gradlew :app:assembleRelease              # builds release APK (R8)
 ./gradlew :app:lintDebug                    # lint, abortOnError=true
@@ -125,7 +118,8 @@ cd apps/android
 Python tooling:
 ```bash
 cd tools/ir-data
-python3 catalog.py                          # unified catalog build
+python3 catalog.py                          # unified catalog build (uses ingest_v5)
+python3 ingest_v5.py --profile production   # Schema v4 native ingestion
 python3 seed_device_models_v4.py            # populate device_models for ranking
 python3 verify_source_locks.py              # verify source lock integrity
 ruff check *.py --select E,F,W             # Python lint
@@ -142,7 +136,7 @@ Every push triggers:
 1. Catalog integrity (SHA + quick_check + foreign_key_check)
 2. Source lock verification
 3. Python lint (ruff)
-4. JVM unit tests (814)
+4. JVM unit tests (1,021)
 5. Android lint
 6. Debug build
 7. Release build (R8 minification)

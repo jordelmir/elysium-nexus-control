@@ -394,6 +394,9 @@ class InstalledIrProfileRepository(
             remoteModel = pe.remoteId,
             codeSetId = pe.codeSetId,
             sourceRevision = pe.catalogVersion,
+            catalogSchemaVersionAtInstall = pe.catalogSchemaVersionAtInstall,
+            catalogCanonicalHashAtInstall = pe.catalogCanonicalHashAtInstall,
+            catalogBuildIdAtInstall = pe.catalogBuildIdAtInstall,
             commands = commandsMap,
             verifiedActions = verifiedFromDb,
             verificationStatus = status,
@@ -402,8 +405,21 @@ class InstalledIrProfileRepository(
     }
 
     private fun mapProfileToEntity(profile: InstalledIrProfile, verifiedActions: Set<IrAction>): InstalledIrProfileEntity {
-        val currentCatalogHash = computeCatalogHash(profile)
-        val storedHash = profile.sourceRevision // The hash stored when profile was created
+        // P0.1: On FIRST save, store the current catalog hash as the install-time hash.
+        // On subsequent saves, PRESERVE the original install-time hash (don't overwrite).
+        val isFirstSave = profile.catalogCanonicalHashAtInstall == "unknown"
+        val catalogHashToStore = if (isFirstSave) {
+            computeCatalogHash()
+        } else {
+            profile.catalogCanonicalHashAtInstall
+        }
+
+        // P0.1: needsRevalidation = true when current catalog hash differs from install-time hash
+        val currentCatalogHash = computeCatalogHash()
+        val needsRevalidation = currentCatalogHash != "unknown" &&
+            catalogHashToStore != "unknown" &&
+            currentCatalogHash != catalogHashToStore
+
         return InstalledIrProfileEntity(
             profileId = profile.id,
             displayName = profile.displayName,
@@ -413,13 +429,14 @@ class InstalledIrProfileRepository(
             remoteId = profile.remoteModel,
             codeSetId = profile.codeSetId,
             catalogVersion = profile.sourceRevision,
-            catalogCanonicalHash = currentCatalogHash,
+            catalogCanonicalHashAtInstall = catalogHashToStore,
+            catalogSchemaVersionAtInstall = profile.catalogSchemaVersionAtInstall,
+            catalogBuildIdAtInstall = profile.catalogBuildIdAtInstall,
             verificationStatus = profile.verificationStatus.name,
             createdAtEpochMs = profile.createdAtEpochMs,
             updatedAtEpochMs = System.currentTimeMillis(),
             lastSuccessfulUseEpochMs = 0L,
-            // P1-21: needsRevalidation = true when catalog has changed since profile creation
-            needsRevalidation = currentCatalogHash != "unknown" && currentCatalogHash != storedHash,
+            needsRevalidation = needsRevalidation,
             isEnabled = true
         )
     }
@@ -447,9 +464,9 @@ class InstalledIrProfileRepository(
         )
     }
 
-    private fun computeCatalogHash(profile: InstalledIrProfile): String {
-        // P0-9: Read the real canonicalContentSha256 from ir_catalog.manifest.json
-        // instead of computing a hash from profile data (which is wrong).
+    private fun computeCatalogHash(): String {
+        // P0.1: Read the real canonicalContentSha256 from ir_catalog.manifest.json.
+        // This is the CATALOG hash, not a profile hash.
         return try {
             if (context != null) {
                 val manifestJson = context.assets.open("ir/ir_catalog.manifest.json").bufferedReader().use { it.readText() }
@@ -459,15 +476,7 @@ class InstalledIrProfileRepository(
                 "unknown"
             }
         } catch (e: Exception) {
-            // Fallback to profile-based hash if manifest unavailable
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            digest.update(profile.codeSetId.toByteArray())
-            digest.update(profile.commands.size.toString().toByteArray())
-            for ((action, binding) in profile.commands) {
-                digest.update(action.name.toByteArray())
-                digest.update(binding.signalId.toByteArray())
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
+            "unknown"
         }
     }
 

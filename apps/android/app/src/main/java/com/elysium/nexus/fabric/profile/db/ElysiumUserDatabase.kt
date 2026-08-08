@@ -28,7 +28,12 @@ data class InstalledIrProfileEntity(
     val remoteId: String?,
     val codeSetId: String,
     val catalogVersion: String,
-    val catalogCanonicalHash: String,
+    /** P0.1: Renamed from catalogCanonicalHash to catalogCanonicalHashAtInstall. */
+    val catalogCanonicalHashAtInstall: String,
+    /** P0.1: Schema version of catalog at profile creation. */
+    val catalogSchemaVersionAtInstall: Int,
+    /** P0.1: Build ID of catalog at profile creation. */
+    val catalogBuildIdAtInstall: String,
     val verificationStatus: String,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
@@ -68,7 +73,16 @@ data class ProbeSessionEntity(
     val startedAtEpochMs: Long,
     val completedAtEpochMs: Long?,
     val status: String,
-    val winnerCodeSetId: String?
+    val winnerCodeSetId: String?,
+    // P0.3: Full probe state for process death recovery
+    val currentCandidateIndex: Int,
+    val currentCandidateId: String?,
+    val currentActionKey: String?,
+    val lastSignalId: String?,
+    val lastPhysicalSha256: String?,
+    val lastAttemptId: String?,
+    val catalogHashAtStart: String?,
+    val verifiedActionKeys: String
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -218,6 +232,29 @@ interface InstalledProfileDao {
     @Query("UPDATE probe_sessions SET status = :status, completedAtEpochMs = :completedAtMs, winnerCodeSetId = :winnerCodeSetId WHERE sessionId = :sessionId")
     suspend fun completeProbeSession(sessionId: String, status: String, completedAtMs: Long, winnerCodeSetId: String?)
 
+    /** P0.3: Update transient probe state for process death recovery. */
+    @Query("""
+        UPDATE probe_sessions
+        SET currentCandidateIndex = :candidateIndex,
+            currentCandidateId = :candidateId,
+            currentActionKey = :actionKey,
+            lastSignalId = :signalId,
+            lastPhysicalSha256 = :physicalSha256,
+            lastAttemptId = :attemptId,
+            verifiedActionKeys = :verifiedActionKeys
+        WHERE sessionId = :sessionId
+    """)
+    suspend fun updateProbeSessionState(
+        sessionId: String,
+        candidateIndex: Int,
+        candidateId: String?,
+        actionKey: String?,
+        signalId: String?,
+        physicalSha256: String?,
+        attemptId: String?,
+        verifiedActionKeys: String
+    )
+
     // ── Probe Attempts ────────────────────────────────────────────────
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -300,7 +337,7 @@ interface InstalledProfileDao {
         CatalogMigrationEntity::class,
         SignalSourceEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
@@ -337,6 +374,81 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
             }
         }
 
+        // P0.1: Add catalogSchemaVersionAtInstall, catalogBuildIdAtInstall,
+        // rename catalogCanonicalHash → catalogCanonicalHashAtInstall.
+        // SQLite doesn't support RENAME COLUMN before API 30, so we recreate the table.
+        internal val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS installed_ir_profiles_new (
+                        profileId TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        brandId TEXT NOT NULL,
+                        deviceTypeId TEXT NOT NULL,
+                        deviceModelId TEXT,
+                        remoteId TEXT,
+                        codeSetId TEXT NOT NULL,
+                        catalogVersion TEXT NOT NULL,
+                        catalogCanonicalHashAtInstall TEXT NOT NULL DEFAULT 'unknown',
+                        catalogSchemaVersionAtInstall INTEGER NOT NULL DEFAULT 4,
+                        catalogBuildIdAtInstall TEXT NOT NULL DEFAULT 'unknown',
+                        verificationStatus TEXT NOT NULL,
+                        createdAtEpochMs INTEGER NOT NULL,
+                        updatedAtEpochMs INTEGER NOT NULL,
+                        lastSuccessfulUseEpochMs INTEGER NOT NULL DEFAULT 0,
+                        needsRevalidation INTEGER NOT NULL DEFAULT 0,
+                        isEnabled INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(profileId)
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO installed_ir_profiles_new
+                       (profileId, displayName, brandId, deviceTypeId, deviceModelId, remoteId,
+                        codeSetId, catalogVersion, catalogCanonicalHashAtInstall,
+                        catalogSchemaVersionAtInstall, catalogBuildIdAtInstall,
+                        verificationStatus, createdAtEpochMs, updatedAtEpochMs,
+                        lastSuccessfulUseEpochMs, needsRevalidation, isEnabled)
+                       SELECT profileId, displayName, brandId, deviceTypeId, deviceModelId, remoteId,
+                              codeSetId, catalogVersion, catalogCanonicalHash,
+                              4, 'unknown',
+                              verificationStatus, createdAtEpochMs, updatedAtEpochMs,
+                              lastSuccessfulUseEpochMs, needsRevalidation, isEnabled
+                       FROM installed_ir_profiles"""
+                )
+                db.execSQL("DROP TABLE installed_ir_profiles")
+                db.execSQL("ALTER TABLE installed_ir_profiles_new RENAME TO installed_ir_profiles")
+            }
+        }
+
+        // P0.3: Expand probe_sessions with full state fields for process death recovery.
+        // Probe sessions are transient — safe to drop and recreate.
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS probe_sessions")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS probe_sessions (
+                        sessionId TEXT NOT NULL,
+                        brand TEXT NOT NULL,
+                        deviceType TEXT NOT NULL,
+                        targetModel TEXT,
+                        startedAtEpochMs INTEGER NOT NULL,
+                        completedAtEpochMs INTEGER,
+                        status TEXT NOT NULL,
+                        winnerCodeSetId TEXT,
+                        currentCandidateIndex INTEGER NOT NULL DEFAULT 0,
+                        currentCandidateId TEXT,
+                        currentActionKey TEXT,
+                        lastSignalId TEXT,
+                        lastPhysicalSha256 TEXT,
+                        lastAttemptId TEXT,
+                        catalogHashAtStart TEXT,
+                        verifiedActionKeys TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY(sessionId)
+                    )"""
+                )
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -344,7 +456,7 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                     ElysiumUserDatabase::class.java,
                     "elysium_user_database.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                 INSTANCE = instance
                 instance

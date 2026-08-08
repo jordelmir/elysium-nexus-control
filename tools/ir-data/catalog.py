@@ -68,10 +68,10 @@ def step_verify_locks():
 
 
 def step_ingest(profile: str):
-    """Step 2: Ingest from all authorized sources."""
+    """Step 2: Ingest from all authorized sources (Schema v4 native)."""
     log(f"Ingesting sources (profile={profile})...")
-    import ingest_all
-    ingest_all.run_ingestion(profile=profile)
+    import ingest_v5
+    ingest_v5.run_ingestion(profile=profile)
     log("Ingestion complete.")
 
 

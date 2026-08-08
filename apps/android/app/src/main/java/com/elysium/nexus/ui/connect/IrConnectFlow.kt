@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +55,7 @@ import com.elysium.nexus.core.device.DeviceTemplate
 import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCommandBinding
+import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
@@ -69,6 +71,7 @@ import com.elysium.nexus.ui.theme.NeonChip
 import com.elysium.nexus.ui.theme.NeonFab
 import com.elysium.nexus.ui.theme.NeonHeroCard
 import com.elysium.nexus.ui.theme.NeonStatusPill
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -114,6 +117,8 @@ sealed interface ProbeUiState {
     data object SavingProfile : ProbeUiState
     data class Completed(val profile: InstalledIrProfile) : ProbeUiState
     data class Error(val message: String) : ProbeUiState
+    /** P0.3: State after process death when candidate identity cannot be verified. */
+    data class RecoveryRequired(val reason: String) : ProbeUiState
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -147,22 +152,28 @@ fun IrConnectFlow(
     onTryOther: () -> Unit,
     irTransmitter: AndroidIrTransmitter,
     hasIrBlaster: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: IrProbeViewModel = viewModel()
 ) {
-    // P1-17: Use rememberSaveable for critical state that must survive process death
-    var step by rememberSaveable { mutableStateOf(IrStep.ORIENT) }
+    // P0.3: ViewModel-backed state survives process death via SavedStateHandle
+    var step by remember { mutableStateOf(viewModel.step) }
     var showHelp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     var probeUiState by remember { mutableStateOf<ProbeUiState>(ProbeUiState.LoadingCatalog) }
     var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
     var currentAttempt by remember { mutableStateOf<ProbeAttempt?>(null) }
     var currentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var verifiedActions by rememberSaveable { mutableStateOf<Set<IrAction>>(emptySet()) }
+    var verifiedActions by remember { mutableStateOf<Set<IrAction>>(viewModel.verifiedActions) }
     var autoScanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var isAutoScanning by rememberSaveable { mutableStateOf(false) }
-    var lastProbedCandidate by remember { mutableStateOf<com.elysium.nexus.core.device.IrCodeSet?>(null) }
+    var isAutoScanning by remember { mutableStateOf(viewModel.isAutoScanning) }
+    var lastProbedCandidate by remember { mutableStateOf<IrCodeSet?>(null) }
+
+    // P0.3: Sync local state → ViewModel on every change
+    LaunchedEffect(step) { viewModel.step = step }
+    LaunchedEffect(verifiedActions) { viewModel.setVerifiedActions(verifiedActions) }
+    LaunchedEffect(isAutoScanning) { viewModel.isAutoScanning = isAutoScanning }
 
     // §6 Pass targetModel for real ranking
     val targetModel = template.model
@@ -212,19 +223,38 @@ fun IrConnectFlow(
         }
 
         if (sqliteCandidates.isNotEmpty()) {
-            val engine = IrProbeEngine(
-                rawCandidates = sqliteCandidates,
+            // P0.3: Check for saved session to restore after process death
+            val savedSession = viewModel.getSessionId()?.let { sid ->
+                viewModel.restoreSession(sid)
+            }
+
+            val restoredIndex = savedSession?.currentCandidateIndex ?: 0
+            val restoredId = savedSession?.currentCandidateId
+
+            val initialized = viewModel.initializeEngine(
+                candidates = sqliteCandidates,
                 targetModel = targetModel,
                 penaltyMap = penaltyMap,
                 successMap = successMap,
-                failMap = failMap
+                failMap = failMap,
+                restoreCandidateIndex = restoredIndex,
+                restoreCandidateId = restoredId
             )
-            if (engine.totalCandidates > 0) {
-                probeUiState = ProbeUiState.Ready(engine)
-                Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel, penalties=${penaltyMap.size}, evidence=${successMap.size}")
+
+            if (initialized) {
+                val engine = viewModel.probeUiState.value.let {
+                    (it as? ProbeUiState.Ready)?.probeEngine
+                }
+                if (engine != null) {
+                    probeUiState = ProbeUiState.Ready(engine)
+                    if (savedSession != null) {
+                        Log.d(TAG, "P0.3: Restored probe session. candidateIndex=$restoredIndex candidateId=$restoredId step=${savedSession.status}")
+                    } else {
+                        Log.d(TAG, "Loaded ${engine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel, penalties=${penaltyMap.size}, evidence=${successMap.size}")
+                    }
+                }
             } else {
-                probeUiState = ProbeUiState.NoCompatibleCandidates
-                Log.w(TAG, "SQLite returned ${sqliteCandidates.size} code sets but none had VOLUME_UP after dedup")
+                probeUiState = viewModel.probeUiState.value
             }
         } else {
             probeUiState = ProbeUiState.NoCompatibleCandidates
@@ -234,23 +264,39 @@ fun IrConnectFlow(
 
     val activeEngine = (probeUiState as? ProbeUiState.Ready)?.probeEngine
 
-    fun sendTestAction(candidate: com.elysium.nexus.core.device.IrCodeSet, action: IrAction) {
+    fun sendTestAction(candidate: IrCodeSet, action: IrAction) {
         // §24 Cancel any in-flight transmission before starting a new one
         currentJob?.cancel()
         currentResult = null
 
-        val signal = candidate.commands[action] ?: return
+        // P0.2: Use selectedCommands as single authority
+        val selectedBinding = candidate.selectedCommands[action]
+        val signal = selectedBinding?.signal ?: candidate.commands[action] ?: return
         val encodeResult = IrProtocol.encode(signal)
         if (encodeResult is com.elysium.nexus.fabric.infrared.EncodeResult.Success) {
             val attempt = ProbeAttempt(
                 candidateId = candidate.id,
                 codeSetId = candidate.id,
-                signalId = candidate.commandSignalIds[action]
-                    ?: candidate.commandBindings.firstOrNull { it.action == action }?.signalId
+                signalId = selectedBinding?.signalId
+                    ?: candidate.commandSignalIds[action]
                     ?: "",
                 action = action
             )
             currentAttempt = attempt
+
+            // P0.3: Persist probe state to Room for process death recovery
+            val engine = activeEngine
+            if (engine != null) {
+                viewModel.updateProbeState(
+                    candidateIndex = engine.currentProbeNumber - 1,
+                    candidateId = candidate.id,
+                    actionKey = action.name,
+                    signalId = attempt.signalId,
+                    physicalSha256 = null,
+                    attemptId = attempt.attemptId
+                )
+            }
+
             currentJob = scope.launch {
                 com.elysium.nexus.fabric.infrared.FileLog.d("PROBE_TX candidate=${candidate.id} action=$action signalId=${attempt.signalId} carrierHz=${encodeResult.waveform.carrierHz}")
                 val result = irTransmitter.transmit(encodeResult.waveform)
@@ -333,27 +379,59 @@ fun IrConnectFlow(
         }
     }
 
+    /** P0.1: Read a top-level key from ir_catalog.manifest.json without org.json dependency. */
+    fun readManifestKey(key: String): String {
+        return try {
+            val text = context.assets.open("ir/ir_catalog.manifest.json")
+                .bufferedReader(Charsets.UTF_8)
+                .use { it.readText() }
+            val pattern = "\"$key\"\\s*:\\s*\"([^\"]+)\"".toRegex()
+            pattern.find(text)?.groupValues?.getOrElse(1) { "unknown" } ?: "unknown"
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
+    fun readCatalogHash(): String = readManifestKey("canonicalContentSha256")
+
+    fun readCatalogBuildId(): String = readManifestKey("buildId")
+
     fun buildAndPersistInstalledProfile(winnerCandidate: com.elysium.nexus.core.device.IrCodeSet, verifiedActions: Set<IrAction>): InstalledIrProfile? {
         val bindings = mutableMapOf<IrAction, IrCommandBinding>()
 
-        for ((action, signal) in winnerCandidate.commands) {
-            // §1 Use ONLY real signalIds from SQLite. Never fabricate.
-            val realSignalId = winnerCandidate.commandSignalIds[action]
-                ?: winnerCandidate.commandBindings.firstOrNull { it.action == action }?.signalId
-                ?: continue
-
-            val fp = IrProbeEngine.fingerprintSignal(signal)
-            val sourceRevision = winnerCandidate.commandBindings
-                .firstOrNull { it.action == action }
-                ?.sourceRevisionId
-                ?: winnerCandidate.provenance.commitSha
-                ?: "catalog-legacy"
+        // P0.2: Use selectedCommands as single authority
+        for ((action, selectedBinding) in winnerCandidate.selectedCommands) {
+            val fp = IrProbeEngine.fingerprintSignal(selectedBinding.signal)
             bindings[action] = IrCommandBinding(
-                signalId = realSignalId,
+                signalId = selectedBinding.signalId,
                 physicalFingerprint = fp,
-                sourceId = sourceRevision,
+                sourceId = selectedBinding.sourceRevisionId.ifBlank {
+                    winnerCandidate.provenance.commitSha ?: "catalog-legacy"
+                },
                 action = action
             )
+        }
+
+        // Fallback: if selectedCommands is empty, use legacy fields (deprecated path)
+        if (bindings.isEmpty()) {
+            for ((action, signal) in winnerCandidate.commands) {
+                val realSignalId = winnerCandidate.commandSignalIds[action]
+                    ?: winnerCandidate.commandBindings.firstOrNull { it.action == action }?.signalId
+                    ?: continue
+
+                val fp = IrProbeEngine.fingerprintSignal(signal)
+                val sourceRevision = winnerCandidate.commandBindings
+                    .firstOrNull { it.action == action }
+                    ?.sourceRevisionId
+                    ?: winnerCandidate.provenance.commitSha
+                    ?: "catalog-legacy"
+                bindings[action] = IrCommandBinding(
+                    signalId = realSignalId,
+                    physicalFingerprint = fp,
+                    sourceId = sourceRevision,
+                    action = action
+                )
+            }
         }
 
         if (bindings.isEmpty()) {
@@ -378,6 +456,9 @@ fun IrConnectFlow(
             sourceRevision = winnerCandidate.commandBindings.firstOrNull()?.sourceRevisionId
                 ?: winnerCandidate.provenance.commitSha
                 ?: "catalog-legacy",
+            catalogSchemaVersionAtInstall = 5,
+            catalogCanonicalHashAtInstall = readCatalogHash(),
+            catalogBuildIdAtInstall = readCatalogBuildId(),
             commands = bindings,
             verifiedActions = verifiedActions,
             verificationStatus = status
@@ -385,18 +466,18 @@ fun IrConnectFlow(
 
         val profileRepo = InstalledIrProfileRepository(context)
         val result = profileRepo.saveProfile(profile, verifiedActions)
-        when (result) {
+        return when (result) {
             is com.elysium.nexus.fabric.profile.SaveProfileResult.Saved -> {
                 Log.d(TAG, "Installed profile ${profile.id} with ${bindings.size} bindings, verified=$verifiedActions")
-                return profile
+                profile
             }
             is com.elysium.nexus.fabric.profile.SaveProfileResult.ValidationFailure -> {
                 Log.e(TAG, "Profile validation failed: ${result.reason}")
-                return null
+                null
             }
             is com.elysium.nexus.fabric.profile.SaveProfileResult.StorageFailure -> {
                 Log.e(TAG, "Profile storage failed: ${result.cause.message}")
-                return null
+                null
             }
         }
     }
@@ -545,29 +626,6 @@ fun IrConnectFlow(
                                         sendTestAction(candidate, IrAction.VOLUME_UP)
                                     }
                                 )
-                                IrStep.CONFIRM -> ConfirmStep(
-                                    onYes = {
-                                        // §24 VOLUME_UP verified. Now verify VOLUME_DOWN.
-                                        verifiedActions = setOf(IrAction.VOLUME_UP)
-                                        val candidate = engine.currentCandidate()
-                                        if (candidate != null && IrAction.VOLUME_DOWN in candidate.commands) {
-                                            step = IrStep.VERIFY_SECONDARY
-                                            sendTestAction(candidate, IrAction.VOLUME_DOWN)
-                                        } else {
-                                            // No VOLUME_DOWN available, skip to SAVE
-                                            step = IrStep.SAVE
-                                        }
-                                    },
-                                    onNo = {
-                                        engine.nextCandidate()
-                                        currentResult = null
-                                        currentAttempt = null
-                                        verifiedActions = emptySet()
-                                        step = IrStep.TEST
-                                        val candidate = engine.currentCandidate() ?: return@ConfirmStep
-                                        sendTestAction(candidate, IrAction.VOLUME_UP)
-                                    }
-                                )
                                 IrStep.VERIFY_SECONDARY -> VerifyActionStep(
                                     actionLabel = "VOLUME_DOWN",
                                     action = IrAction.VOLUME_DOWN,
@@ -669,6 +727,42 @@ fun IrConnectFlow(
                     is ProbeUiState.Error -> {
                         Text("Error: ${uiState.message}", color = Color.Red)
                     }
+                    is ProbeUiState.RecoveryRequired -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Session Recovery Failed",
+                                style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold),
+                                color = Color.Red
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = uiState.reason,
+                                style = TextStyle(fontSize = 14.sp),
+                                color = ElysiumColors.OnSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            NeonFab(
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = "Start Over"
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.step = IrStep.ORIENT
+                                    viewModel.setVerifiedActions(emptySet())
+                                    step = IrStep.ORIENT
+                                    verifiedActions = emptySet()
+                                    probeUiState = ProbeUiState.LoadingCatalog
+                                }
+                            )
+                        }
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(48.dp))
@@ -690,14 +784,34 @@ fun IrConnectFlow(
     }
 }
 
-private enum class IrStep(val number: Int, val labelEn: String, val labelEs: String) {
+internal enum class IrStep(val number: Int, val labelEn: String, val labelEs: String) {
     ORIENT(1, "Aim", "Apuntar"),
     TEST(2, "Test", "Probar"),
     CHALLENGE(3, "Verify", "Re-verificar"),
-    CONFIRM(4, "Confirm", "Confirmar"),
-    VERIFY_SECONDARY(5, "Down", "Bajar"),
-    VERIFY_TERTIARY(6, "Mute", "Mute"),
-    SAVE(7, "Save", "Guardar")
+    VERIFY_SECONDARY(4, "Down", "Bajar"),
+    VERIFY_TERTIARY(5, "Mute", "Mute"),
+    SAVE(6, "Save", "Guardar");
+
+    companion object {
+        /**
+         * P0.4: Explicit transition table.
+         * Each entry: (fromStep, event) → nextStep.
+         * null nextStep means terminal (save complete or abort).
+         */
+        fun transition(from: IrStep, event: String): IrStep? = when (from to event) {
+            ORIENT to "continue" -> TEST
+            TEST to "did_work" -> CHALLENGE
+            TEST to "next_candidate" -> TEST
+            TEST to "exhausted" -> null
+            CHALLENGE to "confirmed" -> VERIFY_SECONDARY
+            CHALLENGE to "failed" -> TEST
+            VERIFY_SECONDARY to "did_work" -> VERIFY_TERTIARY
+            VERIFY_SECONDARY to "skip" -> VERIFY_TERTIARY
+            VERIFY_TERTIARY to "did_work" -> SAVE
+            VERIFY_TERTIARY to "skip" -> SAVE
+            else -> null
+        }
+    }
 }
 
 @Composable
@@ -842,21 +956,6 @@ private fun ChallengeStep(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NeonChip(label = "Sí, funcionó", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
                 NeonChip(label = "No, siguiente", onClick = onNo, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConfirmStep(onYes: () -> Unit, onNo: () -> Unit) {
-    NeonCard(modifier = Modifier.fillMaxWidth(), accent = ElysiumColors.NeonGreen, contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("¿Reaccionó tu TV?", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
-            Text("Si viste el indicador de volumen subir, confirma para verificar más acciones del mismo control.", style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NeonChip(label = "Sí, funcionó", onClick = onYes, accent = ElysiumColors.NeonGreen, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
-                NeonChip(label = "No, probar otro", onClick = onNo, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
             }
         }
     }

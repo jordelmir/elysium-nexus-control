@@ -136,6 +136,8 @@ dependencies {
     // AndroidManifest.xml with the authority
     // `${applicationId}.fileprovider`.
     implementation(libs.androidx.core.ktx)
+    // P0.3: ViewModel Compose integration for process-death-safe state
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)

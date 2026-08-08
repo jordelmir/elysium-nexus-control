@@ -324,3 +324,151 @@ data class IdempotencyKey(val value: String) {
         )
     }
 }
+
+// ─── Action Dispatcher ───────────────────────────────────────────────────────
+
+/**
+ * Dispatches an [Action] to the appropriate [DeviceAdapter].
+ */
+fun interface ActionDispatcher {
+    fun dispatch(action: Action, verification: VerificationPolicy): CommandStatus
+}
+
+// ─── Automation Store ────────────────────────────────────────────────────────
+
+/**
+ * Deduplication store for automation executions.
+ */
+interface AutomationStore {
+    fun isInFlight(key: IdempotencyKey): Boolean
+    fun markInFlight(key: IdempotencyKey)
+    fun markCompleted(key: IdempotencyKey)
+}
+
+// ─── Automation Context ──────────────────────────────────────────────────────
+
+/**
+ * Snapshot of the world state for condition evaluation.
+ */
+data class Context(val state: Map<String, String>) {
+    companion object {
+        const val KEY_USER_ID = "user_id"
+        const val KEY_TIME_OF_DAY = "time_of_day"
+        const val KEY_DAY_OF_WEEK = "day_of_week"
+        const val KEY_HOME_OCCUPIED = "home_occupied"
+        const val KEY_NETWORK_ONLINE = "network_online"
+    }
+}
+
+// ─── Automation Verdict ──────────────────────────────────────────────────────
+
+/**
+ * Result of executing an automation.
+ */
+sealed class Verdict {
+    /** All actions completed successfully. */
+    data class Completed(
+        val perAction: List<Pair<Action, CommandStatus>>
+    ) : Verdict()
+
+    /** Condition(s) were not met. */
+    data class ConditionsNotMet(
+        val failedCondition: Condition? = null
+    ) : Verdict()
+
+    /** Automation is already running (idempotency dedup). */
+    data object AlreadyRunning : Verdict()
+
+    /** An action failed and compensation ran. */
+    data class CompensationRan(
+        val failedAction: Action,
+        val compensationResults: List<Pair<Action, CommandStatus>>
+    ) : Verdict()
+
+    /** Automation timed out. */
+    data object Timeout : Verdict()
+}
+
+// ─── Automation Engine ───────────────────────────────────────────────────────
+
+/**
+ * Executes [Automation] instances with full
+ * trigger → condition → action → verification semantics.
+ */
+object AutomationEngine {
+
+    /**
+     * Execute an automation.
+     *
+     * 1. Check idempotency (dedup via [store])
+     * 2. Evaluate conditions against [context]
+     * 3. Execute actions via [dispatcher]
+     * 4. Run compensation on failure
+     */
+    fun execute(
+        automation: Automation,
+        event: TriggerEvent,
+        deviceId: DeviceId?,
+        context: Context,
+        store: AutomationStore,
+        dispatcher: ActionDispatcher
+    ): Verdict {
+        val key = IdempotencyKey.forEvent(automation, event, deviceId)
+
+        // Dedup check
+        if (store.isInFlight(key)) {
+            return Verdict.AlreadyRunning
+        }
+        store.markInFlight(key)
+
+        // Evaluate conditions
+        for (condition in automation.conditions) {
+            if (!evaluateCondition(condition, context)) {
+                store.markCompleted(key)
+                return Verdict.ConditionsNotMet(failedCondition = condition)
+            }
+        }
+
+        // Execute actions
+        val results = mutableListOf<Pair<Action, CommandStatus>>()
+        for (action in automation.actions) {
+            val status = dispatcher.dispatch(action, automation.verification)
+            results.add(action to status)
+
+            if (status == CommandStatus.Rejected || status == CommandStatus.DeviceOffline) {
+                // Run compensation
+                val compResults = mutableListOf<Pair<Action, CommandStatus>>()
+                for (compAction in automation.compensation) {
+                    val compStatus = dispatcher.dispatch(compAction, automation.verification)
+                    compResults.add(compAction to compStatus)
+                }
+                store.markCompleted(key)
+                return Verdict.CompensationRan(
+                    failedAction = action,
+                    compensationResults = compResults
+                )
+            }
+        }
+
+        store.markCompleted(key)
+        return Verdict.Completed(perAction = results)
+    }
+
+    private fun evaluateCondition(condition: Condition, context: Context): Boolean {
+        return when (condition.kind) {
+            ConditionKind.UserPresent -> {
+                context.state[Context.KEY_USER_ID] == condition.value
+            }
+            ConditionKind.UserAbsent -> {
+                context.state[Context.KEY_USER_ID] != condition.value
+            }
+            ConditionKind.HomeOccupied -> {
+                context.state[Context.KEY_HOME_OCCUPIED] == condition.value
+            }
+            ConditionKind.NetworkOnline -> {
+                context.state[Context.KEY_NETWORK_ONLINE] == "true"
+            }
+            else -> true // Default: condition passes
+        }
+    }
+}

@@ -672,18 +672,8 @@ class MainActivity : ComponentActivity() {
                             automationDefinitionStore?.delete(auto.id)
                         },
                         onRunAutomation = { auto ->
-                            // Execute the automation with the in-memory store + no-op dispatcher
-                            com.elysium.nexus.fabric.automation.AutomationEngine.execute(
-                                automation = auto,
-                                event = auto.triggers.firstOrNull()?.event
-                                    ?: com.elysium.nexus.fabric.automation.TriggerEvent.Motion,
-                                deviceId = auto.actions.firstOrNull()?.deviceId,
-                                context = com.elysium.nexus.fabric.automation.Context(emptyMap()),
-                                store = inMemoryAutomationStore,
-                                dispatcher = com.elysium.nexus.fabric.automation.ActionDispatcher { _, _ ->
-                                    com.elysium.nexus.fabric.automation.CommandStatus.Confirmed
-                                }
-                            )
+                            // TODO: Wire to AutomationEngine implementation
+                            android.util.Log.i("MainActivity", "Run automation: ${auto.name}")
                         }
                     )
                     is HubDestination.AutomationEditor -> com.elysium.nexus.ui.automation.AutomationEditorScreen(

@@ -1,6 +1,6 @@
 package com.elysium.nexus.fabric.automation
 
-import com.elysium.nexus.fabric.automation.AutomationEngine.Verdict
+import com.elysium.nexus.fabric.automation.Verdict
 import com.elysium.nexus.fabric.canonical.Capability
 import com.elysium.nexus.fabric.canonical.DeviceId
 import org.junit.Assert.assertEquals

@@ -97,6 +97,10 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 org-json = { group = "org.json", name = "json", version.ref = "json" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "androidx-window" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
+# AndroidX Lifecycle ViewModel Compose — earned in Phase 0.3 for P0.3
+# process-death-safe ViewModel integration in IrConnectFlow.
+# Uses the Compose BOM for version alignment.
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,202 +1,29 @@
 {
-  "schemaVersion": 2,
-  "generatedAtUtc": "2026-08-06T15:00:00Z",
-  "pipelineVersion": "1.0.0",
-  "stats": {
+  "schemaVersion": 4,
+  "profile": "production",
+  "generatedAtUtc": "2026-08-08T00:00:00Z",
+  "pipelineVersion": "5.0.0-v4-native",
+  "databaseSha256": "da4c26a29f4567f00a09499819e1d935b4ddf09d66f5f8bc693f1dd36932e830",
+  "canonicalContentSha256": "e0e2cf768e0524391c6578f4b8c89fe9af4900af42b586987ca81f6ad92a7e29",
+  "databaseSizeBytes": 94429184,
+  "counts": {
+    "sources": 3,
+    "source_revisions": 3,
+    "source_files": 2394,
     "brands": 915,
-    "deviceTypes": 47,
-    "remotes": 2394,
-    "encodedCommands": 27852,
-    "rawCommands": 80829,
-    "totalCommands": 108681,
-    "protocolDefinitions": 219,
-    "sources": 4,
-    "databaseSizeBytes": 170700800,
-    "dedupEncoded": 320,
-    "dedupRaw": 33904,
+    "device_types": 45,
+    "device_models": 0,
+    "remotes": 2377,
+    "code_sets": 2347,
+    "actions": 32433,
+    "signals": 85237,
+    "command_bindings": 142602,
+    "code_set_models": 0
+  },
+  "stats": {
+    "dedupParametric": 28172,
+    "dedupRaw": 114657,
     "validationRejected": 7312,
     "parseErrors": 3
-  },
-  "topBrands": [
-    {
-      "name": "Samsung",
-      "remotes": 101
-    },
-    {
-      "name": "Sony",
-      "remotes": 97
-    },
-    {
-      "name": "LG",
-      "remotes": 95
-    },
-    {
-      "name": "Panasonic",
-      "remotes": 77
-    },
-    {
-      "name": "Philips",
-      "remotes": 53
-    },
-    {
-      "name": "Unknown",
-      "remotes": 40
-    },
-    {
-      "name": "Dyson",
-      "remotes": 32
-    },
-    {
-      "name": "Toshiba",
-      "remotes": 31
-    },
-    {
-      "name": "Daikin",
-      "remotes": 30
-    },
-    {
-      "name": "Epson",
-      "remotes": 25
-    },
-    {
-      "name": "Yamaha",
-      "remotes": 24
-    },
-    {
-      "name": "Hisense",
-      "remotes": 23
-    },
-    {
-      "name": "Hitachi",
-      "remotes": 23
-    },
-    {
-      "name": "Midea",
-      "remotes": 23
-    },
-    {
-      "name": "Pioneer",
-      "remotes": 23
-    },
-    {
-      "name": "Vizio",
-      "remotes": 23
-    },
-    {
-      "name": "Sharp",
-      "remotes": 21
-    },
-    {
-      "name": "Edifier",
-      "remotes": 20
-    },
-    {
-      "name": "Fujitsu",
-      "remotes": 19
-    },
-    {
-      "name": "TCL",
-      "remotes": 19
-    }
-  ],
-  "topDeviceTypes": [
-    {
-      "name": "AC",
-      "remotes": 514
-    },
-    {
-      "name": "TV",
-      "remotes": 397
-    },
-    {
-      "name": "Fan",
-      "remotes": 172
-    },
-    {
-      "name": "LED_Light",
-      "remotes": 172
-    },
-    {
-      "name": "Miscellaneous",
-      "remotes": 136
-    },
-    {
-      "name": "Projector",
-      "remotes": 126
-    },
-    {
-      "name": "Soundbar",
-      "remotes": 106
-    },
-    {
-      "name": "AV_Receiver",
-      "remotes": 103
-    },
-    {
-      "name": "Speaker",
-      "remotes": 69
-    },
-    {
-      "name": "BluRay_Player",
-      "remotes": 56
-    },
-    {
-      "name": "Media_Player",
-      "remotes": 55
-    },
-    {
-      "name": "Cable_Box",
-      "remotes": 49
-    },
-    {
-      "name": "Camera",
-      "remotes": 36
-    },
-    {
-      "name": "Toys",
-      "remotes": 36
-    },
-    {
-      "name": "Heater",
-      "remotes": 34
-    }
-  ],
-  "sources": [
-    {
-      "id": "flipper-irdb",
-      "name": "Flipper-IRDB",
-      "license": "CC0-1.0",
-      "production_enabled": true,
-      "remotes": 1957,
-      "encoded_commands": 27852,
-      "raw_commands": 7798
-    },
-    {
-      "id": "irp-protocols",
-      "name": "IrpProtocols.xml",
-      "license": "Public Domain",
-      "production_enabled": true,
-      "remotes": 0,
-      "encoded_commands": 0,
-      "raw_commands": 0
-    },
-    {
-      "id": "radioxoma-infrared",
-      "name": "radioxoma/infrared",
-      "license": "MIT",
-      "production_enabled": true,
-      "remotes": 5,
-      "encoded_commands": 0,
-      "raw_commands": 38
-    },
-    {
-      "id": "smartir",
-      "name": "SmartIR",
-      "license": "MIT",
-      "production_enabled": true,
-      "remotes": 432,
-      "encoded_commands": 0,
-      "raw_commands": 72993
-    }
-  ]
+  }
 }
