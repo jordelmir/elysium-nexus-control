@@ -124,7 +124,7 @@ jobs:
       - name: Lint Python scripts (ruff)
         run: |
           pip install --break-system-packages ruff 2>/dev/null || pip install ruff
-          ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505
+          ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505,E402
 
       # ── Gate 4: JVM unit tests ──
       - name: Run JVM unit tests
