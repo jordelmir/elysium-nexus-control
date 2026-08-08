@@ -1,24 +1,12 @@
 name: Android CI
 
-# Phase 1.19+ — full green-build gates.
+# Elysium Nexus — Android CI pipeline
 #
-# `MASTER_ORDER.md` §44 calls for every change to be
-# measured: the test suite, the build, the lint. The
-# workflow runs the three green-build gates (test +
-# assemble + lint) on every push and pull request,
-# and verifies the IR catalog integrity (Schema v4,
-# quick_check, foreign_key_check) so a bad asset can
-# never be shipped silently.
+# Gates: catalog integrity → Python lint → JVM tests → Android lint →
+#        debug build → release build (R8) → SBOM → instrumented tests.
 #
-# The workflow uses a single job (`build`) on the
-# cheapest Linux runner. The Gradle build is cached
-# across runs (the `gradle-build-action` key).
-#
-# The workflow checks out the repository with
-# `fetch-depth: 0` so the CI run can attach the
-# change-set to a future release note. The `actions/setup-java@v4`
-# step installs the JDK 17 that matches the
-# project's `jvmToolchain(17)` in `app/build.gradle.kts`.
+# §44: every change must be measured. This workflow enforces that
+# on every push and pull request to main/develop.
 
 on:
   push:
@@ -26,6 +14,14 @@ on:
   pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
+
+# Cancel in-progress runs for the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
 
 jobs:
   build:
@@ -57,11 +53,12 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x apps/android/gradlew
 
+      # ── Gate 1: Catalog integrity ──
       - name: Verify IR catalog integrity (quick_check + manifest hash)
         run: |
           cd apps/android/app/src/main/assets/ir
-          python3 - <<'EOF'
-          import hashlib, json, sqlite3, os
+          python3 - <<'PYEOF'
+          import hashlib, json, sqlite3, sys
           db = "ir_catalog.db"
           sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
           manifest = json.load(open("ir_catalog.manifest.json"))
@@ -78,40 +75,64 @@ jobs:
           con.close()
           ok = (quick == "ok") and (len(fk) == 0) and (status == "PASS")
           if not ok:
-              raise SystemExit(f"catalog integrity failed: quick={quick} fk={len(fk)} hash={status}")
-          EOF
+              print(f"FATAL: catalog integrity failed", file=sys.stderr)
+              sys.exit(1)
+          print("catalog integrity: PASS")
+          PYEOF
 
+      # ── Gate 2: Source lock verification ──
+      - name: Verify source locks
+        run: |
+          if [ -f tools/ir-data/verify_source_locks.py ]; then
+            python3 tools/ir-data/verify_source_locks.py
+          else
+            echo "SKIP: verify_source_locks.py not found"
+          fi
+
+      # ── Gate 3: Python lint ──
       - name: Lint Python scripts (ruff)
         run: |
-          pip install ruff
+          pip install --break-system-packages ruff 2>/dev/null || pip install ruff
           ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505
 
+      # ── Gate 4: JVM unit tests ──
       - name: Run JVM unit tests
         run: |
           cd apps/android
-          ./gradlew :app:testDebugUnitTest --console=plain
+          ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
 
+      # ── Gate 5: Android lint ──
       - name: Lint (abort on error)
         run: |
           cd apps/android
-          ./gradlew :app:lintDebug --console=plain
+          ./gradlew :app:lintDebug --console=plain --no-daemon
 
+      # ── Gate 6: Debug build ──
       - name: Build debug APK
         run: |
           cd apps/android
-          ./gradlew :app:assembleDebug --console=plain
+          ./gradlew :app:assembleDebug --console=plain --no-daemon
 
+      # ── Gate 7: Release build (R8) ──
       - name: Build release APK (R8 minification)
         run: |
           cd apps/android
-          ./gradlew :app:assembleRelease --console=plain
+          ./gradlew :app:assembleRelease --console=plain --no-daemon
 
+      # ── Gate 8: SBOM generation ──
       - name: Generate SBOM (CycloneDX)
         run: |
           cd apps/android
-          ./gradlew :app:cyclonedxDirectBom --console=plain
-          cp app/build/reports/cyclonedx-direct/bom.xml "$GITHUB_WORKSPACE/sbom.xml" 2>/dev/null || true
+          ./gradlew :app:cyclonedxDirectBom --console=plain --no-daemon
+          if [ -f app/build/reports/cyclonedx-direct/bom.xml ]; then
+            cp app/build/reports/cyclonedx-direct/bom.xml "$GITHUB_WORKSPACE/sbom.xml"
+            echo "SBOM generated successfully"
+          else
+            echo "ERROR: SBOM file not found after generation" >&2
+            exit 1
+          fi
 
+      # ── Artifacts ──
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -133,8 +154,17 @@ jobs:
         with:
           name: sbom
           path: sbom.xml
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: apps/android/app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Report test count
         if: always()
@@ -181,4 +211,4 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: apps/android
-          script: ./gradlew :app:connectedDebugAndroidTest --console=plain
+          script: ./gradlew :app:connectedDebugAndroidTest --console=plain --no-daemon

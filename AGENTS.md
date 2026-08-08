@@ -112,21 +112,43 @@ The loop halts only when:
 cd apps/android
 
 ./gradlew help                              # sanity-check the wrapper
-./gradlew :app:testDebugUnitTest            # JVM unit tests
-./gradlew :app:assembleDebug                # builds app-debug.apk
+./gradlew :app:testDebugUnitTest            # JVM unit tests (814 tests)
+./gradlew :app:assembleDebug                # builds debug APK
+./gradlew :app:assembleRelease              # builds release APK (R8)
 ./gradlew :app:lintDebug                    # lint, abortOnError=true
+./gradlew :app:cyclonedxDirectBom           # generates SBOM (CycloneDX)
 ./gradlew clean :app:testDebugUnitTest \
               :app:assembleDebug \
               :app:lintDebug                # the full Phase 0.1 gate
 ```
 
-There is no `gradlew` at the workspace root in 0.1 — each subsystem
-keeps its own build entry point. We introduce a workspace-level
-Gradle invocation when a second module needs to be cross-built with
-the Android one (anticipated in Phase 4 when firmware and Rust
-crates join).
+Python tooling:
+```bash
+cd tools/ir-data
+python3 catalog.py                          # unified catalog build
+python3 seed_device_models_v4.py            # populate device_models for ranking
+python3 verify_source_locks.py              # verify source lock integrity
+ruff check *.py --select E,F,W             # Python lint
+```
 
-Wrapper lives at `apps/android/gradlew` (added in Phase 0.1; renamed in Phase ULT.0).
+There is no `gradlew` at the workspace root — each subsystem
+keeps its own build entry point.
+
+Wrapper lives at `apps/android/gradlew`.
+
+## CI pipeline (`.github/workflows/android-ci.yml`)
+
+Every push triggers:
+1. Catalog integrity (SHA + quick_check + foreign_key_check)
+2. Source lock verification
+3. Python lint (ruff)
+4. JVM unit tests (814)
+5. Android lint
+6. Debug build
+7. Release build (R8 minification)
+8. SBOM generation (CycloneDX, 268 components)
+9. Artifact upload (debug APK, release APK, SBOM, test results)
+10. Instrumented tests on Android 34 emulator
 
 ## Source of truth ordering (when files disagree)
 
