@@ -83,14 +83,13 @@ jobs:
       # ── Gate 1b: Canonical hash reproducibility ──
       - name: Verify canonical content hash matches manifest
         run: |
-          cd apps/android/app/src/main/assets/ir
           python3 - <<'PYEOF'
           import json, sys
-          sys.path.insert(0, "../../../../../../tools/ir-data")
+          sys.path.insert(0, "${{ github.workspace }}/tools/ir-data")
           from export_canonical_catalog import compute_canonical_hash
           from pathlib import Path
-          db_path = Path("ir_catalog.db")
-          manifest = json.load(open("ir_catalog.manifest.json"))
+          db_path = Path("apps/android/app/src/main/assets/ir/ir_catalog.db")
+          manifest = json.load(open("apps/android/app/src/main/assets/ir/ir_catalog.manifest.json"))
           expected = manifest.get("canonicalContentSha256")
           actual, _ = compute_canonical_hash(db_path)
           print(f"canonical expected: {expected}")
