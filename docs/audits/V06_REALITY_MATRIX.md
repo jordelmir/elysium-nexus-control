@@ -141,5 +141,5 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 ---
 
 *Next:* PHASE 2 ✅ + PHASE 3 ✅ + PHASE 4 ✅ + PHASE 5 ✅ (v5 catalog pipeline, 1,045 JVM green).
-Next: PHASE 6 — clean reproducibility gate (rebuild v5 from lock files, byte-identical DB).
+Next: PHASE 7 — wire the automation engine (ConcreteAutomationEngineService) into a launch entry point (EDGE CASE: order priority E).
 (upgrade/downgrade catalog), then PHASE 3 process-death closing, then PHASE 5 native catalog v5.

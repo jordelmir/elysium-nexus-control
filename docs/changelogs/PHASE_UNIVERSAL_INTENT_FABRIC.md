@@ -483,6 +483,27 @@ every claim is evidence-bound.
 - The APK now embeds the v5 catalog (90 MB asset, 102 MB debug APK).
 
 
+
+### V06 PHASE 6 — Clean reproducibility gate (measured, honest)
+
+- NEW `tools/ir-data/verify_reproducibility.py`:
+  - default: rebuild production catalog from locked sources
+    (`ingest_v5 --profile production` + 3 seeders) and prove the result
+    converges to the shipped manifest
+  - `--fast`: canonical-hash compare only (CI-friendly branch)
+  - Gate contract: canonicalContentSha256 equality, per-table counts,
+    schemaVersion==5, quick_check ok, foreign_key_check 0, DB SHA-256
+- **Bug found & fixed by the gate itself**: the curated-brands seeder was
+  writing the manifest BEFORE the kintech + device_models seeders ran,
+  leaving a stale canonical hash on disk (manifest→DB drift). The gate now
+  rewrites the manifest from the final DB after all seeders.
+- Measured on this machine: full rebuild reproduces the shipped DB
+  byte-for-byte — `databaseSha256 = 00732dda3eb3…` and
+  `canonicalContentSha256 = e0bfbea28910…` — sources 5, brands 917,
+  device_models 22, code_set_models 1476, 0 FK violations.
+- The `--fast` mode is wired for CI usage (runs in ~4 s vs ~90 s rebuild).
+
+
 ## Build Status (this update)
 
 ```
