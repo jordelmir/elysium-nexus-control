@@ -118,6 +118,13 @@ PRODUCTION_APPROVED
 | `MutationSemantics` | **UNIT_VERIFIED** | `MutationSemanticsTest` (7: all 25 actions classified once; destructive customs never hedge/repeat; legacy recording axis reproduced) | consumed by `HedgedExecutor` (gating) + `InputRecorder` (recording guard) | dispatcher does not invoke `executeWithHedge` end-to-end yet (PHASE 13/14) |
 | `HedgedExecutor` | **UNIT_VERIFIED** | `HedgedExecutorTest` (5: non-idempotent/destructive never touch backup; late-ACK fallback; no-backup passthrough) | gating via `MutationSemantics.canHedge` | unwired upstream |
 
+### V06-P13/14 Dispatcher wiring (scorer + breaker)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `ActionDispatcher` (scorer branch) | **INTEGRATION_VERIFIED (JVM)** | `ActionDispatcherResilienceTest` (5) | optional `routeScorer` injected → rank reranked, score-0 dropped | opt-in; production callers not yet constructing it |
+| `ActionDispatcher` (breaker branch) | **INTEGRATION_VERIFIED (JVM)** | circuit open → skip+Fallback evidence → AllRoutesFailed("Circuit open"); success resets; failures open via real dispatch path | optional `circuitBreaker` injected; Ok→recordSuccess, Error→recordFailure | opt-in; cooldown/half-open E2E needs a device |
+
 ---
 
 ## 3. Wiring map (PHASE 1 input)
@@ -147,7 +154,7 @@ HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
 | TV adapter LG | ~35 % | honest unit tests; **zero physical** |
 | Automation transactions | ~62 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9) |
 | Identity/vault/trust | ~48 % | vault unit-verified; **identity graph pure-logic verified (merge policy + composite determinism, 19 tests), durable via Room v9 (schema exported + instrumented migration); peer-fingerprint enforcement still missing (§11)** |
-| Routing/resilience | ~45 % | scorer/breaker unit-verified but unwired; **PHASE 18: single MutationSemantics classifier unit-proven (12 tests), HedgedExecutor + InputRecorder gated by it** |
+| Routing/resilience | ~55 % | scorer/breaker **wired into the dispatcher** (optional injectables, integration-tested: open circuit blocks, success resets, failures open, rerank honored); single MutationSemantics classifier unit-proven |
 | Calibration (WiFi Oracle) | ~20 % | class exists; no E2E (§7, §16) |
 | Pi_Release/CI | ~55 % | 3-gate CI: JVM + lint + assemble; **instrumented test = continue-on-error** (P0 §3,§18) |
 | Physical truth | **<2 %** | nothing on hardware |
@@ -157,9 +164,9 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* V06-P9 (Device Identity Graph) + V06-P18 (MutationSemantics: single execution
-policy classifier, HedgedExecutor + InputRecorder gated by it) complete — 1,109 JVM green,
-lint + assemble green. Then: PHASE 13/14 (ActionRouteScorer + CircuitBreaker wired into the
-dispatcher) then PHASE 19 (transaction/delivery semantics per step); physical-only phases
-(8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on hardware and are documented, not
-claimed.
+*Next:* V06-P9 (Device Identity Graph), V06-P18 (MutationSemantics) and V06-P13/14
+(scorer + circuit breaker wired into ActionDispatcher) complete — 1,114 JVM green,
+lint + assemble green. Then: PHASE 19 (transaction/delivery semantics per automation
+step) and PHASE 22 (FlightRecorder wired) — the next software phases in the master
+order; physical-only phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on
+hardware and are documented, not claimed.

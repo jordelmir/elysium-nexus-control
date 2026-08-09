@@ -742,3 +742,43 @@ testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,109 tests)
 lintDebug                       ✓ BUILD SUCCESSFUL
 assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
+
+
+### V06 PHASE 13/14 — Dynamic scoring + circuit breaker WIRED into the dispatcher
+
+Audit / matrix: ActionRouteScorer and CircuitBreaker were IMPLEMENTED_NOT_WIRED —
+unit-verified but unreachable from the production graph. Now wired into
+`ActionDispatcher` as optional, injectable collaborators (defaults null → the
+dispatcher behaves exactly as before, so every existing call site is untouched):
+
+- **PHASE 13 (scorer)**: `dispatch` re-ranks negotiated available routes via
+  `ActionRouteScorer.rank`; routes scoring 0.0 (capability mismatch / unavailable)
+  are dropped (defense-in-depth — the negotiator already filters capability
+  mismatches upstream). The dispatcher now honors the dynamic order.
+- **PHASE 14 (breaker)**: every per-protocol attempt goes through
+  `circuitBreaker.allowAttempt` — open circuit → route skipped with
+  `EventResult.Fallback` evidence (never invented as a success); on
+  `WriteResult.Ok` → `recordSuccess` (closes/resets), on `WriteResult.Error` →
+  `recordFailure` (opens at threshold). The loop exhausts into
+  `AllRoutesFailed("Circuit open for X")` when everything is blocked.
+- Honesty: both are OPT-IN — any caller that does not construct them gets the
+  previous static-order behavior; the production graph (IrConnectFlow etc.) can
+  adopt them without API breakage. Tests prove the semantics end-to-end:
+  - `ActionDispatcherResilienceTest` (5 tests): open circuit blocks the
+    dispatch (AllRoutesFailed names the circuit); successful dispatch resets
+    the breaker; 2 dispatches-worth of adapter failures open the circuit
+    through the real dispatcher path and the 3rd dispatch is blocked before
+    touching adapters; scorer reranking flips the static order (WiFi attempted
+    first, proven by Fallback evidence for WiFi before the IR success);
+    capability-mismatched routes never reach an adapter (NoRoute, zero
+    evidence events).
+  - **Total suite: 1,114 green.** Lint + assemble green.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,114 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```
