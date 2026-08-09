@@ -10,6 +10,7 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.SelectedCommandBinding
+import com.elysium.nexus.fabric.profile.RevalidationCatalog
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.CodecSpec
@@ -77,7 +78,7 @@ private fun buildSelectedCommands(
  */
 class IrCatalogRepository private constructor(
     private val context: Context
-) : IrCatalog {
+) : IrCatalog, RevalidationCatalog {
 
     companion object {
         @Volatile

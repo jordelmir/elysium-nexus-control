@@ -409,6 +409,32 @@ every claim is evidence-bound.
 - KSP gotcha fixed: `Index`/`ForeignKey` now imported in `ElysiumUserDatabase.kt`
   (missing import = KSErrorType ClassCastException in Room's KSP processor)
 
+
+### V06 PHASE 2 — Revalidation upgrade/downgrade tests (seamless)
+
+- `ProfileRevalidationService.kt` — **testability seam refactor**:
+  - NEW narrow `RevalidationCatalog` interface (getSignal/getCodeSet) — implemented by
+    `IrCatalogRepository` (which already provides both via `IrCatalog`)
+  - NEW `ProfileRevalidationStore` interface (saveProfile) — anonymous Room-backed
+    impl in the production `(context)` constructor
+  - Hash read moved to `companion.readManifestHash(context)`; constructor now takes
+    `(catalog, profileStore, currentCatalogHash: () -> String)`
+  - Zero behavior change — the 9 new JVM tests prove the contract
+- NEW `app/src/test/.../profile/ProfileRevalidationServiceUpgradeTest.kt` — 9 tests,
+  all upgrade/downgrade decision paths against fakes (no Room/Context):
+  - upgrade, identical signals → Keep + apply refreshes stored hash
+  - upgrade, matching hash → `catalogHashMatches = true`
+  - upgrade, physical-equivalent signal → Migrate to new signalId
+  - upgrade, stale fingerprint without equivalent → NeedsRevalidation
+  - downgrade, signal removed → NeedsRevalidation + needsUserAction
+  - downgrade, codeSet removed → explicit reason "CodeSet no longer exists"
+  - downgrade, alternative signal in codeSet → Migrate to it
+  - applyRevalidation refuses invalid (no persist, hash preserved) and persists
+    migrated binding with refreshed hash
+- Wiring evidence: service still `IMPLEMENTED_NOT_WIRED` (no launch entry point
+  calls it yet) — recorded honestly in the Reality Matrix.
+
+
 ## Build Status (this update)
 
 ```

@@ -140,5 +140,5 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 4 ✅ DONE — see changelog Update 2026-08-08 (night06). Room DB v7 (FK + indices + CASCADE migrations), paired DB v2, MigrationTestHelper wired. Next: PHASE 2 tests
+*Next:* PHASE 4 ✅ + PHASE 2 ✅ (seam + 9 upgrade/downgrade tests, 1,030 JVM green). Next: PHASE 3 process-death closing, then PHASE 5 native catalog v5.
 (upgrade/downgrade catalog), then PHASE 3 process-death closing, then PHASE 5 native catalog v5.
