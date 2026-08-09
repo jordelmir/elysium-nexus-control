@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
     private var engine: CanonicalInputEngine? = null
     private var latencyTracker: LatencyTracker? = null
     private var activityScope: CoroutineScope? = null
+    private var sceneEngine: com.elysium.nexus.fabric.automation.ConcreteAutomationEngineService? = null
     private var driverJob: Job? = null
     private var latencyJob: Job? = null
     private var motionJob: Job? = null
@@ -195,6 +196,17 @@ class MainActivity : ComponentActivity() {
 
         val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         this.activityScope = activityScope
+
+        // §34 Automation engine — wired to the Run button. The action
+        // dispatcher is honest: no device adapters are registered at
+        // this phase, so every dispatch is reported as not delivered
+        // (the engine records it; we never fabricate execution).
+        sceneEngine = com.elysium.nexus.fabric.automation.ConcreteAutomationEngineService(
+            actionDispatcher = com.elysium.nexus.fabric.automation.UniversalActionDispatcher { _, _ ->
+                android.util.Log.w(tag, "Automation dispatch: no device adapter registered")
+                false
+            }
+        )
 
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
@@ -672,8 +684,24 @@ class MainActivity : ComponentActivity() {
                             automationDefinitionStore?.delete(auto.id)
                         },
                         onRunAutomation = { auto ->
-                            // TODO: Wire to AutomationEngine implementation
-                            android.util.Log.i("MainActivity", "Run automation: ${auto.name}")
+                            val engine = sceneEngine
+                            val scope = activityScope
+                            if (engine == null || scope == null) {
+                                android.util.Log.w(tag, "Run automation skipped: engine or scope not ready")
+                            } else {
+                                scope.launch {
+                                    val mapped = com.elysium.nexus.fabric.automation.AutomationSceneMapper
+                                        .toMacroTransaction(auto)
+                                    val result = engine.executeMacro(mapped.transaction)
+                                    val summary = com.elysium.nexus.fabric.automation
+                                        .summarizeExecution(result)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Automation '${auto.name}' → $summary" +
+                                            " (canonical=${mapped.classifiedCanonical()}, custom=${mapped.customKeyCount})"
+                                    )
+                                }
+                            }
                         }
                     )
                     is HubDestination.AutomationEditor -> com.elysium.nexus.ui.automation.AutomationEditorScreen(
