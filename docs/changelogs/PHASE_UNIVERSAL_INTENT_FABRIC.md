@@ -359,3 +359,62 @@ assembleRelease       ✓ BUILD SUCCESSFUL (R8)
 CI pipeline           ✓ All gates green (instrumented: continue-on-error)
 Schema v5 pipeline    ✓ 0 FK violations, 85.29 MB database
 ```
+
+---
+
+## Update — 2026-08-08 (V06 Reality Gate, branch `fix/v0.6-reality-gate`)
+
+### Shipment: Reality Matrix (PHASE 0) + Room relational integrity (PHASE 4)
+
+Per the V06 Master Order (38 phases, realities ladder), working tree based at
+`3f93c886d6e67f2302727862584792f31846b4ee`. Nothing claimed REAL/PRODUCTION —
+every claim is evidence-bound.
+
+#### PHASE 0 — Reality Matrix (deliverable)
+- NEW `docs/audits/V06_REALITY_MATRIX.md` — 10-level reality classification of every
+  Fabric class shipped since `7ebc45b` (+58 Kotlin files), wiring map, per-subsystem
+  engineering-maturity scores, and the honest rule: **no class above UNIT_VERIFIED**,
+  physical truth < 2 % (no LG TV / HIL hardware available).
+- Wiring audit result: `DiscoveryOrchestrator` referenced only by `MdnsDiscoveryProvider`;
+  `CredentialVault` by `TvLanAdapter`; `CircuitBreaker` by `FlightRecorder`;
+  `ControlSurface` by 3 UI files; **majority = IMPLEMENTED_NOT_WIRED**; engine
+  `ConcreteAutomationEngineService` not referenced from any entry point.
+
+#### PHASE 4 — Room relational integrity (executed end-to-end)
+- `ElysiumUserDatabase.kt`: schema **v6 → v7**:
+  - `installed_ir_commands`: FK `profileId → installed_ir_profiles ON DELETE CASCADE`;
+    indices on `profileId`, `signalId`, `codeSetId`
+  - `probe_attempts`: FK `sessionId → probe_sessions ON DELETE CASCADE`; indices on
+    `sessionId`, `codeSetId`
+  - `compatibility_evidence`: new nullable `deviceModelId` column + index on
+    `deviceModelId`, `codeSetId`
+  - NEW `MIGRATION_6_7` (table recreate + ALTER) registered in the builder chain
+- `PairedDeviceEntity.kt`: new `stableIdentity` column + `@Index("stable_identity")`
+  (anti-connection-race rule)
+- `PairedDeviceDatabase.kt`: version **1 → 2**, NEW `MIGRATION_1_2` (ALTER TABLE +
+  index), removed `fallbackToDestructiveMigration()`, `exportSchema = true`
+- NEW schema exports: `app/schemas/...ElysiumUserDatabase/{5,6,7}.json` (v7 with FK +
+  CREATE INDEX verified by inspection)
+- RoomMigrationTest (androidTest) — **fixed the P0 §3/§18 gate**:
+  - Removed non-existent `ElysiumUserDatabase.DestructiveMigrationSuspender()` reference
+    (the reason instrumented tests never compiled → `continue-on-error`)
+  - NEW `migrate6To7_installsForeignKeysAndIndices` — seeds a real v6 DB, asserts FK
+    lists on both tables, index presence, data survival, and the CASCADE delete path
+  - NEW `migrate6To7_cascadeDeletesProbeAttemptsWithSession` — proves session →
+    attempts cascade
+  - NEW `migrateTo7_addsDeviceModelIndexToEvidence` — index presence on evidence
+- `app/build.gradle.kts`: NEW `sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")`
+  so `MigrationTestHelper` finds exported schemas; NEW dependency
+  `androidx.room:room-testing:2.6.1` (libs catalog `androidx-room-testing`)
+- KSP gotcha fixed: `Index`/`ForeignKey` now imported in `ElysiumUserDatabase.kt`
+  (missing import = KSErrorType ClassCastException in Room's KSP processor)
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+compileDebugAndroidTestKotlin   ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,021 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+MigrationTestHelper             → instrumented; requires emulator (CI job)
+```

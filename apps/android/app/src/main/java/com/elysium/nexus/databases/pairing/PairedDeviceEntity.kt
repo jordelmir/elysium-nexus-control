@@ -2,12 +2,20 @@ package com.elysium.nexus.databases.pairing
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * Represents a paired or discovered universal device (Smart TV, PC, Mac, IR remote, BLE host).
+ *
+ * Identity rules (§9 V06):
+ * - `stableIdentity` must NEVER be an IP address or display name.
+ *   Preferred: UPnP UDN, serial, MAC, vendor device ID, deterministic composite.
  */
-@Entity(tableName = "paired_devices")
+@Entity(
+    tableName = "paired_devices",
+    indices = [Index("stable_identity")]
+)
 data class PairedDeviceEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
@@ -33,6 +41,10 @@ data class PairedDeviceEntity(
 
     @ColumnInfo(name = "mac_address")
     val macAddress: String? = null,
+
+    /** §9: Stable cross-protocol identity. Never the IP. */
+    @ColumnInfo(name = "stable_identity")
+    val stableIdentity: String? = null,
 
     @ColumnInfo(name = "pairing_token")
     val pairingToken: String? = null,

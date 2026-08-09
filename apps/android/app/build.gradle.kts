@@ -79,6 +79,13 @@ android {
         warningsAsErrors = false
         checkReleaseBuilds = true
     }
+
+    sourceSets {
+        // P0-12 + V06-P4: expose exported Room schemas to androidTest
+        // so MigrationTestHelper can validate migrations against the
+        // canonical schema JSON files.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 // P0-12: Room schema export for migration testing
@@ -166,6 +173,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+    // V06-P4: MigrationTestHelper for Room migration tests
+    androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 

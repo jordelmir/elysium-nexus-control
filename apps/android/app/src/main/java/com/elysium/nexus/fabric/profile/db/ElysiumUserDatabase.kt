@@ -4,6 +4,8 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -44,7 +46,20 @@ data class InstalledIrProfileEntity(
 
 @Entity(
     tableName = "installed_ir_commands",
-    primaryKeys = ["profileId", "actionKey"]
+    primaryKeys = ["profileId", "actionKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = InstalledIrProfileEntity::class,
+            parentColumns = ["profileId"],
+            childColumns = ["profileId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index("profileId"),
+        Index("signalId"),
+        Index("codeSetId")
+    ]
 )
 data class InstalledIrCommandEntity(
     val profileId: String,
@@ -89,7 +104,21 @@ data class ProbeSessionEntity(
 // Probe Attempt — §23 Individual probe attempt with attemptId
 // ═══════════════════════════════════════════════════════════════════════════
 
-@Entity(tableName = "probe_attempts")
+@Entity(
+    tableName = "probe_attempts",
+    foreignKeys = [
+        ForeignKey(
+            entity = ProbeSessionEntity::class,
+            parentColumns = ["sessionId"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index("sessionId"),
+        Index("codeSetId")
+    ]
+)
 data class ProbeAttemptEntity(
     @PrimaryKey val attemptId: String,
     val sessionId: String,
@@ -106,10 +135,17 @@ data class ProbeAttemptEntity(
 // Compatibility Evidence — §23 Community/verified compatibility records
 // ═══════════════════════════════════════════════════════════════════════════
 
-@Entity(tableName = "compatibility_evidence")
+@Entity(
+    tableName = "compatibility_evidence",
+    indices = [
+        Index("codeSetId"),
+        Index("deviceModelId")
+    ]
+)
 data class CompatibilityEvidenceEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val codeSetId: String,
+    val deviceModelId: String? = null,
     val brand: String,
     val deviceType: String,
     val actionKey: String,
@@ -337,7 +373,7 @@ interface InstalledProfileDao {
         CatalogMigrationEntity::class,
         SignalSourceEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
@@ -352,6 +388,78 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
         internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 // No schema changes — version bump to enable exportSchema tracking.
+            }
+        }
+
+        /** V06 §4: relational integrity — FKs + indices on v7 schemas.
+         *  A compound stable index is expected for all child tables. */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // --- installed_ir_commands: FK → installed_ir_profiles (CASCADE) + indices ---
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS installed_ir_commands_new (
+                        profileId TEXT NOT NULL,
+                        actionKey TEXT NOT NULL,
+                        signalId TEXT NOT NULL,
+                        codeSetId TEXT NOT NULL,
+                        physicalSha256 TEXT NOT NULL,
+                        sourceRevisionId TEXT NOT NULL,
+                        verificationStatus TEXT NOT NULL,
+                        successCount INTEGER NOT NULL DEFAULT 0,
+                        failureCount INTEGER NOT NULL DEFAULT 0,
+                        lastSuccessEpochMs INTEGER NOT NULL DEFAULT 0,
+                        lastFailureEpochMs INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(profileId, actionKey),
+                        FOREIGN KEY(profileId) REFERENCES installed_ir_profiles(profileId) ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO installed_ir_commands_new
+                       (profileId, actionKey, signalId, codeSetId, physicalSha256, sourceRevisionId,
+                        verificationStatus, successCount, failureCount, lastSuccessEpochMs, lastFailureEpochMs)
+                       SELECT profileId, actionKey, signalId, codeSetId, physicalSha256, sourceRevisionId,
+                              verificationStatus, successCount, failureCount, lastSuccessEpochMs, lastFailureEpochMs
+                       FROM installed_ir_commands"""
+                )
+                db.execSQL("DROP TABLE installed_ir_commands")
+                db.execSQL("ALTER TABLE installed_ir_commands_new RENAME TO installed_ir_commands")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_installed_ir_commands_profileId ON installed_ir_commands(profileId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_installed_ir_commands_signalId ON installed_ir_commands(signalId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_installed_ir_commands_codeSetId ON installed_ir_commands(codeSetId)")
+
+                // --- probe_attempts: FK → probe_sessions (CASCADE) + indices ---
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS probe_attempts_new (
+                        attemptId TEXT NOT NULL,
+                        sessionId TEXT NOT NULL,
+                        candidateId TEXT NOT NULL,
+                        codeSetId TEXT NOT NULL,
+                        signalId TEXT NOT NULL,
+                        actionKey TEXT NOT NULL,
+                        transmittedAtEpochMs INTEGER NOT NULL,
+                        result TEXT NOT NULL,
+                        transmitDurationMs INTEGER NOT NULL,
+                        PRIMARY KEY(attemptId),
+                        FOREIGN KEY(sessionId) REFERENCES probe_sessions(sessionId) ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO probe_attempts_new
+                       (attemptId, sessionId, candidateId, codeSetId, signalId, actionKey,
+                        transmittedAtEpochMs, result, transmitDurationMs)
+                       SELECT attemptId, sessionId, candidateId, codeSetId, signalId, actionKey,
+                              transmittedAtEpochMs, result, transmitDurationMs
+                       FROM probe_attempts"""
+                )
+                db.execSQL("DROP TABLE probe_attempts")
+                db.execSQL("ALTER TABLE probe_attempts_new RENAME TO probe_attempts")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_probe_attempts_sessionId ON probe_attempts(sessionId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_probe_attempts_codeSetId ON probe_attempts(codeSetId)")
+
+                // --- compatibility_evidence: add deviceModelId + indices ---
+                db.execSQL("ALTER TABLE compatibility_evidence ADD COLUMN deviceModelId TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_compatibility_evidence_codeSetId ON compatibility_evidence(codeSetId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_compatibility_evidence_deviceModelId ON compatibility_evidence(deviceModelId)")
             }
         }
 
@@ -456,7 +564,7 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                     ElysiumUserDatabase::class.java,
                     "elysium_user_database.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance
