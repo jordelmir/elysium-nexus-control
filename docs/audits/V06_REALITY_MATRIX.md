@@ -24,7 +24,7 @@ PRODUCTION_APPROVED
 - `IMPLEMENTED_NOT_WIRED` = compiles + has logic, but does **not** participate in the
   production graph (no UI / service / call-site reaches it).
 - A class is `UNIT_VERIFIED` only if a JVM test exercises its behavior (counted in the
-  1,021-test suite).
+  1,097-test suite).
 - No class in this matrix is above `UNIT_VERIFIED` / `INTEGRATION_VERIFIED` (local),
   because **no physical device was tested** (no LG TV, no HIL, no device matrix run).
 
@@ -98,9 +98,18 @@ PRODUCTION_APPROVED
 ### Profile / revalidation (PHASE 2)
 
 | Class | Status | Evidence | Notes | Gaps |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | `ProfileRevalidationService` | **UNIT_VERIFIED** (wired) | `ProfileRevalidationTest` (9: KEEP/MIGRATE/NEEDS_REVALIDATION via seams) | PHASE 2 closing: startup revalidation pass wired in MainActivity — real manifest hash, applies migrations atomically, never destroys profiles | per-binding UI surfacing pending |
 | `InstalledIrProfile` (fields) | UNIT_VERIFIED | tests assert `catalogCanonicalHashAtInstall` etc. | correct | binding-level `bindingId` gaps |
+
+### V06-P9 Device Identity Graph (Identity Merge Policy + Durable Graph)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `IdentityMergeEngine` | **UNIT_VERIFIED** | `IdentityMergeEngineTest` (19: SAME/DIFFERENT/AMBIGUOUS, IP-null, kind-mismatch, contradiction-first mergeAll) | Used by `resolveIdentity` sites (future discovery merge) | no real discovery feeds observations yet |
+| `PeerIdentity` / `PeerObservation` / `IdentityEvidenceKind` | **UNIT_VERIFIED** | exercised via engine + resolve tests; `PeerIdentity.composite` determinism asserted | composite fallback rooted in `Fingerprint.ofHex` (SHA-256) | — |
+| `DeviceIdentityRepository` | IMPLEMENTED (persistence) | JSON round-trip exercised in engine tests; Room schema v9 + instrumented `migrate8To9` | `RoomIdentityDaoSeam` over `InstalledProfileDao` | no call site in production graph yet (repository instantiable, not invoked) |
+| Room v9 (`device_identities`, `device_identity_history`) | **UNIT_VERIFIED** (schema) + instrumented | schema `9.json` exported; CASCADE FK + index in migration test | `MIGRATION_8_9` registered | instrumented test requires emulator |
 
 ---
 
@@ -126,11 +135,11 @@ HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
 
 | Subsistema | Score | Evidence |
 |---|---|---|
-| IR authoritative path | ~82 % | 1,021 tests incl. codec golden vectors; physicalSha verified per binding |
+| IR authoritative path | ~82 % | 1,097 tests incl. codec golden vectors; physicalSha verified per binding |
 | LAN discovery | ~60 % | providers unit-verified; not on-device; no IPv6/dup-announce probe |
 | TV adapter LG | ~35 % | honest unit tests; **zero physical** |
 | Automation transactions | ~62 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9) |
-| Identity/vault/trust | ~45 % | vault unit-verified; peer-fingerprint enforcement missing (§11) |
+| Identity/vault/trust | ~48 % | vault unit-verified; **identity graph pure-logic verified (merge policy + composite determinism, 19 tests), durable via Room v9 (schema exported + instrumented migration); peer-fingerprint enforcement still missing (§11)** |
 | Routing/resilience | ~40 % | scorer/breaker unit-verified but unwired |
 | Calibration (WiFi Oracle) | ~20 % | class exists; no E2E (§7, §16) |
 | Pi_Release/CI | ~55 % | 3-gate CI: JVM + lint + assemble; **instrumented test = continue-on-error** (P0 §3,§18) |
@@ -141,8 +150,9 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 2 closing (startup profile revalidation wired: KEEP/MIGRATE/NEEDS_REVALIDATION
-against real manifest hash, atomic apply, profiles never destroyed) + PHASE 3 closing
-complete: 1,078 JVM green, lint + assemble green. Then: Device Identity Graph
-(IdentityMergeEngine, pure-logic + JVM tests) — the foundation for Device Twin
-convergence and Safe Credential Vault/peer-identity-change enforcement.
+*Next:* V06-P9 Device Identity Graph complete: `IdentityMergeEngine` (contradiction-first
+mergeAll) + `DeviceIdentityRepository` durable via Room v9 (schema `9.json`, CASCADE FK,
+instrumented `migrate8To9`) — 1,097 JVM green, lint + assemble green. Then: PHASE 18
+(MutationSemantics: hedged-mutation semantics + safety) — the next software phase in the
+master order; physical-only phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked
+on hardware and are documented, not claimed.

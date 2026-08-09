@@ -647,3 +647,53 @@ testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,078 tests)
 lintDebug                       ✓ BUILD SUCCESSFUL
 MigrationTestHelper             → instrumented; requires emulator (CI job)
 ```
+
+### V06 PHASE 9 (MASTER ORDER) — Device Identity Graph: merge policy + durable identity repo
+
+Audit §9-§10: discovery must never produce different identities per protocol for
+the same physical device, and never derive identity from an IP or display name.
+Shipped:
+
+- `fabric/identity/PeerIdentity.kt` (prior session): `IdentityEvidenceKind`
+  priority ladder (1 manufacturer stable UUID → 8 deterministic composite),
+  `PeerIdentityEvidence` (non-blank values), `PeerObservation` (ip/displayName
+  are context, never identity), `PeerIdentity.resolveIdentity()` — picks the
+  highest-priority strong evidence as `stableId`, falls back to a deterministic
+  composite that never uses IP/name.
+- `fabric/identity/IdentityMergeEngine.kt` (new): SAME only when both sides
+  carry strong evidence and a kind+value pair matches; DIFFERENT only when both
+  sides are strong and nothing matches; AMBIGUOUS whenever evidence is missing
+  on either side — merges are never invented (two equal TVs never merge on
+  model+name alone).
+  - `mergeAll` contradiction-first: any DIFFERENT pair makes the whole set
+    DIFFERENT (a single disagreeing observation is never hidden); otherwise any
+    AMBIGUOUS pair → AMBIGUOUS. (First version masked disagreements as
+    AMBIGUOUS; policy corrected by the tests, kept + surfaced.)
+- `fabric/identity/DeviceIdentityRepository.kt` (new): durable identity graph —
+  `remember()` upserts the canonical `PeerIdentity` (evidence as JSON) plus an
+  append-only observation history; `get/all/history` read back. JVM-testable via
+  the `IdentityDaoSeam` + `RoomIdentityDaoSeam` adapter.
+- Room **v9** (`MIGRATION_8_9`): `device_identities` (PK stableId, evidenceJson,
+  compositeFallback, lastSeenEpochMs) + `device_identity_history` (composite PK
+  stableId+observedAtEpochMs, FK → identities ON DELETE CASCADE, index on
+  stableId). Schema exported as `9.json`. Instrumented
+  `migrate8To9_createsDeviceIdentityTables` covers columns, FK, round-trip and
+  CASCADE.
+- Tests: 22 JVM tests for merge policy (SAME/DIFFERENT/AMBIGUOUS incl. "same IP
+  alone is never identity", "same model+name alone is ambiguous", "equal value
+  under different kinds is DIFFERENT") + resolveIdentity/composite determinism.
+  **Total suite: 1,097 green.** Lint + assemble green. AndroidTest compiles.
+- Honesty: identity insertion is wired into the persistence layer, but no
+  discovery source feeds observations yet (webOS adapter not on the physical
+  TV) — the graph is durable and provable, not yet populated by real traffic.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+compileDebugAndroidTestKotlin   ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,097 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+MigrationTestHelper             → instrumented; requires emulator (CI job)
+```

@@ -76,6 +76,44 @@ data class InstalledIrCommandEntity(
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Device Identity — §31.2 / V06-P9 peer identity graph (durable history)
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Entity(tableName = "device_identities")
+data class DeviceIdentityEntity(
+    @PrimaryKey val stableId: String,
+    val label: String,
+    val manufacturer: String?,
+    val model: String?,
+    val matchType: String,
+    val evidenceJson: String,
+    val compositeFallback: Boolean,
+    val lastSeenEpochMs: Long
+)
+
+@Entity(
+    tableName = "device_identity_history",
+    primaryKeys = ["stableId", "observedAtEpochMs"],
+    foreignKeys = [
+        ForeignKey(
+            entity = DeviceIdentityEntity::class,
+            parentColumns = ["stableId"],
+            childColumns = ["stableId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("stableId")]
+)
+data class DeviceIdentityHistoryEntity(
+    val stableId: String,
+    val observedAtEpochMs: Long,
+    val source: String,
+    val manufacturer: String?,
+    val model: String?,
+    val ipAddress: String?
+)
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Probe Session — §23 Tracks a probing session for a brand/device
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -356,6 +394,23 @@ interface InstalledProfileDao {
 
     @Query("SELECT DISTINCT signalId FROM signal_sources WHERE evidenceLevel IN (:levels)")
     suspend fun getSignalsWithEvidenceLevels(levels: List<String>): List<String>
+
+    // ── Device Identity Graph (V06-P9) ───────────────────────────────────
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeviceIdentity(entity: DeviceIdentityEntity)
+
+    @Query("SELECT * FROM device_identities WHERE stableId = :stableId")
+    suspend fun getDeviceIdentity(stableId: String): DeviceIdentityEntity?
+
+    @Query("SELECT * FROM device_identities ORDER BY lastSeenEpochMs DESC")
+    suspend fun getAllDeviceIdentities(): List<DeviceIdentityEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIdentityHistory(entity: DeviceIdentityHistoryEntity)
+
+    @Query("SELECT * FROM device_identity_history WHERE stableId = :stableId ORDER BY observedAtEpochMs DESC")
+    suspend fun getIdentityHistory(stableId: String): List<DeviceIdentityHistoryEntity>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -372,9 +427,11 @@ interface InstalledProfileDao {
         CandidatePenaltyEntity::class,
         CatalogMigrationEntity::class,
         SignalSourceEntity::class,
-        SceneEntity::class
+        SceneEntity::class,
+        DeviceIdentityEntity::class,
+        DeviceIdentityHistoryEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
@@ -576,6 +633,37 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
             }
         }
 
+        /** V06-P9: device identity graph — durable identity + history (v9). */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS device_identities (
+                        stableId TEXT NOT NULL PRIMARY KEY,
+                        label TEXT NOT NULL,
+                        manufacturer TEXT,
+                        model TEXT,
+                        matchType TEXT NOT NULL,
+                        evidenceJson TEXT NOT NULL,
+                        compositeFallback INTEGER NOT NULL DEFAULT 0,
+                        lastSeenEpochMs INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS device_identity_history (
+                        stableId TEXT NOT NULL,
+                        observedAtEpochMs INTEGER NOT NULL,
+                        source TEXT NOT NULL,
+                        manufacturer TEXT,
+                        model TEXT,
+                        ipAddress TEXT,
+                        PRIMARY KEY(stableId, observedAtEpochMs),
+                        FOREIGN KEY(stableId) REFERENCES device_identities(stableId) ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_device_identity_history_stableId ON device_identity_history(stableId)")
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -585,7 +673,8 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
-                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                        MIGRATION_8_9
                     )
                     .build()
                 INSTANCE = instance

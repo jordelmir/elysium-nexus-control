@@ -321,8 +321,83 @@ class RoomMigrationTest {
         db.close()
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V06-P9 — device identity graph (device_identities + history, v9)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun migrate8To9_createsDeviceIdentityTables() {
+        helper.createDatabase(TEST_DB_8, 8).apply {
+            execSQL("""
+                INSERT INTO installed_ir_profiles
+                (profileId, displayName, brandId, deviceTypeId, deviceModelId, remoteId,
+                 codeSetId, catalogVersion, catalogCanonicalHashAtInstall,
+                 catalogSchemaVersionAtInstall, catalogBuildIdAtInstall,
+                 verificationStatus, createdAtEpochMs, updatedAtEpochMs,
+                 lastSuccessfulUseEpochMs, needsRevalidation, isEnabled)
+                VALUES ('profile-v9', 'TV', 'LG', 'TV', NULL, NULL,
+                        'cs-v9', 'v5', 'hash-1', 5, 'build-1',
+                        'PARTIALLY_VERIFIED', 1700000000000, 1700000000000, 0, 0, 1)
+            """)
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB_8, 8, true, ElysiumUserDatabase.MIGRATION_8_9)
+
+        // device_identities columns
+        val identCols = mutableListOf<String>()
+        db.query("PRAGMA table_info(device_identities)").use { c ->
+            while (c.moveToNext()) identCols.add(c.getString(1))
+        }
+        assertTrue("stableId", identCols.contains("stableId"))
+        assertTrue("evidenceJson", identCols.contains("evidenceJson"))
+        assertTrue("compositeFallback", identCols.contains("compositeFallback"))
+
+        // device_identity_history columns
+        val histCols = mutableListOf<String>()
+        db.query("PRAGMA table_info(device_identity_history)").use { c ->
+            while (c.moveToNext()) histCols.add(c.getString(1))
+        }
+        assertTrue("history stableId", histCols.contains("stableId"))
+        assertTrue("history observedAtEpochMs", histCols.contains("observedAtEpochMs"))
+        assertTrue("history source", histCols.contains("source"))
+
+        // FK: history → identities (CASCADE)
+        val fkList = mutableListOf<String>()
+        db.query("PRAGMA foreign_key_list(device_identity_history)").use { c ->
+            while (c.moveToNext()) fkList.add("${c.getString(2)}->${c.getString(3)}")
+        }
+        assertTrue("history must FK to device_identities", fkList.contains("stableId->stableId"))
+
+        // round-trip a row + verify CASCADE removes history with identity
+        db.execSQL("""
+            INSERT INTO device_identities
+            (stableId, label, manufacturer, model, matchType, evidenceJson,
+             compositeFallback, lastSeenEpochMs)
+            VALUES ('tv-udn-1', 'LG TV', 'LG', 'OLED55C3', 'STABLE_EVIDENCE',
+                    '[{"kind":"UpnpUdn","value":"uuid:abc"}]', 0, 1700000000000)
+        """)
+        db.execSQL("""
+            INSERT INTO device_identity_history
+            (stableId, observedAtEpochMs, source, manufacturer, model, ipAddress)
+            VALUES ('tv-udn-1', 1700000000000, 'mdns', 'LG', 'OLED55C3', '192.168.1.7')
+        """)
+        db.execSQL("DELETE FROM device_identities WHERE stableId = 'tv-udn-1'")
+        val orphan = db.query("SELECT COUNT(*) FROM device_identity_history WHERE stableId = 'tv-udn-1'")
+        assertTrue(orphan.moveToFirst())
+        assertEquals(0, orphan.getInt(0))
+        orphan.close()
+
+        // legacy data survives alongside
+        val legacy = db.query("SELECT profileId FROM installed_ir_profiles WHERE profileId = 'profile-v9'")
+        assertTrue("profile data must survive", legacy.moveToFirst())
+        legacy.close()
+        db.close()
+    }
+
     companion object {
         private val TEST_DB_6 = "migration-test-v6"
         private val TEST_DB_7 = "migration-test-v7"
+        private val TEST_DB_8 = "migration-test-v8"
     }
 }
