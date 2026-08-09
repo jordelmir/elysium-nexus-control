@@ -58,14 +58,19 @@ class HedgedExecutor(
      * @param executor function to execute on a route
      * @return the result from whichever route succeeded first
      */
+    /**
+     * V06-P18: hedging gated by the single [MutationSemantics] classifier so
+     * every execution policy asks one source.
+     */
     suspend fun <T> executeWithHedge(
         action: UniversalAction,
         primary: TransportRoute,
         backup: TransportRoute?,
         executor: suspend (TransportRoute) -> T?
     ): HedgedResult<T> {
-        // Only hedge idempotent actions
-        if (!isIdempotent(action)) {
+        // Only hedge idempotent actions (single classification source,
+        // V06-P18: MutationSemantics).
+        if (!MutationSemantics.canHedge(action)) {
             val result = executor(primary)
             return if (result != null) {
                 HedgedResult.PrimarySuccess(result)
@@ -132,39 +137,7 @@ class HedgedExecutor(
         }
     }
 
-    /**
-     * Check if an action is idempotent.
-     * Idempotent actions can be safely executed
-     * multiple times without side effects.
-     */
-    private fun isIdempotent(action: UniversalAction): Boolean = when (action) {
-        is UniversalAction.PowerToggle -> true
-        is UniversalAction.Mute -> true
-        is UniversalAction.PowerOn -> true
-        is UniversalAction.PowerOff -> true
-        is UniversalAction.MediaStop -> true
-        is UniversalAction.Home -> true
-        is UniversalAction.Back -> true
-        is UniversalAction.Menu -> true
-        // Non-idempotent: double execution = visible change
-        is UniversalAction.VolumeUp -> false
-        is UniversalAction.VolumeDown -> false
-        is UniversalAction.ChannelUp -> false
-        is UniversalAction.ChannelDown -> false
-        is UniversalAction.MediaPlay -> false
-        is UniversalAction.MediaPause -> false
-        is UniversalAction.MediaNext -> false
-        is UniversalAction.MediaPrevious -> false
-        is UniversalAction.Navigate -> false
-        is UniversalAction.Ok -> false
-        is UniversalAction.SetVolume -> true // Setting to specific value is idempotent
-        is UniversalAction.SetTemperature -> true
-        is UniversalAction.SetFanSpeed -> true
-        is UniversalAction.SetMode -> true
-        is UniversalAction.InputSelect -> true
-        is UniversalAction.Custom -> false // Unknown, assume non-idempotent
     }
-}
 
 /**
  * Hedged execution result.

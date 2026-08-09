@@ -244,12 +244,12 @@ class ReplayEngine(
         )
     }
 
-    private fun isDestructive(action: UniversalAction): Boolean = when (action) {
-        is UniversalAction.PowerOff -> true
-        is UniversalAction.SetMode -> true // Could change HVAC mode
-        is UniversalAction.Custom -> true // Unknown, assume destructive
-        else -> false
-    }
+    /**
+     * V06-P18: recording guard delegates to the single [MutationSemantics]
+     * classifier (high-consequence axis) — previously a private list here.
+     */
+    private fun isDestructive(action: UniversalAction): Boolean =
+        com.elysium.nexus.fabric.hedging.MutationSemantics.requiresConfirmation(action)
 }
 
 data class Macro(

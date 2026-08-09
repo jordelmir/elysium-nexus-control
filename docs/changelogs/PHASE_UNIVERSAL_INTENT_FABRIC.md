@@ -697,3 +697,48 @@ lintDebug                       ✓ BUILD SUCCESSFUL
 assembleDebug                   ✓ BUILD SUCCESSFUL
 MigrationTestHelper             → instrumented; requires emulator (CI job)
 ```
+
+
+### V06 PHASE 18 — Mutation semantics: one safety classifier for every execution policy
+
+Audit (PHASE 18 / matrix): HedgedExecutor shipped IMPLEMENTED_NOT_WIRED and every
+execution policy kept its own private safety list — `HedgedExecutor.isIdempotent`
+(Boolean), `InputRecorder.isDestructive` (Boolean), plus a third in
+DisconnectNeutralizer. Shipped a single classification source:
+
+- `fabric/hedging/MutationSemantics.kt` (new, pure Kotlin):
+  - `MutationSafety { IDEMPOTENT_SAFE, NON_IDEMPOTENT, DESTRUCTIVE }`.
+  - `classify` — absorbing-set actions (PowerOn/Off/Toggle, Mute, MediaStop,
+    Home, Back, Menu, SetVolume, SetTemperature, SetFanSpeed, SetMode,
+    InputSelect) = IDEMPOTENT_SAFE; incremental/transport/nav (VolumeUp/Down,
+    ChannelUp/Down, MediaPlay/Pause/Next/Previous, Navigate, Ok, Custom) =
+    NON_IDEMPOTENT; Custom keys on the destructive keyword list
+    (`factory_reset`, `reset`, `wipe`, `erase`, `delete`, `clear_all`, incl.
+    `_keyword` suffixes) = DESTRUCTIVE.
+  - `canHedge` / `canRepeatWithoutConfirmation` — gate blind hedging and blind
+    retry; both are IDEMPOTENT_SAFE-only.
+  - `requiresConfirmation` — the recording axis, a conservative superset that
+    reproduces the legacy InputRecorder policy exactly (PowerOff, SetMode,
+    Custom always confirm) plus DESTRUCTIVE.
+- `HedgedExecutor`: private `isIdempotent` (27-line when) deleted; gating now
+  delegates to `MutationSemantics.canHedge` — no behavior change for the old 24
+  actions; destructive customs are now provably never hedged.
+- `InputRecorder.isDestructive`: delegates to `requiresConfirmation` —
+  behavior-compatible (same 3-true policy), single source maintained.
+- Tests: 12 new JVM (7 classifier + 5 executor under coroutines-test):
+  every action classified exactly once; destructive keywords never hedge;
+  non-idempotent action must never touch the backup route even when primary
+  fails; destructive custom never hedges; idempotent falls back when the
+  primary ACKs late. **Total suite: 1,109 green.** Lint + assemble green.
+- Honesty: the dispatcher still does not invoke `executeWithHedge` end-to-end
+  (PHASE 13/14 wiring is next); the taxonomy + the executor's gating are now
+  unit-proven — the wiring gap is the remaining Phase-18 closure.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,109 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```
