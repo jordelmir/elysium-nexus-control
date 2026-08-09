@@ -41,7 +41,7 @@ CACHE = ROOT / ".cache" / "ir-sources"
 OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 STATS_PATH = OUTPUT_DIR / "ir_catalog_stats.json"
-SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v4.sql"
+SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v5.sql"
 
 sys.path.insert(0, str(ROOT / "tools" / "ir-data"))
 import export_canonical_catalog
@@ -311,10 +311,31 @@ def validate_raw_pattern(pattern: list[int], carrier_hz: int) -> bool:
 stats = defaultdict(int)
 
 
-# ─── Database Schema (from catalog-v4.sql) ───────────────────────────────────
+# ─── Database Schema (from catalog-v5.sql) ───────────────────────────────────
 def init_database(conn: sqlite3.Connection):
     ddl_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(ddl_sql)
+    conn.commit()
+
+
+# ─── V5 §14: Protocol Definitions & Variants ─────────────────────────────────
+# Seeded from PROTOCOL_MAP — the same single authority the codec gate uses.
+def seed_protocol_definitions(conn: sqlite3.Connection):
+    seen_variants = set()
+    for key, (family_name, carrier_hz) in sorted(PROTOCOL_MAP.items()):
+        proto_id = short(f"proto:{family_name}")
+        conn.execute(
+            "INSERT OR IGNORE INTO protocol_definitions "
+            "(id, family_name, display_name, carrier_hz, encoding_kind) "
+            "VALUES (?, ?, ?, ?, 'PARAMETRIC')",
+            (proto_id, family_name, family_name, carrier_hz))
+        variant_id = short(f"variant:{family_name}:{key}")
+        if (family_name, key) not in seen_variants:
+            seen_variants.add((family_name, key))
+            conn.execute(
+                "INSERT OR IGNORE INTO protocol_variants "
+                "(id, protocol_id, variant_name) VALUES (?, ?, ?)",
+                (variant_id, proto_id, key))
     conn.commit()
 
 
@@ -1106,6 +1127,7 @@ def run_ingestion(profile: str = "production"):
     conn.execute("PRAGMA synchronous=NORMAL")
 
     init_database(conn)
+    seed_protocol_definitions(conn)
 
     cache = EntityCache(conn.cursor())
 
@@ -1164,10 +1186,10 @@ def run_ingestion(profile: str = "production"):
 
     # ─── Write Stats JSON ─────────────────────────────────────────────
     manifest = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "profile": profile,
         "generatedAtUtc": "2026-08-08T00:00:00Z",
-        "pipelineVersion": "5.0.0-v4-native",
+        "pipelineVersion": "5.1.0-v5-native",
         "databaseSha256": hashlib.sha256(DB_PATH.read_bytes()).hexdigest(),
         "canonicalContentSha256": canonical_hash,
         "databaseSizeBytes": db_size,

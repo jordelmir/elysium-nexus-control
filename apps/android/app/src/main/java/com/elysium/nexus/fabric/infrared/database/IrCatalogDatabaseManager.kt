@@ -13,7 +13,17 @@ import java.security.MessageDigest
 private const val TAG = "ElysiumNexus.DbManager"
 private const val DB_DIR_NAME = "ir-catalog"
 private const val DB_FILE_NAME = "ir_catalog.db"
-private const val EXPECTED_MANIFEST_HASH = "7099ade2698fca85c416db67e719ea8656246314abb0f4793347e25c62ee795c"
+private const val EXPECTED_MANIFEST_HASH = "00732dda3eb3bb7fd717b7fc93f503cac33426d2bedf288e83e67afdd98a09d5"
+
+/**
+ * V06-P5 §4: Catalog schema-version gate policy (pure, JVM-testable).
+ * A null/absent declared version is accepted ONLY because the hard
+ * SHA-256 gate still applies; declared versions must be >= 5.
+ */
+fun isCatalogSchemaVersionAccepted(declaredSchemaVersion: Int?): Boolean {
+    if (declaredSchemaVersion == null) return true
+    return declaredSchemaVersion >= 5
+}
 
 /**
  * §7.1 Application Singleton Database Manager for IR Catalog.
@@ -118,6 +128,14 @@ class IrCatalogDatabaseManager private constructor(
                 return InstallResult.Failed("Manifest databaseSha256 mismatch: manifest=$manifestHash, actual=$computedHash")
             }
 
+            // V06-P5 §4: Schema v5 gate — refuse catalogs whose manifest does
+            // not declare schemaVersion >= 5 (v4 catalogs are deprecated).
+            val schemaVersion = readManifestSchemaVersion()
+            if (!isCatalogSchemaVersionAccepted(schemaVersion)) {
+                tempFile.delete()
+                return InstallResult.Failed("Catalog schema v$schemaVersion rejected: minimum is v5 (V06-P5 gate)")
+            }
+
             if (tempFile.length() <= 0L) {
                 Log.e(TAG, "Database file is empty after copy (${tempFile.length()} bytes)")
                 tempFile.delete()
@@ -176,6 +194,25 @@ class IrCatalogDatabaseManager private constructor(
                         }
                     }
                 }
+                // V06-P5 §14: Schema v5 table presence — a v4 database missing
+                // the v5 entities must never be treated as current.
+                val requiredV5Tables = listOf(
+                    "protocol_definitions", "protocol_variants",
+                    "device_families", "compatibility_assertions",
+                    "physical_test_evidence", "catalog_rejections"
+                )
+                for (table in requiredV5Tables) {
+                    val cursor = it.rawQuery(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        arrayOf(table)
+                    )
+                    val present = cursor.count > 0
+                    cursor.close()
+                    if (!present) {
+                        Log.w(TAG, "Catalog schema v5 gate: missing table $table")
+                        return false
+                    }
+                }
             }
             true
         } catch (e: Exception) {
@@ -226,6 +263,24 @@ class IrCatalogDatabaseManager private constructor(
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not read manifest databaseSha256: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * V06-P5 §4: Read the declared catalog schema version from the manifest.
+     * Returns null on missing/unparseable manifest (non-fatal — the
+     * EXPECTED hash gate still applies).
+     */
+    private fun readManifestSchemaVersion(): Int? {
+        return try {
+            applicationContext.assets.open("ir/ir_catalog.manifest.json").bufferedReader().use { reader ->
+                val json = JSONObject(reader.readText())
+                val version = json.optInt("schemaVersion", -1)
+                if (version >= 0) version else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read manifest schemaVersion: ${e.message}")
             null
         }
     }

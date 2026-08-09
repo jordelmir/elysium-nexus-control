@@ -119,10 +119,10 @@ def step_export_hash() -> tuple[str, dict]:
 def step_write_manifest(profile: str, db_sha256: str, canonical_hash: str, counts: dict):
     """Step 8: Write ir_catalog.manifest.json."""
     manifest = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "profile": profile,
         "generatedAtUtc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "pipelineVersion": "0.5.0-unified-catalog",
+        "pipelineVersion": "0.5.1-v5-native",
         "databaseSha256": db_sha256,
         "canonicalContentSha256": canonical_hash,
         "databaseSizeBytes": DB_PATH.stat().st_size,

@@ -140,5 +140,6 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 4 ✅ + PHASE 2 ✅ + PHASE 3 ✅ (pure restore resolver, 1,039 JVM green). Next: PHASE 5 native catalog v5.
+*Next:* PHASE 2 ✅ + PHASE 3 ✅ + PHASE 4 ✅ + PHASE 5 ✅ (v5 catalog pipeline, 1,045 JVM green).
+Next: PHASE 6 — clean reproducibility gate (rebuild v5 from lock files, byte-identical DB).
 (upgrade/downgrade catalog), then PHASE 3 process-death closing, then PHASE 5 native catalog v5.

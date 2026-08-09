@@ -452,6 +452,37 @@ every claim is evidence-bound.
     engine never left silently at candidate 0 after recovery
 
 
+
+### V06 PHASE 5 — Native Schema v5 catalog (pipeline + manifest + app gate)
+
+- NEW `ir-data/schema/catalog-v5.sql` — Schema v5, all 19 §14 entities: the
+  six v4-missing tables (`device_families`, `protocol_definitions`,
+  `protocol_variants`, `compatibility_assertions`, `physical_test_evidence`,
+  `catalog_rejections`) plus all v4 DDL byte-preserved.
+- `tools/ir-data/ingest_v5.py` — schema path → v5; NEW `seed_protocol_definitions(conn)`
+  seeds 22 protocol definitions + 31 variants from `PROTOCOL_MAP` (the same
+  single authority the codec gate uses); manifest `schemaVersion: 5`.
+- `tools/ir-data/catalog.py` + `seed_curated_brands_v4.py` — manifest writers
+  bumped to `schemaVersion: 5` (seeders were silently downgrading the manifest).
+- `tools/ir-data/export_canonical_catalog.py` — canonical hash scope now
+  includes the v5 tables (+`signal_sources`): v5 content is inside the hash.
+- Pipeline re-run offline from lock files (production profile):
+  3+2 curated sources, 917 brands, 2,377 remotes, 2,349 code sets, 85,253
+  signals, 142,649 command bindings, 0 FK violations, quick_check ok.
+- `IrCatalogDatabaseManager.kt` — `IrCatalogRepository` gates:
+  - NEW pure gate `isCatalogSchemaVersionAccepted(Int?)` (JVM-tested)
+  - install refuses manifests with `schemaVersion < 5`
+  - database integrity gate now also requires the 6 v5 tables to exist
+  - `EXPECTED_MANIFEST_HASH` = shipped v5 SHA-256 `00732dda…`
+- NEW `CatalogSchemaVersionGateTest.kt` — 6 tests (accept v5+, reject v4-,
+  absent-version → SHA gate still guards).
+- UPDATED `CuratedSeedGateTest` — schema v5 contract asserted
+  (`schemaVersion==5`, sources ≥ 5, brands ≥ 800, bindings ≥ 36k,
+  protocol tables hashed).
+- Tests: 1,045 JVM green (`testDebugUnitTest`), lint green, assembleDebug green.
+- The APK now embeds the v5 catalog (90 MB asset, 102 MB debug APK).
+
+
 ## Build Status (this update)
 
 ```

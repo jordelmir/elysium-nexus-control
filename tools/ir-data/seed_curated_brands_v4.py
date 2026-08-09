@@ -273,10 +273,10 @@ def main() -> int:
     db_sha = hashlib.sha256(DB_PATH.read_bytes()).hexdigest()
     canonical_hash, counts = export_canonical_catalog.compute_canonical_hash(DB_PATH)
     manifest = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "profile": "production",
-        "generatedAtUtc": "2026-08-06T17:20:00Z",
-        "pipelineVersion": "0.4.0-ir-real-rc1",
+        "generatedAtUtc": "2026-08-08T23:25:00Z",
+        "pipelineVersion": "0.5.1-v5-native",
         "databaseSha256": db_sha,
         "canonicalContentSha256": canonical_hash,
         "databaseSizeBytes": DB_PATH.stat().st_size,

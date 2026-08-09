@@ -1,11 +1,11 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "profile": "production",
   "generatedAtUtc": "2026-08-08T00:00:00Z",
-  "pipelineVersion": "5.0.0-v4-native",
-  "databaseSha256": "da4c26a29f4567f00a09499819e1d935b4ddf09d66f5f8bc693f1dd36932e830",
-  "canonicalContentSha256": "e0e2cf768e0524391c6578f4b8c89fe9af4900af42b586987ca81f6ad92a7e29",
-  "databaseSizeBytes": 94429184,
+  "pipelineVersion": "5.1.0-v5-native",
+  "databaseSha256": "5e370c4743350b2b2c3ce93b422e536ebbf21136acd7e1be85d12b8c5ce4b57c",
+  "canonicalContentSha256": "ea1f560a5d572e6cb8ee73f758b7d1d8f8101682b7a0159987bfeeee657c6140",
+  "databaseSizeBytes": 94502912,
   "counts": {
     "sources": 3,
     "source_revisions": 3,
@@ -18,7 +18,14 @@
     "actions": 32433,
     "signals": 85237,
     "command_bindings": 142602,
-    "code_set_models": 0
+    "code_set_models": 0,
+    "device_families": 0,
+    "protocol_definitions": 22,
+    "protocol_variants": 31,
+    "compatibility_assertions": 0,
+    "physical_test_evidence": 0,
+    "catalog_rejections": 0,
+    "signal_sources": 0
   },
   "stats": {
     "dedupParametric": 28172,
