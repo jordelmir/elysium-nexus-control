@@ -556,12 +556,38 @@ every claim is evidence-bound.
   continue-on-error). Lint + assemble green.
 
 
+
+### V06 PHASE 9 — Scene creation & management UI wired to the durable registry
+
+- `ui/scenes/SceneListScreen.kt` — durable scene list (Room-backed via
+  `sceneRegistry.observeScenes()`): run / edit / delete per scene, "Nueva"
+  entry, empty state, bilingual help (§36).
+- `ui/scenes/SceneEditorScreen.kt` — multi-step scene editor: name +
+  description presets, tag selection, add/remove steps (device × action ×
+  timeout per step), save produces a real `Scene` (steps via
+  `ActionStep` + canonical `UniversalAction` builder). Same honest
+  preset-cycling UX pattern as the automation editor (no fake persistence).
+- `HubNavigation`: `SceneList` + `SceneEditor(scene?)` destinations.
+- `HubScreen`: new "ESCENAS" card (§36) next to Automatizaciones.
+- `MainActivity` wiring: `scenesFlow` StateFlow collected from
+  `sceneRegistry.observeScenes()`; SceneList renders it
+  (`collectAsState` — lint-caught `StateFlow.value` in composition,
+  fixed before merge); save → `registry.saveScene`; delete →
+  `registry.deleteScene`; run → `engine.executeScene` +
+  `summarizeExecution` logged. Honesty preserved: no device adapters
+  registered, so scene runs record `not delivered` until verticals land.
+- Lint also flagged deprecated ArrowBack/HelpOutline icons (warnings only,
+  same as existing screens).
+- Tests: 1,078 (no new JVM tests — UI-only phase; logic already covered
+  by codec/registry/engine suites). Lint + assemble green.
+
+
 ## Build Status (this update)
 
 ```
 compileDebugKotlin              ✓ BUILD SUCCESSFUL
 compileDebugAndroidTestKotlin   ✓ BUILD SUCCESSFUL
-testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,021 tests)
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,078 tests)
 lintDebug                       ✓ BUILD SUCCESSFUL
 MigrationTestHelper             → instrumented; requires emulator (CI job)
 ```

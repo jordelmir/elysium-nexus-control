@@ -35,6 +35,8 @@ sealed class HubDestination {
     data class IrLearner(val learnResult: com.elysium.nexus.fabric.infrared.IrLearner.LearnResult?) : HubDestination()
     object AutomationList : HubDestination()
     data class AutomationEditor(val automation: com.elysium.nexus.fabric.automation.Automation? = null) : HubDestination()
+    object SceneList : HubDestination()
+    data class SceneEditor(val scene: com.elysium.nexus.fabric.automation.Scene? = null) : HubDestination()
 }
 
 class HubStack(initial: HubDestination = HubDestination.Hub) {

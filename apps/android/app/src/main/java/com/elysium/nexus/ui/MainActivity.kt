@@ -140,6 +140,8 @@ class MainActivity : ComponentActivity() {
         MutableStateFlow(com.elysium.nexus.core.posture.Posture.UNKNOWN)
     private val lastDeviceFlow: MutableStateFlow<com.elysium.nexus.core.profile.LastDevice?> =
         MutableStateFlow(null)
+    private val scenesFlow: MutableStateFlow<List<com.elysium.nexus.fabric.automation.Scene>> =
+        MutableStateFlow(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -214,6 +216,9 @@ class MainActivity : ComponentActivity() {
         sceneRegistry = com.elysium.nexus.fabric.automation.RoomSceneRegistry(
             com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(this).sceneDao()
         )
+        activityScope.launch {
+            sceneRegistry?.observeScenes()?.collect { scenesFlow.value = it }
+        }
 
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
@@ -417,6 +422,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onAutomationSelected = {
                             navStack.value = navStack.value + HubDestination.AutomationList
+                        },
+                        onScenesSelected = {
+                            navStack.value = navStack.value + HubDestination.SceneList
                         },
                         onSettings = { settingsVisible.value = true },
                         onShowHelp = { tourVisible.value = true },
@@ -723,6 +731,70 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 automationStore = automationStore + saved
                                 automationDefinitionStore?.add(saved)
+                            }
+                            navStack.value = navStack.value.dropLast(1)
+                        }
+                    )
+                    // §36 Scenes — durable via Room-backed SceneRegistry.
+                    // List: run/delete/edit. Run executes through the
+                    // concrete engine (honest dispatcher: without device
+                    // adapters every dispatch is recorded as not delivered).
+                    is HubDestination.SceneList -> com.elysium.nexus.ui.scenes.SceneListScreen(
+                        scenes = scenesFlow.collectAsState().value,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onCreateNew = {
+                            navStack.value = navStack.value + HubDestination.SceneEditor()
+                        },
+                        onEditScene = { scene ->
+                            navStack.value = navStack.value + HubDestination.SceneEditor(scene)
+                        },
+                        onDeleteScene = { scene ->
+                            val registry = sceneRegistry
+                            val scope = activityScope
+                            if (registry == null || scope == null) {
+                                android.util.Log.w(tag, "Delete scene skipped: registry or scope not ready")
+                            } else {
+                                scope.launch {
+                                    registry.deleteScene(scene.id)
+                                    android.util.Log.i(tag, "Scene '${scene.name}' deleted (${scene.id})")
+                                }
+                            }
+                        },
+                        onRunScene = { scene ->
+                            val engine = sceneEngine
+                            val scope = activityScope
+                            if (engine == null || scope == null) {
+                                android.util.Log.w(tag, "Run scene skipped: engine or scope not ready")
+                            } else {
+                                scope.launch {
+                                    val result = engine.executeScene(scene)
+                                    val summary = com.elysium.nexus.fabric.automation
+                                        .summarizeExecution(result)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Scene '${scene.name}' → $summary " +
+                                            "(${scene.steps.size} pasos, ${scene.id})"
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    is HubDestination.SceneEditor -> com.elysium.nexus.ui.scenes.SceneEditorScreen(
+                        existingScene = current.scene,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onSave = { saved ->
+                            val registry = sceneRegistry
+                            val scope = activityScope
+                            if (registry == null || scope == null) {
+                                android.util.Log.w(tag, "Save scene skipped: registry or scope not ready")
+                            } else {
+                                scope.launch {
+                                    registry.saveScene(saved)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Scene '${saved.name}' saved (${saved.steps.size} pasos, ${saved.id})"
+                                    )
+                                }
                             }
                             navStack.value = navStack.value.dropLast(1)
                         }

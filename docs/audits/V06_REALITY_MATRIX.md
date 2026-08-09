@@ -53,9 +53,10 @@ PRODUCTION_APPROVED
 
 | Class | Status | Evidence | Notes | Gaps |
 |---|---|---|---|---|
-| `Scene.kt` (Scene/ActionStep/MacroTransaction/StatePredicate/SceneDefinition DSL) | **UNIT_VERIFIED** | used by engine + registry tests | — | no Room persistence |
-| `InMemorySceneRegistry` | **UNIT_VERIFIED** | `InMemorySceneRegistryTest` (8 tests: CRUD, import/export roundtrip, tags) | In-memory only; no Room | durable scenes = PHASE 20 (pending) |
-| `ConcreteAutomationEngineService` | **UNIT_VERIFIED** | `ConcreteAutomationEngineServiceTest` (9 tests) | `executeScene`/`executeMacro`/`evaluateRules` | **Timeout-rollback bug fixed by test** (`rollbackSteps(completed + step)`); wire into service layer = pending |
+| `Scene.kt` (Scene/ActionStep/MacroTransaction/StatePredicate/SceneDefinition DSL) | **UNIT_VERIFIED** | used by engine + registry tests | — | — |
+| `InMemorySceneRegistry` | **UNIT_VERIFIED** | `InMemorySceneRegistryTest` (8 tests: CRUD, import/export roundtrip, tags) | shared `SceneDefinitionConverter` | in-memory only (tests/DSL) |
+| `RoomSceneRegistry` + `SceneDao` + `SceneJsonCodec` | **UNIT_VERIFIED** | `SceneJsonCodecTest` (11), `RoomSceneRegistryTest` (7 with FakeSceneDao), `migrate7To8_createsScenesTable` (instrumented) | **durable via Room v8 (PHASE 8/9)**: UI wired (list/editor/run/delete) | real device UX not exercised |
+| `ConcreteAutomationEngineService` | **UNIT_VERIFIED** | `ConcreteAutomationEngineServiceTest` (9 tests) | `executeScene`/`executeMacro`/`evaluateRules` | **Timeout-rollback bug fixed by test**; wired to scene Run button (PHASE 9), dispatcher honest (no adapters → not delivered) |
 | `ConcreteLocalRuleEngine` | **UNIT_VERIFIED** | `ConcreteLocalRuleEngineTest` (14 tests: cooldown, daily limit, triggers, dispatch) | For Nexus Receiver | no persistence of rules |
 | `UniversalActionDispatcher` (fun interface) | DESIGNED | — | separates engine from transport | — |
 | `StateProvider` (interface) | DESIGNED | — | contract for device state | — |
@@ -128,7 +129,7 @@ HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
 | IR authoritative path | ~82 % | 1,021 tests incl. codec golden vectors; physicalSha verified per binding |
 | LAN discovery | ~60 % | providers unit-verified; not on-device; no IPv6/dup-announce probe |
 | TV adapter LG | ~35 % | honest unit tests; **zero physical** |
-| Automation transactions | ~55 % | engine/registry unit-verified; no Room persistence (§20) |
+| Automation transactions | ~62 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9) |
 | Identity/vault/trust | ~45 % | vault unit-verified; peer-fingerprint enforcement missing (§11) |
 | Routing/resilience | ~40 % | scorer/breaker unit-verified but unwired |
 | Calibration (WiFi Oracle) | ~20 % | class exists; no E2E (§7, §16) |
@@ -140,6 +141,9 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 2 ✅ + PHASE 3 ✅ + PHASE 4 ✅ + PHASE 5 ✅ (v5 catalog pipeline, 1,045 JVM green).
-Next: PHASE 7 — wire the automation engine (ConcreteAutomationEngineService) into a launch entry point (EDGE CASE: order priority E).
-(upgrade/downgrade catalog), then PHASE 3 process-death closing, then PHASE 5 native catalog v5.
+*Next:* PHASE 10 — restart the universal-intent loop from §45 of MASTER_ORDER:
+the next single sub-task is most likely PHASE 2-style profile revalidation
+closing (upgrade/downgrade catalog tests), or process-death wiring — whichever
+unblocks the most downstream. PHASE 9 (scene creation/management UI wired to
+the durable Room registry, run via engine with honest not-delivered dispatch)
+is complete: 1,078 JVM green, lint + assemble green.
