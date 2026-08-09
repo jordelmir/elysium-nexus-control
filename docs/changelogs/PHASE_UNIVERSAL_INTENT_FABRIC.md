@@ -822,6 +822,54 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 24 — Error taxonomy UX: typed, bilingual, wired
+
+Audit (MASTER_ORDER §79–§81): the taxonomy existed — 20 NexusError types,
+severity + retry policy, `ErrorTaxonomyTest` (18) — but nothing mapped a
+terminal dispatch outcome to it ("Zero Failure Without Explanation") and the
+messages were English-only, breaking the bilingual (es+en) convention.
+
+- `NEW fabric/error/UxErrorMapper.kt` — the official mapping API:
+  - `fromDispatchResult` maps every terminal `DispatchResult` to the typed
+    `NexusError` (category, not message): NoTarget → `IdentityNotFound`
+    (non-retryable, device context); NoRoute → `DeviceUnreachable`; missing
+    permission → `PermissionDenied` carrying the exact missing list;
+    TranslationFailed → `ProtocolError`; AdapterFailed → `ErrorCode`-routed
+    (Timeout/NetworkError/AuthFailed/CommandUnsupported/… every adapter
+    `ErrorCode` covered); AllRoutesFailed → `ResourceExhausted` when a
+    breaker is open ("Circuit open"), `NetworkError` on plain exhaustion.
+  - `fromAdapterError` — `WriteResult.Error` → taxonomy without lookups.
+  - `explanation(code)` / `all()` — bilingual `ErrorExplanation` with
+    title / cause ("what happened") / action ("what Elysium did") for all
+    20 codes in `en` + `es` (completeness is test-enforced).
+- `UPDATED fabric/evidence/FlightRecorder.kt` — `FlightEntry.errorCode:
+  NexusErrorCode?` + builder method (default null, non-breaking).
+- `UPDATED fabric/dispatch/ActionDispatcher.kt` — `finishFlight` records
+  `flight.errorCode(UxErrorMapper.codeFor(result))`: **telemetry now records
+  the taxonomy code for every failed dispatch** (§80 rule 4 — the flight
+  trace is the carrier).
+- `UPDATED canonical/ErrorTaxonomy.kt` — `DeviceUnreachable.deviceId`
+  relaxed to nullable, matching the base (`open val deviceId: DeviceId?`).
+- Honesty: automation history still stores raw strings (the engine does not
+  carry `DispatchResult` into `SceneExecutionResult`); screens render
+  explanations via this mapper — that adoption is a UI-phase decision, not
+  claimed here. What IS wired and proven: every dispatcher failure is
+  typable + bilingual-renderable + recorded as a code in telemetry.
+- `NEW UxErrorMapperTest` (12 tests): all terminal outcomes map to the
+  correct typed error with severity/retryability/context; every adapter
+  `ErrorCode` maps; all 20 taxonomy codes have complete bilingual
+  explanations (title + cause + action, en + es); cause ≠ action.
+  **Total suite: 1,124 → 1,136 green.** Lint + assemble green.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,136 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```
+
 ### V06 PHASE 22 — FlightRecorder wired into the dispatcher
 
 Audit: `FlightRecorder` (MASTER_ORDER §57–§61 "Protocol Flight Recorder: every

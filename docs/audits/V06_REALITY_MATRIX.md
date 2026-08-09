@@ -131,6 +131,14 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P24 Error taxonomy UX (typed + bilingual + wired)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `UxErrorMapper` (`fromDispatchResult`/`fromAdapterError`) | **UNIT_VERIFIED** | `UxErrorMapperTest` (12: every DispatchResult → typed NexusError with severity/retryability/context; every adapter ErrorCode covered; 20/20 codes bilingual en+es title/cause/action) | **consumed by `ActionDispatcher.finishFlight`** — every failed dispatch records `errorCode` in the flight trace (§80-4 telemetry) | automation history stores raw strings (typed pass-through = UI-phase decision); screen rendering not yet adopted |
+| `NexusError` + `NexusErrorCode` + `ErrorSeverity` + `RetryPolicy` | **UNIT_VERIFIED** | `ErrorTaxonomyTest` (18) | `DeviceUnreachable.deviceId` nullable now matches base | — |
+| `FlightEntry.errorCode` | **UNIT_VERIFIED** | exercised via `ActionDispatcherFlightTest` + mapper tests | flight builder method (default null, non-breaking) | — |
+
 ### V06-P22 FlightRecorder wired (full §57–§61 trace per dispatch)
 
 | Class | Status | Evidence | Wiring | Gaps |

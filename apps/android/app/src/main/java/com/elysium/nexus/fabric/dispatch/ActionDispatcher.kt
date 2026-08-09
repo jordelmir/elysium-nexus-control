@@ -12,6 +12,7 @@ import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.evidence.ControlEvidenceStore
 import com.elysium.nexus.fabric.evidence.ControlEvent
 import com.elysium.nexus.fabric.evidence.EventResult
+import com.elysium.nexus.fabric.error.UxErrorMapper
 import com.elysium.nexus.fabric.evidence.FlightBuilder
 import com.elysium.nexus.fabric.evidence.FlightRecorder
 import com.elysium.nexus.fabric.evidence.TransportResult
@@ -309,6 +310,7 @@ class ActionDispatcher(
         }
         flight.result(transportResult)
         flight.error(error)
+        flight.errorCode(UxErrorMapper.codeFor(result))
         if (transportResult == TransportResult.CircuitBreakerOpen) {
             flight.circuitBreakerTripped(true)
         }
