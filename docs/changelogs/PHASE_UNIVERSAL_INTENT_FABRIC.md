@@ -582,6 +582,38 @@ every claim is evidence-bound.
   by codec/registry/engine suites). Lint + assemble green.
 
 
+
+### V06 PHASE 3 CLOSING — Process-death wiring made real (durable session lifecycle)
+
+Audit finding: the Room session machinery existed but **never ran** — `persistSession`
+had zero call sites, `sessionId` lived only in a field (lost on process death), and
+`updateProbeState` silently no-op'd without a session. A killed process could never
+restore. Fixed:
+
+- `IrProbeViewModel.ensureSession(brand, deviceType, targetModel, catalogHash)` —
+  idempotent session creator; `sessionId` now persisted in **SavedStateHandle**
+  (`probeSessionId`) as the lookup key for the durable Room row. It refuses to
+  create a second session when a saved handle survives process death (the restore
+  identity is never clobbered).
+- `getSessionId()` falls back to SavedStateHandle (field = session cache, Room +
+  bundle = authority). `restoreSession` writes the id back to the handle.
+- `updateProbeState` lazily creates the session if none exists (defensive;
+  cached brand/deviceType/targetModel/catalogHash).
+- `persistAttempt` — **every transmission is now recorded** as a
+  `ProbeAttemptEntity` against the session (CASCADE-deleted with it),
+  fixing the orphaned `insertProbeAttempt` DAO.
+- `IrConnectFlow`: calls `ensureSession` before engine init, stamping the
+  session with the installed catalog's `databaseSha256`
+  (`IrCatalogDatabaseManager.catalogDatabaseHash()` — new public accessor
+  over the previously private manifest reader).
+- Honesty: the kill/relaunch **REAL test still needs a device**; what changed is
+  the wiring — before, restoration was impossible by design; now the durable
+  path (session in Room + identity-restore guard in `ProbeRestoreResolver`) is
+  actually reachable from the production graph.
+- Tests: 1,078 green (no new JVM tests — this closes Android-side wiring;
+  resolver identity logic was already covered by 9 tests). Lint + assemble green.
+
+
 ## Build Status (this update)
 
 ```

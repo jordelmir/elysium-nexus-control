@@ -93,7 +93,7 @@ PRODUCTION_APPROVED
 | `AdapterSdk` | DESIGNED | — | manifest/packaging not started | |
 | `PerformanceBudgets` | DESIGNED (targets only) | — | no MEASURED claims | |
 | `Diagnostics` | DESIGNED | — | UI presence | no device wiring |
-| `IrProbeViewModel` | **UNIT_VERIFIED** (wired) | `ProbeSessionPersistenceTest`, `IrStepTransitionTest` | wired into `IrConnectFlow.kt` | process-death relaunch (kill+resume) not proven on device |
+| `IrProbeViewModel` | **UNIT_VERIFIED** (wired) | `ProbeSessionPersistenceTest`, `IrStepTransitionTest` | PHASE 3 closing: `ensureSession` + `sessionId` in SavedStateHandle + attempts persisted + catalog-hash stamping; restore path reachable via identity-guarded `ProbeRestoreResolver` | kill+resume REAL proof still pending device |
 
 ### Profile / revalidation (PHASE 2)
 
@@ -141,9 +141,8 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 10 — restart the universal-intent loop from §45 of MASTER_ORDER:
-the next single sub-task is most likely PHASE 2-style profile revalidation
-closing (upgrade/downgrade catalog tests), or process-death wiring — whichever
-unblocks the most downstream. PHASE 9 (scene creation/management UI wired to
-the durable Room registry, run via engine with honest not-delivered dispatch)
-is complete: 1,078 JVM green, lint + assemble green.
+*Next:* PHASE 3 closing (durable probe-session lifecycle: ensureSession + SavedStateHandle
+key + attempt persistence + catalog-hash stamping) complete: 1,078 JVM green, lint +
+assemble green. Then, per audit priority A: wire `ProfileRevalidationService` into the app
+graph (applyRevalidation on catalog change), then Device Identity Graph (IdentityMergeEngine,
+pure-logic + JVM tests) — the foundation for Device Twin convergence.

@@ -223,6 +223,23 @@ fun IrConnectFlow(
         }
 
         if (sqliteCandidates.isNotEmpty()) {
+            // PHASE 3: ensure a durable Room session exists BEFORE any
+            // transmission. sessionId also lives in SavedStateHandle so
+            // a killed process can look the session up on relaunch.
+            val manifestHash = try {
+                com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager
+                    .getInstance(context).catalogDatabaseHash()
+            } catch (e: Exception) {
+                Log.w(TAG, "Manifest hash unavailable: ${e.message}");
+                null
+            }
+            viewModel.ensureSession(
+                brand = template.brand,
+                deviceType = "TV",
+                targetModel = targetModel,
+                catalogHash = manifestHash
+            )
+
             // P0.3: Check for saved session to restore after process death
             val savedSession = viewModel.getSessionId()?.let { sid ->
                 viewModel.restoreSession(sid)
@@ -296,6 +313,8 @@ fun IrConnectFlow(
                     attemptId = attempt.attemptId
                 )
             }
+            // PHASE 3: durable attempt trail (every transmission recorded)
+            viewModel.persistAttempt(attempt)
 
             currentJob = scope.launch {
                 com.elysium.nexus.fabric.infrared.FileLog.d("PROBE_TX candidate=${candidate.id} action=$action signalId=${attempt.signalId} carrierHz=${encodeResult.waveform.carrierHz}")

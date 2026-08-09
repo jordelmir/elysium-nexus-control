@@ -10,6 +10,7 @@ import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.ProbeRestoreDecision
 import com.elysium.nexus.fabric.infrared.ProbeRestoreResolver
 import com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase
+import com.elysium.nexus.fabric.profile.db.ProbeAttemptEntity
 import com.elysium.nexus.fabric.profile.db.ProbeSessionEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,8 @@ class IrProbeViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
+
+    private val TAG = "IrProbeViewModel"
 
     // ═══════════════════════════════════════════════════════════════════
     // Persisted state via SavedStateHandle (survives process death)
@@ -75,11 +78,70 @@ class IrProbeViewModel(
     private var lastPersistedPhysicalSha256: String? = null
     private var lastPersistedAttemptId: String? = null
 
+    // PHASE 3: session meta cached so updateProbeState can lazily create
+    // the Room session row even if ensureSession was never called.
+    private var sessionBrand: String = ""
+    private var sessionDeviceType: String = ""
+    private var sessionTargetModel: String? = null
+    private var sessionCatalogHash: String? = null
+
     // ═══════════════════════════════════════════════════════════════════
     // Room persistence
     // ═══════════════════════════════════════════════════════════════════
 
     private val db = ElysiumUserDatabase.getInstance(application)
+
+    /**
+     * PHASE 3: Create the Room session row (idempotent). sessionId is
+     * persisted BOTH in the field and in SavedStateHandle so that after
+     * process death the flow can look the durable session up again.
+     */
+    fun ensureSession(
+        brand: String,
+        deviceType: String,
+        targetModel: String?,
+        catalogHash: String?
+    ) {
+        sessionBrand = brand
+        sessionDeviceType = deviceType
+        sessionTargetModel = targetModel
+        sessionCatalogHash = catalogHash
+        // Idempotent: if a session already exists (field OR SavedStateHandle
+        // after process death), never create a second one — the durable
+        // restore identity must be preserved.
+        val existing = getSessionId()
+        if (existing != null) {
+            if (sessionId == null) sessionId = existing
+            return
+        }
+
+        val sid = UUID.randomUUID().toString()
+        sessionId = sid
+        savedStateHandle["probeSessionId"] = sid
+
+        viewModelScope.launch {
+            val entity = ProbeSessionEntity(
+                sessionId = sid,
+                brand = brand,
+                deviceType = deviceType,
+                targetModel = targetModel,
+                startedAtEpochMs = System.currentTimeMillis(),
+                completedAtEpochMs = null,
+                status = step.name,
+                winnerCodeSetId = null,
+                currentCandidateIndex = 0,
+                currentCandidateId = null,
+                currentActionKey = null,
+                lastSignalId = null,
+                lastPhysicalSha256 = null,
+                lastAttemptId = null,
+                catalogHashAtStart = catalogHash,
+                verifiedActionKeys = serializeActionSet(verifiedActions)
+            )
+            db.profileDao().insertProbeSession(entity)
+            android.util.Log.i(TAG, "PHASE3: probe session $sid created in Room")
+        }
+    }
 
     /**
      * Create or update probe session in Room.
@@ -129,6 +191,8 @@ class IrProbeViewModel(
 
     /**
      * Update just the transient probe state in Room (no full re-insert).
+     * PHASE 3: lazily creates the session row if it does not exist yet
+     * (covers flows that transmit before ensureSession was called).
      */
     fun updateProbeState(
         candidateIndex: Int,
@@ -138,7 +202,15 @@ class IrProbeViewModel(
         physicalSha256: String?,
         attemptId: String?
     ) {
-        val sid = sessionId ?: return
+        if (getSessionId() == null) {
+            ensureSession(
+                brand = sessionBrand.ifBlank { "unknown" },
+                deviceType = sessionDeviceType.ifBlank { "unknown" },
+                targetModel = sessionTargetModel,
+                catalogHash = sessionCatalogHash
+            )
+        }
+        val sid = getSessionId() ?: return
         lastPersistedIndex = candidateIndex
         lastPersistedCandidateId = candidateId
         lastPersistedActionKey = actionKey
@@ -167,6 +239,7 @@ class IrProbeViewModel(
     suspend fun restoreSession(sessionId: String): ProbeSessionEntity? {
         val entity = db.profileDao().getProbeSession(sessionId) ?: return null
         this.sessionId = sessionId
+        savedStateHandle["probeSessionId"] = sessionId
         this.lastPersistedIndex = entity.currentCandidateIndex
         this.lastPersistedCandidateId = entity.currentCandidateId
         this.lastPersistedActionKey = entity.currentActionKey
@@ -251,9 +324,33 @@ class IrProbeViewModel(
     fun setCurrentAttempt(attempt: ProbeAttempt?) { _currentAttempt.value = attempt }
     fun setProbeUiState(state: ProbeUiState) { _probeUiState.value = state }
     fun hasRestorableState(): Boolean = savedStateHandle.get<String>("step") != null
-    fun getSessionId(): String? = sessionId
+    fun getSessionId(): String? = sessionId ?: savedStateHandle.get<String>("probeSessionId")
     fun getCandidateIndex(): Int = lastPersistedIndex
     fun getCandidateId(): String? = lastPersistedCandidateId
+
+    /**
+     * PHASE 3: Persist an individual probe attempt (durable attempt trail:
+     * every transmission is recorded against the session, CASCADE-deleted
+     * with the session). No-op if no session exists yet.
+     */
+    fun persistAttempt(attempt: ProbeAttempt) {
+        val sid = getSessionId() ?: return
+        viewModelScope.launch {
+            db.profileDao().insertProbeAttempt(
+                ProbeAttemptEntity(
+                    attemptId = attempt.attemptId,
+                    sessionId = sid,
+                    candidateId = attempt.candidateId,
+                    codeSetId = attempt.codeSetId,
+                    signalId = attempt.signalId,
+                    actionKey = attempt.action.name,
+                    transmittedAtEpochMs = attempt.transmittedAtMs,
+                    result = "SENT",
+                    transmitDurationMs = 0L
+                )
+            )
+        }
+    }
 
     /**
      * Mark session complete in Room.

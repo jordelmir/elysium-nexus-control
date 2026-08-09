@@ -289,6 +289,13 @@ class IrCatalogDatabaseManager private constructor(
         repositoryInstance = null
     }
 
+    /**
+     * Public accessor for the installed catalog's declared databaseSha256
+     * (manifest). Used to stamp probe sessions with the catalog identity
+     * active when the session started (PHASE 3 process-death durability).
+     */
+    fun catalogDatabaseHash(): String? = readManifestDatabaseHash()
+
     companion object {
         @Volatile
         private var instance: IrCatalogDatabaseManager? = null
