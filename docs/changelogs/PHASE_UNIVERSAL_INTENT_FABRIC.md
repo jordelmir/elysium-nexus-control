@@ -504,6 +504,32 @@ every claim is evidence-bound.
 - The `--fast` mode is wired for CI usage (runs in ~4 s vs ~90 s rebuild).
 
 
+
+### V06 PHASE 7 — Automation engine wired to a launch entry point
+
+- `AutomationSceneMapper` (pure Kotlin, JVM-tested): bridges the persisted
+  §28 `Automation` (CommandValue actions, JSON store) into the executable
+  §34/§35 `MacroTransaction` the `ConcreteAutomationEngineService` consumes.
+  Mapping is **total** and honest:
+  - OnOff → PowerOn/PowerOff · Media → MediaPlay/MediaPause · Climate → SetTemperature
+  - Level/Color/ColorTemperature/Lock/Position → `UniversalAction.Custom`
+    (stable key + payload); adapters that understand the key execute them,
+    others return Unsupported — never fabricated.
+  - `VerificationPolicy.timeoutMs` becomes the per-step timeout; a
+    requireStateConfirmation policy emits a `CapabilityAvailable` success
+    condition (best-effort carries none); compensation enables
+    `rollbackOnFailure`.
+- Executable now: `MainActivity.onRunAutomation` builds the macro, runs it
+  through the engine, and logs the outcome with a bilingual
+  `summarizeExecution()` (Success/PartialFailure/PreconditionFailed/Timeout).
+- Honesty: the wired dispatcher registers **no device adapters at this
+  phase**, so real executions report `not delivered` (engine records it)
+  until LAN/IR/vertical adapters land. No fake success is possible.
+- Raised `IMPLEMENTED_NOT_WIRED → WIRED (no adapters yet)` for the
+  automation engine in the matrix.
+- Tests: 1,045 → 1,060 (15 new: 12 mapper + 3 summary). Lint + assemble green.
+
+
 ## Build Status (this update)
 
 ```
