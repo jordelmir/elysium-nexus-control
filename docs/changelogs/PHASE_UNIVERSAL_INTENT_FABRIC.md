@@ -435,6 +435,23 @@ every claim is evidence-bound.
   calls it yet) — recorded honestly in the Reality Matrix.
 
 
+
+### V06 PHASE 3 — Process-death restore policy (pure, verified)
+
+- NEW `fabric/infrared/ProbeRestoreResolver.kt` — **pure process-death restore
+  policy** (no Android deps):
+  - `ProbeRestoreDecision.Ready` / `.RecoveryRequired(expectedId, foundId)`
+  - Contract: exact-id restore → Ready; id gone → index fallback + identity
+    verify; mismatch → RecoveryRequired — **never a silent candidate-0 resume**
+- `IrProbeViewModel.initializeEngine(...)` — inline restore block replaced by
+  `ProbeRestoreResolver.resolve(...)`; same semantics, now JVM-proven.
+- NEW `ProbeRestoreResolverTest.kt` — 9 tests:
+  - exact id restore (id beats saved index), id-gone+index-intact resume,
+    id-gone+index-mismatch → RecoveryRequired, index-without-id stays at 0,
+    empty candidate list → Ready(null), out-of-range index → RecoveryRequired,
+    engine never left silently at candidate 0 after recovery
+
+
 ## Build Status (this update)
 
 ```

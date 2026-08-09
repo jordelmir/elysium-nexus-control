@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
+import com.elysium.nexus.fabric.infrared.ProbeRestoreDecision
+import com.elysium.nexus.fabric.infrared.ProbeRestoreResolver
 import com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase
 import com.elysium.nexus.fabric.profile.db.ProbeSessionEntity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -211,24 +213,21 @@ class IrProbeViewModel(
             return false
         }
 
-        // Reposition to saved candidate
-        if (restoreCandidateIndex > 0 && restoreCandidateId != null) {
-            val repositioned = engine.selectById(restoreCandidateId)
-            if (!repositioned) {
-                // Candidate ID not found — catalog may have changed.
-                // Try index-based repositioning as fallback.
-                repeat(restoreCandidateIndex.coerceAtMost(engine.totalCandidates - 1)) {
-                    engine.nextCandidate()
-                }
-                // Verify the candidate at this index matches
-                val current = engine.currentCandidate()
-                if (current?.id != restoreCandidateId) {
-                    _probeUiState.value = ProbeUiState.RecoveryRequired(
-                        reason = "Candidate identity mismatch after process death. " +
-                            "Expected=$restoreCandidateId, Found=${current?.id}"
-                    )
-                    return false
-                }
+        // Reposition to saved candidate (process-death restore with identity guard)
+        when (
+            val decision = ProbeRestoreResolver.resolve(
+                engine = engine,
+                restoreCandidateIndex = restoreCandidateIndex,
+                restoreCandidateId = restoreCandidateId
+            )
+        ) {
+            is ProbeRestoreDecision.Ready -> { /* safe to resume at the resolved candidate */ }
+            is ProbeRestoreDecision.RecoveryRequired -> {
+                _probeUiState.value = ProbeUiState.RecoveryRequired(
+                    reason = "Candidate identity mismatch after process death. " +
+                        "Expected=${decision.expectedId}, Found=${decision.foundId}"
+                )
+                return false
             }
         }
 

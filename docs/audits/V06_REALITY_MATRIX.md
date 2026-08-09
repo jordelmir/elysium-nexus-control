@@ -140,5 +140,5 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 4 ✅ + PHASE 2 ✅ (seam + 9 upgrade/downgrade tests, 1,030 JVM green). Next: PHASE 3 process-death closing, then PHASE 5 native catalog v5.
+*Next:* PHASE 4 ✅ + PHASE 2 ✅ + PHASE 3 ✅ (pure restore resolver, 1,039 JVM green). Next: PHASE 5 native catalog v5.
 (upgrade/downgrade catalog), then PHASE 3 process-death closing, then PHASE 5 native catalog v5.
