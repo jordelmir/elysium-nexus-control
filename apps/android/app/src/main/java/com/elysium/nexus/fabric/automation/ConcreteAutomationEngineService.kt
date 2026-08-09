@@ -4,6 +4,7 @@ import android.util.Log
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
 import com.elysium.nexus.fabric.canonical.UniversalAction
+import com.elysium.nexus.fabric.hedging.MutationSemantics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,17 +65,47 @@ class ConcreteAutomationEngineService(
 
     override suspend fun executeScene(scene: Scene): SceneExecutionResult {
         val startTime = System.currentTimeMillis()
+        val rollbackOnFailure = scene.steps.any { it.rollbackAction != null }
+        val result = runSteps(scene.steps, rollbackOnFailure)
+        recordExecution(kind = "SCENE", name = scene.name, result = result, startedAtMs = startTime)
+        return result
+    }
+
+    // ─── Macro Execution ────────────────────────────────
+
+    override suspend fun executeMacro(macro: MacroTransaction): SceneExecutionResult {
+        val startTime = System.currentTimeMillis()
+        val result = runSteps(macro.steps, rollbackOnFailure = macro.rollbackOnFailure)
+        recordExecution(kind = "MACRO", name = macro.name, result = result, startedAtMs = startTime)
+        return result
+    }
+
+    /**
+     * V06-P19: per-step transaction semantics — the ONE implementation for
+     * scenes and macros. Every step is:
+     *
+     * 1. Precondition checked (fail → rollback completed, then abort)
+     * 2. Action dispatched — blind retries are gated by
+     *    [MutationSemantics]: only IDEMPOTENT_SAFE steps may repeat
+     *    (a NON_IDEMPOTENT / DESTRUCTIVE step is dispatched exactly once;
+     *    a blind repeat would be a user-visible double-execution)
+     * 3. Success condition verified within [ActionStep.timeoutMs]
+     * 4. On any failure: rollback of completed steps (reversed)
+     *    when [rollbackOnFailure]
+     */
+    private suspend fun runSteps(
+        steps: List<ActionStep>,
+        rollbackOnFailure: Boolean
+    ): SceneExecutionResult {
+        val startTime = System.currentTimeMillis()
         val completedSteps = mutableListOf<ActionStep>()
 
-        for (step in scene.steps) {
-            // 1. Check precondition
+        for (step in steps) {
+            // 1. Precondition
             if (step.precondition != null) {
                 val preconditionMet = evaluatePrecondition(step.precondition)
                 if (!preconditionMet) {
-                    // Rollback completed steps
-                    if (scene.steps.any { it.rollbackAction != null }) {
-                        rollbackSteps(completedSteps)
-                    }
+                    if (rollbackOnFailure) rollbackSteps(completedSteps)
                     return SceneExecutionResult.PreconditionFailed(
                         failedStep = step,
                         reason = "Precondition not met: ${step.precondition}"
@@ -82,11 +113,15 @@ class ConcreteAutomationEngineService(
                 }
             }
 
-            // 2. Execute with retries
+            // 2. Execute with policy-gated retries
             var lastError: String? = null
             var success = false
 
-            for (attempt in 0..step.retryCount) {
+            val attempts =
+                if (MutationSemantics.canRepeatWithoutConfirmation(step.action)) step.retryCount + 1
+                else 1
+
+            for (attempt in 0 until attempts) {
                 if (attempt > 0) {
                     kotlinx.coroutines.delay(step.retryDelayMs)
                 }
@@ -101,14 +136,13 @@ class ConcreteAutomationEngineService(
             }
 
             if (!success) {
-                // Rollback completed steps
-                rollbackSteps(completedSteps)
+                if (rollbackOnFailure) rollbackSteps(completedSteps)
                 return SceneExecutionResult.PartialFailure(
                     completedSteps = completedSteps.size,
-                    totalSteps = scene.steps.size,
+                    totalSteps = steps.size,
                     failedStep = step,
                     error = lastError ?: "Unknown error",
-                    rolledBack = true,
+                    rolledBack = rollbackOnFailure,
                     durationMs = System.currentTimeMillis() - startTime
                 )
             }
@@ -119,10 +153,10 @@ class ConcreteAutomationEngineService(
                 if (!verified) {
                     // The step itself was dispatched but never confirmed:
                     // roll it back together with completed steps.
-                    rollbackSteps(completedSteps + step)
+                    if (rollbackOnFailure) rollbackSteps(completedSteps + step)
                     return SceneExecutionResult.Timeout(
                         completedSteps = completedSteps.size,
-                        totalSteps = scene.steps.size,
+                        totalSteps = steps.size,
                         timedOutStep = step,
                         durationMs = System.currentTimeMillis() - startTime
                     )
@@ -134,86 +168,7 @@ class ConcreteAutomationEngineService(
 
         return SceneExecutionResult.Success(
             completedSteps = completedSteps.size,
-            totalSteps = scene.steps.size,
-            durationMs = System.currentTimeMillis() - startTime
-        )
-    }
-
-    // ─── Macro Execution ────────────────────────────────
-
-    override suspend fun executeMacro(macro: MacroTransaction): SceneExecutionResult {
-        val startTime = System.currentTimeMillis()
-        val completedSteps = mutableListOf<ActionStep>()
-
-        for (step in macro.steps) {
-            // Check precondition
-            if (step.precondition != null) {
-                val met = evaluatePrecondition(step.precondition)
-                if (!met) {
-                    if (macro.rollbackOnFailure) {
-                        rollbackSteps(completedSteps)
-                    }
-                    return SceneExecutionResult.PreconditionFailed(
-                        failedStep = step,
-                        reason = "Macro precondition not met"
-                    )
-                }
-            }
-
-            // Execute with retries
-            var lastError: String? = null
-            var success = false
-
-            for (attempt in 0..step.retryCount) {
-                if (attempt > 0) {
-                    kotlinx.coroutines.delay(step.retryDelayMs)
-                }
-
-                val result = actionDispatcher.dispatch(step.targetDeviceId, step.action)
-                if (result) {
-                    success = true
-                    break
-                } else {
-                    lastError = "Macro action dispatch failed"
-                }
-            }
-
-            if (!success) {
-                if (macro.rollbackOnFailure) {
-                    rollbackSteps(completedSteps)
-                }
-                return SceneExecutionResult.PartialFailure(
-                    completedSteps = completedSteps.size,
-                    totalSteps = macro.steps.size,
-                    failedStep = step,
-                    error = lastError ?: "Unknown error",
-                    rolledBack = macro.rollbackOnFailure,
-                    durationMs = System.currentTimeMillis() - startTime
-                )
-            }
-
-            // Verify success condition
-            if (step.successCondition != null) {
-                val verified = verifySuccessCondition(step.successCondition, step.timeoutMs)
-                if (!verified) {
-                    if (macro.rollbackOnFailure) {
-                        rollbackSteps(completedSteps + step)
-                    }
-                    return SceneExecutionResult.Timeout(
-                        completedSteps = completedSteps.size,
-                        totalSteps = macro.steps.size,
-                        timedOutStep = step,
-                        durationMs = System.currentTimeMillis() - startTime
-                    )
-                }
-            }
-
-            completedSteps.add(step)
-        }
-
-        return SceneExecutionResult.Success(
-            completedSteps = completedSteps.size,
-            totalSteps = macro.steps.size,
+            totalSteps = steps.size,
             durationMs = System.currentTimeMillis() - startTime
         )
     }
@@ -364,9 +319,38 @@ class ConcreteAutomationEngineService(
 
     // ─── History ────────────────────────────────────────
 
-    private fun recordExecution(execution: AutomationExecution) {
-        val current = history.value
-        history.value = (current + execution).takeLast(1000) // Keep last 1000
+    /**
+     * V06-P19: every scene/macro run is recorded — the observable history
+     * is a real audit trail, not an always-empty flow.
+     */
+    private fun recordExecution(
+        kind: String,
+        name: String,
+        result: SceneExecutionResult,
+        startedAtMs: Long
+    ) {
+        val completedSteps = when (result) {
+            is SceneExecutionResult.Success -> result.completedSteps
+            is SceneExecutionResult.PartialFailure -> result.completedSteps
+            is SceneExecutionResult.Timeout -> result.completedSteps
+            is SceneExecutionResult.PreconditionFailed -> 0
+        }
+        val error = when (result) {
+            is SceneExecutionResult.PartialFailure -> result.error
+            is SceneExecutionResult.Timeout -> "Timeout at step ${result.timedOutStep.stepId}"
+            is SceneExecutionResult.PreconditionFailed -> result.reason
+            else -> null
+        }
+        val execution = AutomationExecution(
+            ruleId = "$kind:$name",
+            ruleName = name,
+            triggerType = kind,
+            actionsExecuted = completedSteps,
+            success = result is SceneExecutionResult.Success,
+            error = error,
+            startedAtMs = startedAtMs
+        )
+        history.value = (history.value + execution).takeLast(1000)
     }
 
     private fun getTodayStartMs(): Long {

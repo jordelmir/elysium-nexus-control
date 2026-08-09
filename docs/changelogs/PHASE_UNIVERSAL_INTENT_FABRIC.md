@@ -782,3 +782,41 @@ testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,114 tests)
 lintDebug                       ✓ BUILD SUCCESSFUL
 assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
+
+
+### V06 PHASE 19 — Transaction semantics per automation step + audit trail
+
+Audit: the scene/macro execution loop existed but (a) blind per-step retries
+ignored the mutation classifier — a NON_IDEMPOTENT step (VolumeUp) with
+`retryCount > 0` would blindly dispatch again, a user-visible double-step —
+and (b) `recordExecution` was never called: `observeHistory()` was an
+always-empty flow. Closed in `ConcreteAutomationEngineService`:
+
+- Scenes and macros now share ONE `runSteps` implementation
+  (the duplicated loops are gone — one definition of per-step transaction
+  semantics): precondition → dispatch → verify → rollback.
+- **Policy-gated retries (V06-P18 synergy)**: a step is blind-retried only
+  when `MutationSemantics.canRepeatWithoutConfirmation` says its action is
+  IDEMPOTENT_SAFE. NON_IDEMPOTENT and DESTRUCTIVE steps are dispatched
+  exactly once — a blind repeat of VOLUME_UP or `factory_reset` is now
+  structurally impossible.
+- **Audit trail wired**: every scene/macro run is recorded
+  (`ruleId = SCENE:<name>` / `MACRO:<name>`, actionsExecuted, success,
+  error) into the observable history flow (capped at 1,000) — the history
+  is real evidence, not a stub.
+- Scene rollback gate preserved (`any rollbackAction`); macro gate preserved
+  (`rollbackOnFailure`); retry timing (`retryDelayMs`) untouched.
+- Tests: 5 new JVM — 3rd-attempt success for idempotent Mute (3 dispatches);
+  VolumeUp with retryCount=5 dispatches EXACTLY once; factory_reset custom
+  with retryCount=4 dispatches once; successful scene recorded in history;
+  failed macro recorded with error. **Total suite: 1,119 green.**
+  Lint + assemble green.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,119 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```

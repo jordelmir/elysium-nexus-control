@@ -261,4 +261,131 @@ class ConcreteAutomationEngineServiceTest {
 
         assertTrue(history.isEmpty())
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V06-P19: per-step transaction semantics — policy-gated retries + audit
+    // ═══════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `idempotent step retries when first attempt fails`() = runBlocking {
+        var calls = 0
+        val dispatcher = RecordingDispatcher { _ ->
+            calls++
+            calls >= 3 // succeed on the 3rd attempt
+        }
+        val engine = ConcreteAutomationEngineService(dispatcher)
+
+        val scene = Scene(
+            name = "retry-mute",
+            steps = listOf(
+                ActionStep(
+                    targetDeviceId = tvId,
+                    action = UniversalAction.Mute(tvId), // IDEMPOTENT_SAFE
+                    retryCount = 3,
+                    retryDelayMs = 1L
+                )
+            )
+        )
+
+        val result = engine.executeScene(scene)
+
+        assertTrue(result is SceneExecutionResult.Success)
+        assertEquals(3, calls)
+    }
+
+    @Test
+    fun `non-idempotent step never blind-retries`() = runBlocking {
+        var calls = 0
+        val dispatcher = RecordingDispatcher { _ ->
+            calls++
+            false // always fails
+        }
+        val engine = ConcreteAutomationEngineService(dispatcher)
+
+        val scene = Scene(
+            name = "no-retry-vol-up",
+            steps = listOf(
+                ActionStep(
+                    targetDeviceId = tvId,
+                    action = UniversalAction.VolumeUp(tvId), // NON_IDEMPOTENT
+                    retryCount = 5,
+                    retryDelayMs = 1L
+                )
+            )
+        )
+
+        val result = engine.executeScene(scene)
+
+        assertTrue(result is SceneExecutionResult.PartialFailure)
+        assertEquals("blind retry on VolumeUp would double the volume", 1, calls)
+    }
+
+    @Test
+    fun `destructive custom step never blind-retries`() = runBlocking {
+        var calls = 0
+        val dispatcher = RecordingDispatcher { _ ->
+            calls++
+            false
+        }
+        val engine = ConcreteAutomationEngineService(dispatcher)
+
+        val scene = Scene(
+            name = "no-retry-reset",
+            steps = listOf(
+                ActionStep(
+                    targetDeviceId = tvId,
+                    action = UniversalAction.Custom(tvId, key = "factory_reset"),
+                    retryCount = 4,
+                    retryDelayMs = 1L
+                )
+            )
+        )
+
+        val result = engine.executeScene(scene)
+
+        assertTrue(result is SceneExecutionResult.PartialFailure)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `scene run is recorded in history`() = runBlocking {
+        val engine = ConcreteAutomationEngineService(RecordingDispatcher())
+
+        engine.executeScene(
+            Scene(
+                name = "movie",
+                steps = listOf(
+                    ActionStep(targetDeviceId = tvId, action = UniversalAction.PowerOn(tvId))
+                )
+            )
+        )
+
+        val history = engine.observeHistory().first()
+        assertEquals(1, history.size)
+        assertEquals("SCENE:movie", history[0].ruleId)
+        assertTrue(history[0].success)
+        assertEquals(1, history[0].actionsExecuted)
+    }
+
+    @Test
+    fun `failed macro run is recorded with error`() = runBlocking {
+        val dispatcher = RecordingDispatcher { action -> action !is UniversalAction.VolumeUp }
+        val engine = ConcreteAutomationEngineService(dispatcher)
+
+        engine.executeMacro(
+            MacroTransaction(
+                name = "no-rollback",
+                rollbackOnFailure = false,
+                steps = listOf(
+                    ActionStep(targetDeviceId = tvId, action = UniversalAction.VolumeUp(tvId))
+                )
+            )
+        )
+
+        val history = engine.observeHistory().first()
+        assertEquals(1, history.size)
+        assertEquals("MACRO:no-rollback", history[0].ruleId)
+        assertTrue(!history[0].success)
+        assertTrue(history[0].error != null)
+    }
 }

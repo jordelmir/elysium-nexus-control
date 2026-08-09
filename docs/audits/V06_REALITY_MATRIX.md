@@ -125,6 +125,12 @@ PRODUCTION_APPROVED
 | `ActionDispatcher` (scorer branch) | **INTEGRATION_VERIFIED (JVM)** | `ActionDispatcherResilienceTest` (5) | optional `routeScorer` injected → rank reranked, score-0 dropped | opt-in; production callers not yet constructing it |
 | `ActionDispatcher` (breaker branch) | **INTEGRATION_VERIFIED (JVM)** | circuit open → skip+Fallback evidence → AllRoutesFailed("Circuit open"); success resets; failures open via real dispatch path | optional `circuitBreaker` injected; Ok→recordSuccess, Error→recordFailure | opt-in; cooldown/half-open E2E needs a device |
 
+### V06-P19 Transaction semantics per automation step
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
+
 ---
 
 ## 3. Wiring map (PHASE 1 input)
@@ -152,7 +158,7 @@ HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
 | IR authoritative path | ~82 % | 1,097 tests incl. codec golden vectors; physicalSha verified per binding |
 | LAN discovery | ~60 % | providers unit-verified; not on-device; no IPv6/dup-announce probe |
 | TV adapter LG | ~35 % | honest unit tests; **zero physical** |
-| Automation transactions | ~62 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9) |
+| Automation transactions | ~70 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9); **PHASE 19: per-step transaction semantics unified, retries policy-gated, audit trail alive (1,119 tests)** |
 | Identity/vault/trust | ~48 % | vault unit-verified; **identity graph pure-logic verified (merge policy + composite determinism, 19 tests), durable via Room v9 (schema exported + instrumented migration); peer-fingerprint enforcement still missing (§11)** |
 | Routing/resilience | ~55 % | scorer/breaker **wired into the dispatcher** (optional injectables, integration-tested: open circuit blocks, success resets, failures open, rerank honored); single MutationSemantics classifier unit-proven |
 | Calibration (WiFi Oracle) | ~20 % | class exists; no E2E (§7, §16) |
@@ -164,9 +170,7 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* V06-P9 (Device Identity Graph), V06-P18 (MutationSemantics) and V06-P13/14
-(scorer + circuit breaker wired into ActionDispatcher) complete — 1,114 JVM green,
-lint + assemble green. Then: PHASE 19 (transaction/delivery semantics per automation
-step) and PHASE 22 (FlightRecorder wired) — the next software phases in the master
-order; physical-only phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on
-hardware and are documented, not claimed.
+*Next:* V06-P9, P18, P13/14 and P19 complete — 1,119 JVM green, lint + assemble green.
+Then: PHASE 22 (FlightRecorder wired) and PHASE 24 (error taxonomy UX); physical-only
+phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on hardware and are
+documented, not claimed.
