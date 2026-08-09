@@ -371,13 +371,15 @@ interface InstalledProfileDao {
         CompatibilityEvidenceEntity::class,
         CandidatePenaltyEntity::class,
         CatalogMigrationEntity::class,
-        SignalSourceEntity::class
+        SignalSourceEntity::class,
+        SceneEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
     abstract fun profileDao(): InstalledProfileDao
+    abstract fun sceneDao(): SceneDao
 
     companion object {
         @Volatile
@@ -557,6 +559,23 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
             }
         }
 
+        /** V06 §8: durable scenes — scenes table (v8). */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS scenes (
+                        sceneId TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        payloadJson TEXT NOT NULL,
+                        tagsCsv TEXT NOT NULL,
+                        createdAtEpochMs INTEGER NOT NULL,
+                        updatedAtEpochMs INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_scenes_updatedAtEpochMs ON scenes(updatedAtEpochMs)")
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -564,7 +583,10 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                     ElysiumUserDatabase::class.java,
                     "elysium_user_database.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(
+                        MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                    )
                     .build()
                 INSTANCE = instance
                 instance

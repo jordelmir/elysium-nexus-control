@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
     private var latencyTracker: LatencyTracker? = null
     private var activityScope: CoroutineScope? = null
     private var sceneEngine: com.elysium.nexus.fabric.automation.ConcreteAutomationEngineService? = null
+    private var sceneRegistry: com.elysium.nexus.fabric.automation.SceneRegistry? = null
     private var driverJob: Job? = null
     private var latencyJob: Job? = null
     private var motionJob: Job? = null
@@ -206,6 +207,12 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w(tag, "Automation dispatch: no device adapter registered")
                 false
             }
+        )
+
+        // §36 Durable scenes — Room-backed registry. Scenes saved here
+        // survive process death and app restarts (schema v8, table `scenes`).
+        sceneRegistry = com.elysium.nexus.fabric.automation.RoomSceneRegistry(
+            com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(this).sceneDao()
         )
 
         val transportBinding = TransportBinding(defaultTransport)

@@ -266,7 +266,63 @@ class RoomMigrationTest {
         db.close()
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V06 PHASE 8 — durable scenes (scenes table, v8)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun migrate7To8_createsScenesTable() {
+        // Seed a v7 database with the legacy tables present (no scenes).
+        helper.createDatabase(TEST_DB_7, 7).apply {
+            execSQL("""
+                INSERT INTO installed_ir_profiles
+                (profileId, displayName, brandId, deviceTypeId, deviceModelId, remoteId,
+                 codeSetId, catalogVersion, catalogCanonicalHashAtInstall,
+                 catalogSchemaVersionAtInstall, catalogBuildIdAtInstall,
+                 verificationStatus, createdAtEpochMs, updatedAtEpochMs,
+                 lastSuccessfulUseEpochMs, needsRevalidation, isEnabled)
+                VALUES ('profile-v8', 'TV', 'LG', 'TV', NULL, NULL,
+                        'cs-v8', 'v5', 'hash-1', 5, 'build-1',
+                        'PARTIALLY_VERIFIED', 1700000000000, 1700000000000, 0, 0, 1)
+            """)
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB_7, 7, true, ElysiumUserDatabase.MIGRATION_7_8)
+
+        // scenes table exists with the exact expected columns
+        val cols = mutableListOf<String>()
+        db.query("PRAGMA table_info(scenes)").use { c ->
+            while (c.moveToNext()) cols.add(c.getString(1))
+        }
+        assertTrue("sceneId", cols.contains("sceneId"))
+        assertTrue("name", cols.contains("name"))
+        assertTrue("payloadJson", cols.contains("payloadJson"))
+        assertTrue("tagsCsv", cols.contains("tagsCsv"))
+        assertTrue("createdAtEpochMs", cols.contains("createdAtEpochMs"))
+        assertTrue("updatedAtEpochMs", cols.contains("updatedAtEpochMs"))
+
+        // round-trip a row through the new table
+        db.execSQL("""
+            INSERT INTO scenes
+            (sceneId, name, payloadJson, tagsCsv, createdAtEpochMs, updatedAtEpochMs)
+            VALUES ('scene-1', 'Movie Night', '{"formatVersion":1}', 'movie,night', 100, 200)
+        """)
+        val cursor = db.query("SELECT name, tagsCsv FROM scenes WHERE sceneId = 'scene-1'")
+        assertTrue("scene row must be readable", cursor.moveToFirst())
+        assertEquals("Movie Night", cursor.getString(0))
+        assertEquals("movie,night", cursor.getString(1))
+        cursor.close()
+
+        // legacy data survives alongside
+        val legacy = db.query("SELECT profileId FROM installed_ir_profiles WHERE profileId = 'profile-v8'")
+        assertTrue("profile data must survive", legacy.moveToFirst())
+        legacy.close()
+        db.close()
+    }
+
     companion object {
         private val TEST_DB_6 = "migration-test-v6"
+        private val TEST_DB_7 = "migration-test-v7"
     }
 }
