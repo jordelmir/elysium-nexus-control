@@ -99,7 +99,7 @@ PRODUCTION_APPROVED
 
 | Class | Status | Evidence | Notes | Gaps |
 |---|---|---|---|---|
-| `ProfileRevalidationService` | **IMPLEMENTED but NOT WIRED** | `ProfileRevalidationTest` | Correct hash comparison (`catalogCanonicalHashAtInstall`) already implemented; KEEP/MIGRATE/NEEDS_REVALIDATION logic present | Not reachable from app graph; upgrade/downgrade tests missing; applyRevalidation not used |
+| `ProfileRevalidationService` | **UNIT_VERIFIED** (wired) | `ProfileRevalidationTest` (9: KEEP/MIGRATE/NEEDS_REVALIDATION via seams) | PHASE 2 closing: startup revalidation pass wired in MainActivity — real manifest hash, applies migrations atomically, never destroys profiles | per-binding UI surfacing pending |
 | `InstalledIrProfile` (fields) | UNIT_VERIFIED | tests assert `catalogCanonicalHashAtInstall` etc. | correct | binding-level `bindingId` gaps |
 
 ---
@@ -141,8 +141,8 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* PHASE 3 closing (durable probe-session lifecycle: ensureSession + SavedStateHandle
-key + attempt persistence + catalog-hash stamping) complete: 1,078 JVM green, lint +
-assemble green. Then, per audit priority A: wire `ProfileRevalidationService` into the app
-graph (applyRevalidation on catalog change), then Device Identity Graph (IdentityMergeEngine,
-pure-logic + JVM tests) — the foundation for Device Twin convergence.
+*Next:* PHASE 2 closing (startup profile revalidation wired: KEEP/MIGRATE/NEEDS_REVALIDATION
+against real manifest hash, atomic apply, profiles never destroyed) + PHASE 3 closing
+complete: 1,078 JVM green, lint + assemble green. Then: Device Identity Graph
+(IdentityMergeEngine, pure-logic + JVM tests) — the foundation for Device Twin
+convergence and Safe Credential Vault/peer-identity-change enforcement.

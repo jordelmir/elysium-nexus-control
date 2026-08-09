@@ -220,6 +220,45 @@ class MainActivity : ComponentActivity() {
             sceneRegistry?.observeScenes()?.collect { scenesFlow.value = it }
         }
 
+        // PHASE 2 wiring: revalidate installed IR profiles against the
+        // current catalog. Runs once at startup on the main scope (the
+        // service hops to Dispatchers.IO internally). If the catalog
+        // changed since install: bindings are resolved again, migrated
+        // when a fingerprint-unique equivalent exists, and the profile
+        // hash is only advanced when EVERY binding is valid — a broken
+        // binding never destroys a profile (per-binding decisions).
+        activityScope.launch {
+            try {
+                val installedRepo = com.elysium.nexus.fabric.profile
+                    .InstalledIrProfileRepository(this@MainActivity)
+                val installed = installedRepo.getAllProfilesSuspend()
+                if (installed.isEmpty()) return@launch
+                val revalidation = com.elysium.nexus.fabric.profile
+                    .ProfileRevalidationService(this@MainActivity)
+                for (profile in installed) {
+                    val result = revalidation.revalidateProfile(profile)
+                    if (result.catalogHashMatches) continue
+                    if (result.allBindingsValid) {
+                        revalidation.applyRevalidation(profile, result)
+                        android.util.Log.i(
+                            tag,
+                            "Profile ${profile.brand}/${profile.model} revalidated " +
+                                "(${result.bindingResults.size} bindings, hash advanced)"
+                        )
+                    } else {
+                        android.util.Log.w(
+                            tag,
+                            "Profile ${profile.brand}/${profile.model}: " +
+                                "revalidation action needed — ${result.bindingResults.size} " +
+                                "bindings checked, userAction=${result.needsUserAction}"
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.w(tag, "Profile revalidation skipped: ${e.message}")
+            }
+        }
+
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
         transportJob = engine.state

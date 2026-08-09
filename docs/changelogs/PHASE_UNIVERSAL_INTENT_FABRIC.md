@@ -614,6 +614,30 @@ restore. Fixed:
   resolver identity logic was already covered by 9 tests). Lint + assemble green.
 
 
+
+### V06 PHASE 2 CLOSING — Profile revalidation wired into the production graph
+
+Audit finding: `ProfileRevalidationService` shipped with a production constructor
+(`ProfileRevalidationService(context)`) but had **zero call sites** — the
+KEEP/MIGRATE/NEEDS_REVALIDATION engine was unreachable. Now:
+
+- `MainActivity.onCreate` launches a startup revalidation pass: every installed
+  IR profile is checked against the current catalog
+  (`canonicalContentSha256` from `ir_catalog.manifest.json`).
+- Hash matches → skipped (catalog unchanged since install).
+- Hash differs and the per-binding pass returns all-valid → `applyRevalidation`
+  persists migrated bindings (fingerprint-unique equivalents) and advances
+  `catalogCanonicalHashAtInstall`.
+- Hash differs with invalid bindings → logged as needs-user-action; the profile
+  is **never destroyed or partially saved** (per-binding decisions only).
+- The pass is crash-safe (never blocks startup; IO hops to `Dispatchers.IO`).
+- Honesty: this runs the real KEEP/MIGRATE/NEEDS_REVALIDATION logic against the
+  real manifest hash at app start; catalog upgrade/downgrade behavior was
+  already JVM-tested via the `RevalidationCatalog`/`ProfileRevalidationStore`
+  seams (9 tests).
+- Tests: 1,078 green. Lint + assemble green.
+
+
 ## Build Status (this update)
 
 ```
