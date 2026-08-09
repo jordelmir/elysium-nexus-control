@@ -131,6 +131,13 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P22 FlightRecorder wired (full §57–§61 trace per dispatch)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `FlightRecorder` + `FlightBuilder` + `FlightEntry` | **UNIT_VERIFIED** | `FlightRecorderTest` (ring buffer, query, avg latency, failure rate) | **WIRED into `ActionDispatcher.dispatch`** — trace per attempt: routes evaluated (+scores +isSelected), resolve/send latency (IR), command payload (IR), winning route, TransportResult, error string, breaker-trip flag | recorder instance ownership/screen = UI-phase decision (not claimed); on-device latency proof pending device |
+| `ActionDispatcher` (flight branch) | **INTEGRATION_VERIFIED (JVM)** | `ActionDispatcherFlightTest` (5: complete entry on success; NoRoute on no-target; PermissionDenied; CircuitBreakerOpen + trip flag; zero entries when no recorder) | optional `flightRecorder` injectable (default null → prior hot path untouched) | opt-in like scorer/breaker; production callers not yet constructing it |
+
 ---
 
 ## 3. Wiring map (PHASE 1 input)
@@ -147,7 +154,11 @@ UI (IrConnectFlow, MacTransport, MacControlSurfaceScreen)
 MdnsDiscoveryProvider ssdp PreviouslyPaired provider (providers complete but orchestrator
 untouched from Android entry), LgWebOsTvAdapter, CrossTransportCalibrationEngine,
 ActionRouteScorer (real scorer unused), CircuitBreaker (only FlightRecorder side debt),
-HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
+HedgedExecutor, SelfHealing*, AppContextEngine, HostAgent.
+
+**Rescued from `IMPLEMENTED_NOT_WIRED` by V06 work:** ActionRouteScorer + CircuitBreaker
+(P13/14), FlightRecorder (P22), HedgedExecutor gating (P18). Outstanding list above
+is the honest remainder.
 
 ---
 
@@ -160,7 +171,7 @@ HedgedExecutor, SelfHealing*, FlightRecorder hooks, AppContextEngine, HostAgent.
 | TV adapter LG | ~35 % | honest unit tests; **zero physical** |
 | Automation transactions | ~70 % | engine/registry unit-verified; durable via Room v8 (`scenes`) + full scene UI wired (PHASE 9); **PHASE 19: per-step transaction semantics unified, retries policy-gated, audit trail alive (1,119 tests)** |
 | Identity/vault/trust | ~48 % | vault unit-verified; **identity graph pure-logic verified (merge policy + composite determinism, 19 tests), durable via Room v9 (schema exported + instrumented migration); peer-fingerprint enforcement still missing (§11)** |
-| Routing/resilience | ~55 % | scorer/breaker **wired into the dispatcher** (optional injectables, integration-tested: open circuit blocks, success resets, failures open, rerank honored); single MutationSemantics classifier unit-proven |
+| Routing/resilience | ~62 % | scorer/breaker **wired into the dispatcher** (optional injectables, integration-tested: open circuit blocks, success resets, failures open, rerank honored); single MutationSemantics classifier unit-proven; **FlightRecorder wired — full §57–§61 trace per dispatch, 5 more tests (1,124)** |
 | Calibration (WiFi Oracle) | ~20 % | class exists; no E2E (§7, §16) |
 | Pi_Release/CI | ~55 % | 3-gate CI: JVM + lint + assemble; **instrumented test = continue-on-error** (P0 §3,§18) |
 | Physical truth | **<2 %** | nothing on hardware |
@@ -170,7 +181,7 @@ Physical gates pending: LG TV, HIL receiver, device matrix.
 
 ---
 
-*Next:* V06-P9, P18, P13/14 and P19 complete — 1,119 JVM green, lint + assemble green.
-Then: PHASE 22 (FlightRecorder wired) and PHASE 24 (error taxonomy UX); physical-only
+*Next:* V06-P9, P18, P13/14, P19 and P22 complete — 1,124 JVM green, lint + assemble green.
+Then: PHASE 24 (error taxonomy UX) and the remaining software phases; physical-only
 phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on hardware and are
 documented, not claimed.

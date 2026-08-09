@@ -820,3 +820,52 @@ testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,119 tests)
 lintDebug                       ✓ BUILD SUCCESSFUL
 assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
+
+
+### V06 PHASE 22 — FlightRecorder wired into the dispatcher
+
+Audit: `FlightRecorder` (MASTER_ORDER §57–§61 "Protocol Flight Recorder: every
+action logs intent → device → routes evaluated → winning route → command →
+transport result → state observation → latency") was fully implemented and
+unit-tested but had **zero production call sites** — a textbook
+`IMPLEMENTED_NOT_WIRED`. The dispatcher was the natural owner: its loop
+already knows intent, device, route list, command, adapter result and latency.
+
+- `UPDATED fabric/dispatch/ActionDispatcher.kt` — new optional injectable
+  `flightRecorder: FlightRecorder?` (default null: zero behavior change).
+  `dispatch()` now wraps `dispatchCore()`:
+  - `beginTrace(action, deviceId)` before attempt; `finishFlight` after.
+  - routes snapshot → `routesEvaluated([...])` with per-route score
+    (scorer score when a scorer is injected, static-priority-derived
+    otherwise) and `isSelected` flag for the first route in the retry set.
+  - IR-only: real per-stage latency (`resolveLatencyNs` around
+    resolver/translator, `sendLatencyNs` around `adapter.write`).
+  - IR command payload fragment recorded (`commandPayload`) when the
+    translated state is an `IrCommand` — the command, not a description.
+  - `winningRoute` set on `WriteResult.Ok`.
+  - `finishFlight` maps every terminal `DispatchResult` to a
+    `TransportResult` + human error string: Success, NoRoute,
+    PermissionDenied, AdapterError (translation/adapter failure with
+    `ErrorCode`), Fallback (all routes exhausted) and `CircuitBreakerOpen`
+    (flagged `circuitBreakerTripped = true`).
+- Honesty: recording is opt-in like the scorer/breaker; when `null` the
+  dispatcher's hot path is byte-for-byte the previous behavior. The
+  production graph can adopt it without API breakage — that adoption (who
+  owns the recorder instance and where the diagnostics screen reads it) is
+  a UI-phase decision, not silently claimed here.
+- `NEW ActionDispatcherFlightTest` (5 tests): successful dispatch records a
+  complete entry (Success, winning = DirectIr, send latency > 0, routes
+  evaluated, no breaker trip); no-target dispatch records NoRoute with empty
+  routes; permission-denied maps to `TransportResult.PermissionDenied`;
+  breaker-open dispatch records `CircuitBreakerOpen` with the trip flag and
+  null winning route; a flight-less dispatcher produces zero entries.
+  **Total suite: 1,119 → 1,124 green.** Lint + assemble green.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,124 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```

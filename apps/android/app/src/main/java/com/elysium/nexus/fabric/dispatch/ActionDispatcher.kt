@@ -12,6 +12,9 @@ import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.evidence.ControlEvidenceStore
 import com.elysium.nexus.fabric.evidence.ControlEvent
 import com.elysium.nexus.fabric.evidence.EventResult
+import com.elysium.nexus.fabric.evidence.FlightBuilder
+import com.elysium.nexus.fabric.evidence.FlightRecorder
+import com.elysium.nexus.fabric.evidence.TransportResult
 import com.elysium.nexus.fabric.resilience.DisconnectNeutralizer
 import com.elysium.nexus.fabric.routing.ActionRouteScorer
 import com.elysium.nexus.fabric.routing.CircuitBreaker
@@ -55,6 +58,12 @@ private const val TAG = "ElysiumNexus.ActionDispatcher"
  *   adaptive open → skip, half-open → probe, success/failure recorded.
  * Both are optional — with neither injected, the dispatcher behaves exactly
  * as before (static priority order, no breaker).
+ *
+ * V06-P22 (wired):
+ * - [flightRecorder] (when injected) records a complete [FlightEntry] per
+ *   dispatch: routes evaluated, winning route, command payload, latency
+ *   breakdown (resolve/send), result, error and breaker trips — the
+ *   diagnostic backbone of every action.
  */
 class ActionDispatcher(
     private val routeNegotiator: RouteNegotiator,
@@ -67,7 +76,8 @@ class ActionDispatcher(
     private val context: Context? = null,
     private val injectedIrResolver: IrCommandResolver? = null,
     private val routeScorer: ActionRouteScorer? = null,
-    private val circuitBreaker: CircuitBreaker? = null
+    private val circuitBreaker: CircuitBreaker? = null,
+    private val flightRecorder: FlightRecorder? = null
 ) {
     private val deviceCommandResolver: IrCommandResolver? by lazy {
         injectedIrResolver ?: context?.let { DeviceCommandResolver(it) }
@@ -78,6 +88,18 @@ class ActionDispatcher(
     }
 
     suspend fun dispatch(action: UniversalAction): DispatchResult {
+        val recorder = flightRecorder
+        if (recorder == null) return dispatchCore(action, null)
+        val builder = recorder.beginTrace(action, action.targetDeviceId)
+        val result = dispatchCore(action, builder)
+        finishFlight(builder, result)
+        return result
+    }
+
+    private suspend fun dispatchCore(
+        action: UniversalAction,
+        flight: FlightBuilder?
+    ): DispatchResult {
         val startNs = System.nanoTime()
 
         val twin = twinResolver(action.targetDeviceId)
@@ -109,6 +131,17 @@ class ActionDispatcher(
                 .map { it.route }
         }
         val routesToTry = availableRoutes.take(maxRetries + 1)
+        if (flight != null) {
+            flight.routesEvaluated(routesToTry.map { r ->
+                com.elysium.nexus.fabric.evidence.CandidateRoute(
+                    protocol = r.protocol,
+                    score = routeScorer?.score(action, twin, r)
+                        ?: (1.0 - r.priority / 100.0).coerceIn(0.0, 1.0),
+                    isSelected = r == routesToTry.firstOrNull(),
+                    rejectionReason = null
+                )
+            })
+        }
 
         for ((attemptIndex, route) in routesToTry.withIndex()) {
             // V06-P14: per-protocol circuit breaker gates every attempt.
@@ -143,6 +176,7 @@ class ActionDispatcher(
             }
 
             // §25 IR routes resolve from installed profiles, NOT from hardcoded NEC
+            val resolveStartNs = System.nanoTime()
             val deviceState = if (route.protocol == Protocol.DirectIr || route.protocol == Protocol.HubIr) {
                 when (val resolution = resolveIrCommand(action, route)) {
                     is CommandResolution.Resolved -> {
@@ -179,6 +213,10 @@ class ActionDispatcher(
             } else {
                 DefaultActionTranslator.translate(action, route)
             }
+            flight?.resolveLatencyNs(System.nanoTime() - resolveStartNs)
+            if (deviceState is DeviceState.IrCommand) {
+                flight?.commandPayload("IR ${deviceState.protocolName} (${deviceState.irSignal}")
+            }
 
             if (deviceState == null) {
                 lastError = "Cannot resolve command for ${action::class.simpleName} via ${route.protocol}"
@@ -190,10 +228,13 @@ class ActionDispatcher(
                 continue
             }
 
+            val sendStartNs = System.nanoTime()
             val writeResult = route.adapter.write(action.targetDeviceId, deviceState)
 
             when (writeResult) {
                 is WriteResult.Ok -> {
+                    flight?.sendLatencyNs(System.nanoTime() - sendStartNs)
+                    flight?.winningRoute(route)
                     circuitBreaker?.recordSuccess(route.protocol)
                     neutralizer.trackAction(action)
                     activeSession = activeSession.recordActivity()
@@ -226,6 +267,52 @@ class ActionDispatcher(
         val resolver = deviceCommandResolver
             ?: return CommandResolution.ProfileMissing("no-resolver-context")
         return resolver.resolve(action.targetDeviceId, action)
+    }
+
+    /**
+     * V06-P22: finalize the flight trace from a terminal [DispatchResult].
+     * Never called when [flightRecorder] is null (the flight is opt-in).
+     */
+    private fun finishFlight(flight: FlightBuilder, result: DispatchResult) {
+        val transportResult: TransportResult
+        val error: String?
+        when (result) {
+            is DispatchResult.Success -> {
+                transportResult = TransportResult.Success
+                error = null
+            }
+            is DispatchResult.NoTarget -> {
+                transportResult = TransportResult.NoRoute
+                error = "No target ${result.deviceId}"
+            }
+            is DispatchResult.NoRoute -> {
+                transportResult = TransportResult.NoRoute
+                error = "No route for ${result.target.deviceId}"
+            }
+            is DispatchResult.PermissionDenied -> {
+                transportResult = TransportResult.PermissionDenied
+                error = "Missing ${result.missing}"
+            }
+            is DispatchResult.TranslationFailed -> {
+                transportResult = TransportResult.AdapterError
+                error = "Translation failed via ${result.route.protocol}"
+            }
+            is DispatchResult.AdapterFailed -> {
+                transportResult = TransportResult.AdapterError
+                error = "Adapter ${result.writeError.code}: ${result.writeError.message}"
+            }
+            is DispatchResult.AllRoutesFailed -> {
+                val blocked = result.reason.contains("Circuit open")
+                transportResult = if (blocked) TransportResult.CircuitBreakerOpen else TransportResult.Fallback
+                error = result.reason
+            }
+        }
+        flight.result(transportResult)
+        flight.error(error)
+        if (transportResult == TransportResult.CircuitBreakerOpen) {
+            flight.circuitBreakerTripped(true)
+        }
+        flight.complete()
     }
 
     suspend fun terminateSession(deviceId: DeviceId): List<UniversalAction> {
