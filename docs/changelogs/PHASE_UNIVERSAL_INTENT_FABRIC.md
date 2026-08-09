@@ -530,6 +530,32 @@ every claim is evidence-bound.
 - Tests: 1,045 → 1,060 (15 new: 12 mapper + 3 summary). Lint + assemble green.
 
 
+
+### V06 PHASE 8 — Durable scenes (Room-backed, process-death safe)
+
+- `SceneJsonCodec` (pure, lossless): full-fidelity JSON codec for §36
+  scenes — every `UniversalAction` variant (24), every `StatePredicate`
+  (6), every `DeviceState` inside predicates (10 + IR). Contract: never
+  silently drops data (IR with signal blob → throws; unknown types →
+  rejected), defaults explicit in JSON.
+- `ElysiumUserDatabase` v8: new `scenes` table (`sceneId` PK, payloadJson,
+  tagsCsv, createdAt/updatedAt, index on updatedAtEpochMs) +
+  `MIGRATION_7_8` (previous data untouched). Schema 8.json exported.
+- `RoomSceneRegistry` (implements `SceneRegistry`): save/get/delete/
+  observe/tags against Room; corrupt rows are logged loudly and skipped,
+  never silently substituted. Wired in `MainActivity.onCreate`.
+- `SceneDefinitionConverter`: shared import/export DSL logic extracted
+  out of `InMemorySceneRegistry` (both registries now use it); export now
+  emits canonical DSL keys (`power_on`) that import accepts — fixed a
+  latent round-trip inconsistency ("PowerOn" vs "power_on").
+- Honest status: registries built + verified; scene **creation UI** is
+  still a later phase (list/editor screens currently handle Automations,
+  not Scenes).
+- Tests: 1,060 → 1,078 (11 codec + 7 registry). Instrumented test
+  `migrate7To8_createsScenesTable` added (needs emulator, CI
+  continue-on-error). Lint + assemble green.
+
+
 ## Build Status (this update)
 
 ```
