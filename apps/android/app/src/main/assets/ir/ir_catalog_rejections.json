@@ -1,9 +1,8 @@
 {
   "buildProfile": "production",
-  "generatedAtUtc": "2026-08-06T17:20:00Z",
-  "byReason": {
-    "NON_POSITIVE_DURATION": 0,
-    "UNSUPPORTED_PROTOCOL": 0
-  },
-  "totalRejections": 0
+  "catalogBuildId": "b6585d1416104d904962489aed93a58a32e4a3ccfedbd47ed8e821127b4f2a7b",
+  "generatedAtUtc": "2026-08-09T00:00:00Z",
+  "byReason": {},
+  "totalRejections": 0,
+  "note": "baseline — PTG-02 will record real rejection counts"
 }

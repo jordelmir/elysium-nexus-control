@@ -1,10 +1,15 @@
 {
+  "catalogBuildId": "b6585d1416104d904962489aed93a58a32e4a3ccfedbd47ed8e821127b4f2a7b",
   "schemaVersion": 5,
   "profile": "production",
   "generatedAtUtc": "2026-08-08T23:30:00Z",
   "pipelineVersion": "0.5.1-v5-native",
   "databaseSha256": "00732dda3eb3bb7fd717b7fc93f503cac33426d2bedf288e83e67afdd98a09d5",
   "canonicalContentSha256": "e0bfbea28910399842e4ab0744b451f791064b6dead204bfdb1dc0f3b642a36b",
+  "sourceLockSha256": "2afef57e8e41070649401d5326641fd08eac27482962579f33d49feeba4614f2",
+  "rejectionManifestSha256": "a619fc7c5f5764806d74ffbc6bdb34bf6017c366d8ec8bd5116f0e31aa89d2f7",
+  "licenseManifestSha256": "ce419b70785b66bb010013e2c126560f1c45ca4c9e89fa6496f774f47eb45e46",
+  "policyVersion": "v0.6-ptg-1",
   "databaseSizeBytes": 94793728,
   "counts": {
     "sources": 5,

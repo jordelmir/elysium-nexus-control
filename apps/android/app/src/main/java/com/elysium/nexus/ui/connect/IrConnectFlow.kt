@@ -79,6 +79,9 @@ import java.util.UUID
 
 private const val TAG = "ElysiumNexus.IrProbe"
 
+/** PTG-01 §30: schema version written when NO manifest could be read (fail-closed marker, never a hardcoded version). */
+private const val INSTALLED_CATALOG_SCHEMA_UNKNOWN = 0
+
 // ═══════════════════════════════════════════════════════════════════════════
 // §23 Complete Probe State Machine
 // ═══════════════════════════════════════════════════════════════════════════
@@ -413,7 +416,18 @@ fun IrConnectFlow(
 
     fun readCatalogHash(): String = readManifestKey("canonicalContentSha256")
 
-    fun readCatalogBuildId(): String = readManifestKey("buildId")
+    /** PTG-01 §31: catalog identity comes from the verified build's metadata. */
+    fun readCatalogBuildId(): String =
+        com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager.getInstance(context)
+            .currentCatalogMetadata()?.catalogBuildId
+            ?: readManifestKey("catalogBuildId")
+            ?: "unknown"
+
+    /** PTG-01 §30: schema version is READ from the manifest — never hardcoded. */
+    fun readCatalogSchemaVersion(): Int? =
+        com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager.getInstance(context)
+            .currentCatalogMetadata()?.schemaVersion
+            ?: readManifestKey("schemaVersion").toIntOrNull()
 
     fun buildAndPersistInstalledProfile(winnerCandidate: com.elysium.nexus.core.device.IrCodeSet, verifiedActions: Set<IrAction>): InstalledIrProfile? {
         val bindings = mutableMapOf<IrAction, IrCommandBinding>()
@@ -475,7 +489,8 @@ fun IrConnectFlow(
             sourceRevision = winnerCandidate.commandBindings.firstOrNull()?.sourceRevisionId
                 ?: winnerCandidate.provenance.commitSha
                 ?: "catalog-legacy",
-            catalogSchemaVersionAtInstall = 5,
+            catalogSchemaVersionAtInstall = readCatalogSchemaVersion()
+                ?: INSTALLED_CATALOG_SCHEMA_UNKNOWN,
             catalogCanonicalHashAtInstall = readCatalogHash(),
             catalogBuildIdAtInstall = readCatalogBuildId(),
             commands = bindings,

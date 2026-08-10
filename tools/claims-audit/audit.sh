@@ -18,6 +18,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ALLOW_PATHS=(
   "docs/audits/V06_REALITY_MATRIX.md"
+  "docs/audits/V06_REALITY_LEDGER.md"
   "docs/changelogs/"
   "docs/architecture/MASTER_ORDER.md"
   "docs/architecture/MASTER_ORDER_SECTIONS.md"
