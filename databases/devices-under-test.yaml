@@ -1,0 +1,182 @@
+# Devices Under Test — Elysium Nexus Universal Control OS
+#
+# V06-P33 (§54–§56): Device Test Matrix — STRATIFIED, not random.
+# Every stratum the product must survive is represented here with an
+# explicit owner, transports and the MASTER_ORDER gates it unlocks.
+#
+# Field reference (validated by tools/device-matrix/validate.py):
+#   id            unique, lowercase kebab
+#   brand/model   human-readable identity
+#   stratum       one of the STRATA below (each stratum = one axis of the
+#                 product's reality: fold posture, cheap-Android
+#                 degradation, TV protocol vertical, receiver, hosts)
+#   transports    subset of the TRANSPORTS enum
+#   firmware      current/expected firmware (honest, may be "unknown")
+#   priority      1 (blocker) .. 5 (nice-to-have)
+#   state         available (physically present in the lab) | planned
+#   owner         who must touch it
+#   gates         MASTER_ORDER phases this device unlocks
+#
+# Honesty rule (§33): a device listed here is NOT evidence anything was
+# tested. Entries flip to `verified:` only inside a test report with a
+# matching compatibility state (VERIFIED_LAB / VERIFIED_COMMUNITY / ...).
+# `state: available` = the hardware exists in the lab environment.
+
+strata:
+  - id: phone_foldable_flagship
+    label: Foldable flagship phone (lab posture device)
+    required: true
+  - id: phone_cheap_android
+    label: Cheap Android — the degradation path is a FEATURE, not a gate
+    required: true
+  - id: phone_mid
+    label: Mid-tier Android (typical market phone)
+    required: false
+  - id: tv_lg
+    label: LG TV vertical (WebOS SSAP + LAN discovery + WiFi Oracle)
+    required: true
+  - id: tv_other
+    label: Other TV brands (Samsung/Sony/regional — one adapter at a time §27)
+    required: false
+  - id: receiver_nexus
+    label: Nexus Receiver (Phase 4 hardware)
+    required: true
+  - id: host_desktop
+    label: Desktop hosts (macOS / Windows / Linux agents)
+    required: false
+  - id: runner_emulator
+    label: Android emulator (CI-only, instrumented tests)
+    required: true
+
+transports:
+  - ir_direct
+  - bluetooth_le
+  - wifi_lan
+  - hdmi_cec
+  - matter
+  - thread
+  - receiver_link
+  - usb_serial
+
+devices:
+  - id: honormagic-v2
+    brand: Honor
+    model: Magic V2
+    stratum: phone_foldable_flagship
+    transports: [bluetooth_le, wifi_lan, ir_direct]
+    firmware: unknown
+    priority: 1
+    state: available
+    owner: Jor (lab)
+    gates: [PH16 posture, PH17 E2E, PH25, PH26]
+    notes: "Lab device, NOT the target (§9 no device-hardcoding); fold posture handling is first-class."
+
+  - id: aosp-cheap-android
+    brand: Generic
+    model: Cheap Android (Android 10–12, 2GB RAM)
+    stratum: phone_cheap_android
+    transports: [bluetooth_le, wifi_lan, ir_direct]
+    firmware: unknown
+    priority: 1
+    state: planned
+    owner: Jor
+    gates: [PH32 degradation matrix]
+    notes: "The degradation path: minimal adapters, bounded memory (§75-§78), offline core."
+
+  - id: samsung-galaxy-a-mid
+    brand: Samsung
+    model: Galaxy A series (mid)
+    stratum: phone_mid
+    transports: [bluetooth_le, wifi_lan, ir_direct]
+    firmware: unknown
+    priority: 3
+    state: planned
+    owner: community track
+    gates: []
+
+  - id: lg-c2-tv
+    brand: LG
+    model: C2 OLED
+    stratum: tv_lg
+    transports: [wifi_lan, hdmi_cec, ir_direct]
+    firmware: webOS 22+
+    priority: 1
+    state: planned
+    owner: Jor (lab)
+    gates: [PH10 LAN/TV vertical, PH16, PH25, PH36]
+    notes: "Primary TV vertical: SSAP, LAN discovery, WiFi Oracle autocalibration (§54-§56)."
+
+  - id: lg-sn-unplanned-tv
+    brand: LG
+    model: older webOS / NetCast
+    stratum: tv_lg
+    transports: [ir_direct]
+    firmware: unknown
+    priority: 4
+    state: planned
+    owner: community track
+    gates: [PH36]
+
+  - id: samsung-tv-contract
+    brand: Samsung
+    model: contract-representative model
+    stratum: tv_other
+    transports: [ir_direct, wifi_lan]
+    firmware: Tizen (version TBD)
+    priority: 3
+    state: planned
+    owner: community track
+    gates: []
+    notes: "One adapter at a time (§27): LG first, Samsung after the LG vertical is verified."
+
+  - id: hisense-tcl-tv
+    brand: Hisense/TCL
+    model: regional-market TV
+    stratum: tv_other
+    transports: [ir_direct]
+    firmware: unknown
+    priority: 3
+    state: planned
+    owner: community track
+    gates: []
+
+  - id: nexus-receiver-dev
+    brand: Elysium
+    model: Nexus Receiver dev board
+    stratum: receiver_nexus
+    transports: [receiver_link, usb_serial]
+    firmware: TBD (Phase 4 signed OTA chain)
+    priority: 1
+    state: planned
+    owner: Jor (hardware)
+    gates: [PH20-PH23, PH32, PH36, PH38]
+    notes: "HIL harness: IR receiver + MCU capture + independent decoder (§54-§56)."
+
+  - id: macbook-agent-host
+    brand: Apple
+    model: MacBook (dev)
+    stratum: host_desktop
+    transports: [wifi_lan, receiver_link]
+    firmware: macOS (current)
+    priority: 4
+    state: available
+    owner: Jor (lab)
+    gates: [PH3 desktop agent]
+    notes: "Agent host, not a control target."
+
+  - id: android-emulator-34
+    brand: Google
+    model: Emulator API 34
+    stratum: runner_emulator
+    transports: [bluetooth_le]
+    firmware: API 34
+    priority: 2
+    state: available
+    owner: CI (continue-on-error)
+    gates: [PH4 migrations, PH8/9 Room, instrumented]
+    notes: "Instrumented tests only; emulator Bluetooth is not a real radio."
+
+# ── Stratification coverage ──────────────────────────────────────────────────
+# Every `required: true` stratum must contain at least one device, or the
+# validator fails: the matrix must NOT silently drop a reality axis.
+coverage_rule: required_strata_must_have_devices

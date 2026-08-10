@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Computer
@@ -100,6 +101,7 @@ fun HubScreen(
     onUsbCSelected: () -> Unit = {},
     onUniversalRemoteSelected: () -> Unit = {},
     onAutomationSelected: () -> Unit = {},
+    onScenesSelected: () -> Unit = {},
     onSettings: () -> Unit,
     onShowHelp: () -> Unit,
     firstDeviceLabel: String? = null,
@@ -606,7 +608,69 @@ fun HubScreen(
                 }
             }
 
-            // === CATEGORY GRID =====================================
+            // === ESCENAS ================================================
+            // §36 — multi-device scenes, durable via Room
+            // (SceneRegistry). A scene chains steps across
+            // devices: "Modo cine" = TV on + volume up
+            // + lights down.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onScenesSelected() },
+                accent = ElysiumColors.NeonGreen,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonGreen.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonGreen,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ESCENAS",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonGreen
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "§36 · pasos multi-dispositivo · guardado durable",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonGreen,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
             // The §15 hierarchy. One card per
             // [DeviceCategory]. The grid is responsive:
             // 1 column on phones, up to 4 on

@@ -3,6 +3,7 @@ package com.elysium.nexus.fabric.evidence
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
 import com.elysium.nexus.fabric.canonical.Protocol
+import com.elysium.nexus.fabric.canonical.NexusErrorCode
 import com.elysium.nexus.fabric.canonical.UniversalAction
 import com.elysium.nexus.fabric.routing.TransportRoute
 import java.util.UUID
@@ -137,6 +138,7 @@ class FlightBuilder internal constructor(
     private var sendLatencyNs: Long = 0L
     private var confirmLatencyNs: Long = 0L
     private var errorMessage: String? = null
+    private var errorCode: NexusErrorCode? = null
     private var circuitBreakerTripped: Boolean = false
 
     fun routesEvaluated(routes: List<CandidateRoute>): FlightBuilder {
@@ -195,6 +197,14 @@ class FlightBuilder internal constructor(
     }
 
     /**
+     * V06-P24: typed taxonomy code for telemetry (\u00a780 rule 4).
+     */
+    fun errorCode(code: NexusErrorCode?): FlightBuilder {
+        this.errorCode = code
+        return this
+    }
+
+    /**
      * Finalize and record the flight entry.
      */
     fun complete(): FlightEntry {
@@ -215,6 +225,7 @@ class FlightBuilder internal constructor(
             sendLatencyNs = sendLatencyNs,
             confirmLatencyNs = confirmLatencyNs,
             errorMessage = errorMessage,
+            errorCode = errorCode,
             circuitBreakerTripped = circuitBreakerTripped
         )
         recorder.record(entry)
@@ -242,6 +253,7 @@ data class FlightEntry(
     val sendLatencyNs: Long,
     val confirmLatencyNs: Long,
     val errorMessage: String?,
+    val errorCode: NexusErrorCode? = null,
     val circuitBreakerTripped: Boolean
 ) {
     val totalLatencyNs: Long get() = completedAtNs - startedAtNs

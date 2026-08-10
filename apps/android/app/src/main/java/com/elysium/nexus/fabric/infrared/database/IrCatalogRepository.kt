@@ -10,6 +10,7 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.SelectedCommandBinding
+import com.elysium.nexus.fabric.profile.RevalidationCatalog
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.CodecSpec
@@ -77,7 +78,7 @@ private fun buildSelectedCommands(
  */
 class IrCatalogRepository private constructor(
     private val context: Context
-) : IrCatalog {
+) : IrCatalog, RevalidationCatalog {
 
     companion object {
         @Volatile
@@ -128,6 +129,10 @@ class IrCatalogRepository private constructor(
         val database = getDatabase()
         val actionKey = action.name
         val results = mutableListOf<IrCodeSet>()
+        // PTG-02 §3: probe candidates deliberately include INTERNAL_UNVERIFIED
+        // code sets (probing exists to VERIFY candidates — unverified is not
+        // blocked, only BLOCKED is). Evidence floors apply to production
+        // claims, not to the probe surface.
 
         val query = """
             SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
@@ -145,7 +150,7 @@ class IrCatalogRepository private constructor(
               AND a.canonical_key = ?
               AND (dt.canonical_name = ? OR ? = '')
               AND s.production_approved = 1
-              AND cs.verification_status NOT IN ('INTERNAL_UNVERIFIED', 'BLOCKED')
+              AND cs.verification_status != 'BLOCKED'
             GROUP BY cs.id
             ORDER BY cs.id
             LIMIT 200
@@ -226,7 +231,7 @@ class IrCatalogRepository private constructor(
             WHERE a.canonical_key = ?
               AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
               AND s.production_approved = 1
-              AND cs.verification_status NOT IN ('INTERNAL_UNVERIFIED', 'BLOCKED')
+              AND cs.verification_status != 'BLOCKED'
         """.trimIndent()
 
         val selectCols = """

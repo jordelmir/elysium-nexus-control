@@ -1,17 +1,20 @@
 name: Android CI
 
-# Elysium Nexus — Android CI pipeline
+# Elysium Nexus — Android CI pipeline (full path)
 #
-# Gates: catalog integrity → Python lint → JVM tests → Android lint →
-#        debug build → release build (R8) → SBOM → instrumented tests.
+# V06-P35: the FULL/authoritative pipeline runs on push to main/develop
+# (and on demand via workflow_dispatch). PRs run the fast path
+# (ci-fast.yml) — release gates (R8, SBOM, emulator) belong to pushes.
+#
+# Gates: catalog integrity → Python lint → device-matrix validation →
+#        JVM tests → Android lint → debug build → release build (R8) →
+#        SBOM → instrumented tests.
 #
 # §44: every change must be measured. This workflow enforces that
-# on every push and pull request to main/develop.
+# on every push to main/develop.
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
 
@@ -119,6 +122,17 @@ jobs:
               print(f'  ✓ [{s[\"id\"]}] commit={cid[:12]}...')
           print('lockfile integrity: PASS')
           "
+
+      # ── Gate 2b: Device-matrix validation (V06-P33) ──
+      - name: Validate devices-under-test matrix
+        run: |
+          pip install --break-system-packages pyyaml 2>/dev/null || pip install pyyaml
+          python3 tools/device-matrix/validate.py
+
+      # ── Gate 2c: Catalog eligibility (V06-PTG-02 §3) ──
+      - name: Enforce production catalog eligibility gate
+        run: |
+          python3 tools/ir-data/check_catalog_eligibility.py
 
       # ── Gate 3: Python lint ──
       - name: Lint Python scripts (ruff)

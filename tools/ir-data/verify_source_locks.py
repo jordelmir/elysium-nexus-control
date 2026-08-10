@@ -46,6 +46,37 @@ def compute_content_hash(repo_dir: Path, included_paths: list[str]) -> str:
 
     return h.hexdigest()
 
+
+def verify_artifact(s: dict) -> str | None:
+    """First-party versioned dataset: exact bytes must match the lock.
+    Returns an error string or None when verified."""
+    included = s.get("includedPaths", [])
+    files: list[Path] = []
+    for inc in included:
+        inc_path = ROOT / inc
+        if not inc_path.exists():
+            return f"Artifact path missing: {inc_path}"
+        if inc_path.is_file():
+            files.append(inc_path)
+        else:
+            files.extend(sorted(p for p in inc_path.rglob("*") if p.is_file()))
+    if not files:
+        return "No artifact files declared"
+    h = hashlib.sha256()
+    for f in sorted(set(files)):
+        h.update(f.relative_to(ROOT).as_posix().encode("utf-8"))
+        h.update(f.read_bytes())
+    if h.hexdigest() != s.get("sourceContentSha256"):
+        return (f"Artifact content SHA mismatch: expected "
+                f"{s['sourceContentSha256']}, got {h.hexdigest()}")
+    lic_path = ROOT / s["licenseFilePath"]
+    if not lic_path.exists():
+        return f"License file missing: {lic_path}"
+    lic_sha = hashlib.sha256(lic_path.read_bytes()).hexdigest()
+    if lic_sha != s.get("licenseFileSha256"):
+        return f"Artifact license SHA mismatch: expected {s['licenseFileSha256']}, got {lic_sha}"
+    return None
+
 def verify():
     print("==> Verifying IR Data Source Locks against sources.lock.json...")
     if not LOCKFILE_PATH.exists():
@@ -61,6 +92,18 @@ def verify():
         repo_dir = CACHE / sid
         if sid == "harctoolbox-irp-protocols":
             repo_dir = CACHE / "irp-transmogrifier"
+
+        if s.get("kind") == "artifact":
+            # V0.6.1 Phase 2: first-party datasets are in-repo versioned
+            # artifacts, not git checkouts. Verify exact bytes + license
+            # content against the lock (same fail-closed posture).
+            actual = verify_artifact(s)
+            if actual is not None:
+                print(f"  ❌ [{sid}] {actual}")
+                errors += 1
+                continue
+            print(f"  ✓ [{sid}] Artifact verified: content={s['sourceContentSha256'][:12]}... bytes-exact")
+            continue
 
         if not repo_dir.exists():
             print(f"  ❌ [{sid}] Repository directory missing: {repo_dir}")

@@ -111,6 +111,8 @@ class MainActivity : ComponentActivity() {
     private var engine: CanonicalInputEngine? = null
     private var latencyTracker: LatencyTracker? = null
     private var activityScope: CoroutineScope? = null
+    private var sceneEngine: com.elysium.nexus.fabric.automation.ConcreteAutomationEngineService? = null
+    private var sceneRegistry: com.elysium.nexus.fabric.automation.SceneRegistry? = null
     private var driverJob: Job? = null
     private var latencyJob: Job? = null
     private var motionJob: Job? = null
@@ -138,6 +140,8 @@ class MainActivity : ComponentActivity() {
         MutableStateFlow(com.elysium.nexus.core.posture.Posture.UNKNOWN)
     private val lastDeviceFlow: MutableStateFlow<com.elysium.nexus.core.profile.LastDevice?> =
         MutableStateFlow(null)
+    private val scenesFlow: MutableStateFlow<List<com.elysium.nexus.fabric.automation.Scene>> =
+        MutableStateFlow(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -195,6 +199,65 @@ class MainActivity : ComponentActivity() {
 
         val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         this.activityScope = activityScope
+
+        // §34 Automation engine — wired to the Run button. The action
+        // dispatcher is honest: no device adapters are registered at
+        // this phase, so every dispatch is reported as not delivered
+        // (the engine records it; we never fabricate execution).
+        sceneEngine = com.elysium.nexus.fabric.automation.ConcreteAutomationEngineService(
+            actionDispatcher = com.elysium.nexus.fabric.automation.UniversalActionDispatcher { _, _ ->
+                android.util.Log.w(tag, "Automation dispatch: no device adapter registered")
+                false
+            }
+        )
+
+        // §36 Durable scenes — Room-backed registry. Scenes saved here
+        // survive process death and app restarts (schema v8, table `scenes`).
+        sceneRegistry = com.elysium.nexus.fabric.automation.RoomSceneRegistry(
+            com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(this).sceneDao()
+        )
+        activityScope.launch {
+            sceneRegistry?.observeScenes()?.collect { scenesFlow.value = it }
+        }
+
+        // PHASE 2 wiring: revalidate installed IR profiles against the
+        // current catalog. Runs once at startup on the main scope (the
+        // service hops to Dispatchers.IO internally). If the catalog
+        // changed since install: bindings are resolved again, migrated
+        // when a fingerprint-unique equivalent exists, and the profile
+        // hash is only advanced when EVERY binding is valid — a broken
+        // binding never destroys a profile (per-binding decisions).
+        activityScope.launch {
+            try {
+                val installedRepo = com.elysium.nexus.fabric.profile
+                    .InstalledIrProfileRepository(this@MainActivity)
+                val installed = installedRepo.getAllProfilesSuspend()
+                if (installed.isEmpty()) return@launch
+                val revalidation = com.elysium.nexus.fabric.profile
+                    .ProfileRevalidationService(this@MainActivity)
+                for (profile in installed) {
+                    val result = revalidation.revalidateProfile(profile)
+                    if (result.catalogHashMatches) continue
+                    if (result.allBindingsValid) {
+                        revalidation.applyRevalidation(profile, result)
+                        android.util.Log.i(
+                            tag,
+                            "Profile ${profile.brand}/${profile.model} revalidated " +
+                                "(${result.bindingResults.size} bindings, hash advanced)"
+                        )
+                    } else {
+                        android.util.Log.w(
+                            tag,
+                            "Profile ${profile.brand}/${profile.model}: " +
+                                "revalidation action needed — ${result.bindingResults.size} " +
+                                "bindings checked, userAction=${result.needsUserAction}"
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.w(tag, "Profile revalidation skipped: ${e.message}")
+            }
+        }
 
         val transportBinding = TransportBinding(defaultTransport)
         this.transportBinding = transportBinding
@@ -398,6 +461,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onAutomationSelected = {
                             navStack.value = navStack.value + HubDestination.AutomationList
+                        },
+                        onScenesSelected = {
+                            navStack.value = navStack.value + HubDestination.SceneList
                         },
                         onSettings = { settingsVisible.value = true },
                         onShowHelp = { tourVisible.value = true },
@@ -672,8 +738,24 @@ class MainActivity : ComponentActivity() {
                             automationDefinitionStore?.delete(auto.id)
                         },
                         onRunAutomation = { auto ->
-                            // TODO: Wire to AutomationEngine implementation
-                            android.util.Log.i("MainActivity", "Run automation: ${auto.name}")
+                            val engine = sceneEngine
+                            val scope = activityScope
+                            if (engine == null || scope == null) {
+                                android.util.Log.w(tag, "Run automation skipped: engine or scope not ready")
+                            } else {
+                                scope.launch {
+                                    val mapped = com.elysium.nexus.fabric.automation.AutomationSceneMapper
+                                        .toMacroTransaction(auto)
+                                    val result = engine.executeMacro(mapped.transaction)
+                                    val summary = com.elysium.nexus.fabric.automation
+                                        .summarizeExecution(result)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Automation '${auto.name}' → $summary" +
+                                            " (canonical=${mapped.classifiedCanonical()}, custom=${mapped.customKeyCount})"
+                                    )
+                                }
+                            }
                         }
                     )
                     is HubDestination.AutomationEditor -> com.elysium.nexus.ui.automation.AutomationEditorScreen(
@@ -688,6 +770,70 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 automationStore = automationStore + saved
                                 automationDefinitionStore?.add(saved)
+                            }
+                            navStack.value = navStack.value.dropLast(1)
+                        }
+                    )
+                    // §36 Scenes — durable via Room-backed SceneRegistry.
+                    // List: run/delete/edit. Run executes through the
+                    // concrete engine (honest dispatcher: without device
+                    // adapters every dispatch is recorded as not delivered).
+                    is HubDestination.SceneList -> com.elysium.nexus.ui.scenes.SceneListScreen(
+                        scenes = scenesFlow.collectAsState().value,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onCreateNew = {
+                            navStack.value = navStack.value + HubDestination.SceneEditor()
+                        },
+                        onEditScene = { scene ->
+                            navStack.value = navStack.value + HubDestination.SceneEditor(scene)
+                        },
+                        onDeleteScene = { scene ->
+                            val registry = sceneRegistry
+                            val scope = activityScope
+                            if (registry == null || scope == null) {
+                                android.util.Log.w(tag, "Delete scene skipped: registry or scope not ready")
+                            } else {
+                                scope.launch {
+                                    registry.deleteScene(scene.id)
+                                    android.util.Log.i(tag, "Scene '${scene.name}' deleted (${scene.id})")
+                                }
+                            }
+                        },
+                        onRunScene = { scene ->
+                            val engine = sceneEngine
+                            val scope = activityScope
+                            if (engine == null || scope == null) {
+                                android.util.Log.w(tag, "Run scene skipped: engine or scope not ready")
+                            } else {
+                                scope.launch {
+                                    val result = engine.executeScene(scene)
+                                    val summary = com.elysium.nexus.fabric.automation
+                                        .summarizeExecution(result)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Scene '${scene.name}' → $summary " +
+                                            "(${scene.steps.size} pasos, ${scene.id})"
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    is HubDestination.SceneEditor -> com.elysium.nexus.ui.scenes.SceneEditorScreen(
+                        existingScene = current.scene,
+                        onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onSave = { saved ->
+                            val registry = sceneRegistry
+                            val scope = activityScope
+                            if (registry == null || scope == null) {
+                                android.util.Log.w(tag, "Save scene skipped: registry or scope not ready")
+                            } else {
+                                scope.launch {
+                                    registry.saveScene(saved)
+                                    android.util.Log.i(
+                                        tag,
+                                        "Scene '${saved.name}' saved (${saved.steps.size} pasos, ${saved.id})"
+                                    )
+                                }
                             }
                             navStack.value = navStack.value.dropLast(1)
                         }

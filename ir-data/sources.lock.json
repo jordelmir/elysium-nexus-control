@@ -95,6 +95,61 @@
       "sourceContentSha256": "b996b4fdb084cfec5953662f3e7b9efee0e3a3c46ac25f409c4b14e8a8e6e5ee",
       "productionEnabled": true,
       "approvalReference": "PUBLIC-DOMAIN-DATA"
+    },
+    {
+      "id": "elysium-curated-observed",
+      "repository": "https://github.com/jordelmir/elysium-nexus-control",
+      "requestedRef": "data/curated-tv/v1",
+      "resolvedCommit": "curated-tv-v1",
+      "resolvedTree": "8465003647f54c496d55a1c1298790797c293c5855dd73b850b7d35e0bb061b0",
+      "retrievedAtUtc": "2026-08-10T00:00:00Z",
+      "includedPaths": [
+        "ir-data/data/curated-tv/v1"
+      ],
+      "sourceLicense": "LicenseRef-ELYSIUM-CURATED-V1",
+      "licenseFilePath": "ir-data/data/curated-tv/v1/LICENSE.txt",
+      "licenseFileSha256": "8465003647f54c496d55a1c1298790797c293c5855dd73b850b7d35e0bb061b0",
+      "sourceContentSha256": "d65ac4138ce0d64e988f6e575a9804eb01e412af929322fd294b644498ad49fc",
+      "productionEnabled": true,
+      "approvalReference": "INTERNAL-CURATED-V1-AUDIT",
+      "kind": "artifact"
+    },
+    {
+      "id": "elysium-nexus-curated",
+      "repository": "https://github.com/jordelmir/elysium-nexus-control",
+      "requestedRef": "data/curated-tv/v1 (KINTECH subset)",
+      "resolvedCommit": "curated-kintech-v1",
+      "resolvedTree": "8465003647f54c496d55a1c1298790797c293c5855dd73b850b7d35e0bb061b0",
+      "retrievedAtUtc": "2026-08-10T00:00:00Z",
+      "includedPaths": [
+        "ir-data/data/curated-tv/v1"
+      ],
+      "sourceLicense": "LicenseRef-ELYSIUM-CURATED-V1",
+      "licenseFilePath": "ir-data/data/curated-tv/v1/LICENSE.txt",
+      "licenseFileSha256": "8465003647f54c496d55a1c1298790797c293c5855dd73b850b7d35e0bb061b0",
+      "sourceContentSha256": "d65ac4138ce0d64e988f6e575a9804eb01e412af929322fd294b644498ad49fc",
+      "productionEnabled": true,
+      "approvalReference": "INTERNAL-KINTECH-CURATED-V1-AUDIT",
+      "kind": "artifact"
+    },
+    {
+      "id": "elysium-template-hypotheses",
+      "repository": "https://github.com/jordelmir/elysium-nexus-control",
+      "requestedRef": "data/ir-templates/v1",
+      "resolvedCommit": "ir-templates-v1",
+      "resolvedTree": "bdd992d62661c09bfc7bbbdb8ae4be8c968a8482d4c57db3b2eccdcc470eb6ca",
+      "retrievedAtUtc": "2026-08-10T00:00:00Z",
+      "includedPaths": [
+        "ir-data/data/ir-templates/v1/templates.json",
+        "ir-data/data/ir-templates/v1/LICENSE.txt"
+      ],
+      "sourceLicense": "LicenseRef-ELYSIUM-HYPOTHESES",
+      "licenseFilePath": "ir-data/data/ir-templates/v1/LICENSE.txt",
+      "licenseFileSha256": "bdd992d62661c09bfc7bbbdb8ae4be8c968a8482d4c57db3b2eccdcc470eb6ca",
+      "sourceContentSha256": "36c7c688243ccd042be866da578f75ebe1e3a6652990401dcd4c7c96b17cd122",
+      "productionEnabled": false,
+      "approvalReference": "HYPOTHESIS-ONLY",
+      "kind": "artifact"
     }
   ]
 }

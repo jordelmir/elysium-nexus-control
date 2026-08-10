@@ -39,6 +39,13 @@ OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 MANIFEST_PATH = OUTPUT_DIR / "ir_catalog.manifest.json"
 REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
+STATS_PATH = OUTPUT_DIR / "ir_catalog_stats.json"
+SOURCES_LOCK_PATH = ROOT / "ir-data" / "sources.lock.json"
+
+# PTG-01 §9: policy version participates in catalogBuildId. Bump ONLY when the
+# eligibility/identity policy changes (it invalidates every build identity).
+BUILD_ID_POLICY_VERSION = "v0.6-ptg-1"
+BUILD_ID_PREFIX = "ptg-v1"
 
 sys.path.insert(0, str(TOOLS_DIR))
 
@@ -49,6 +56,45 @@ def calculate_file_sha256(file_path: Path) -> str:
         while chunk := f.read(65536):
             h.update(chunk)
     return h.hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def compute_license_manifest_sha() -> str:
+    """§9: deterministic digest of the license/provenance truth in the lockfile.
+
+    Ordered by source id — stable across machines and rebuilds. Uses only
+    identifier- and truth-bearing fields; timestamps are excluded.
+    """
+    lock = json.loads(SOURCES_LOCK_PATH.read_text())
+    entries = sorted(
+        (
+            s.get("id", ""),
+            s.get("licenseFileSha256", ""),
+            s.get("sourceLicense", ""),
+            bool(s.get("productionEnabled", False)),
+        )
+        for s in lock.get("sources", [])
+    )
+    canonical = "\n".join(f"{i}\t{f}\t{l}\t{p}" for i, f, l, p in entries) + "\n"
+    return sha256_text(canonical)
+
+
+def compute_catalog_build_id(schema_version: int, canonical_hash: str, source_lock_sha: str,
+                             rejection_sha: str, license_sha: str) -> str:
+    """§9: catalogBuildId = SHA256(prefix + schema + canonical + lock + rejections + licenses + policy)."""
+    material = "|".join([
+        BUILD_ID_PREFIX,
+        str(schema_version),
+        canonical_hash,
+        source_lock_sha,
+        rejection_sha,
+        license_sha,
+        BUILD_ID_POLICY_VERSION,
+    ])
+    return sha256_text(material)
 
 
 def log(msg: str):
@@ -75,28 +121,73 @@ def step_ingest(profile: str):
     log("Ingestion complete.")
 
 
-def step_seed_brands():
-    """Step 3: Seed curated brands from ir_codes_db.json."""
-    log("Seeding curated brands...")
-    import seed_curated_brands_v4
-    seed_curated_brands_v4.main()
-    log("Curated brands seeded.")
+def step_import_curated(profile: str):
+    """Step 3: V0.6.1 Phase 1/2 — curated TV dataset through the SourceAdapter
+    (fail-closed EntityCache + sources.lock authority, real per-file SHA-256).
+    NO legacy direct-DB seeder may touch the production artifact."""
+    log(f"Importing curated TV dataset (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_curated(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"Curated imported: {stats}")
 
 
-def step_seed_templates():
-    """Step 4: Seed DeviceTemplate-based TV brands."""
-    log("Seeding device templates...")
-    import seed_templates_v4
-    seed_templates_v4.main()
-    log("Device templates seeded.")
+def step_import_kintech(profile: str):
+    """Step 4: V0.6.1 Phase 1/2 — KINTECH subset under its own locked source
+    identity (elysium-nexus-curated)."""
+    log(f"Importing KINTECH dataset (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_kintech(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"KINTECH imported: {stats}")
 
 
-def step_seed_kintech():
-    """Step 5: Seed Kintech brand."""
-    log("Seeding Kintech...")
-    import seed_kintech_v4
-    seed_kintech_v4.main()
-    log("Kintech seeded.")
+def step_import_templates(profile: str):
+    """Step 5 (RESEARCH ONLY): hypothesis templates enter ONLY research
+    catalogs. import_templates raises under production by construction —
+    the dangerous data does not exist in the production artifact."""
+    if profile == "production":
+        log("Templates skipped: elysium-template-hypotheses is RESEARCH_ONLY "
+            "(Phase 1 fail-safe)")
+        return
+    log(f"Importing hypothesis templates (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_templates(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"Templates imported: {stats}")
 
 
 def step_optimize():
@@ -117,19 +208,68 @@ def step_export_hash() -> tuple[str, dict]:
 
 
 def step_write_manifest(profile: str, db_sha256: str, canonical_hash: str, counts: dict):
-    """Step 8: Write ir_catalog.manifest.json."""
+    """Step 8: Write ir_catalog.manifest.json — manifest is the SINGLE catalog authority (PTG-01 §2/§9/§10).
+
+    Carries the complete build identity: catalogBuildId + all provenance and
+    gate hashes. ir_catalog_stats.json is rewritten in the SAME write with the
+    SAME buildId — stale/divergent artifacts are a hard failure (order §10).
+    """
+    source_lock_sha = calculate_file_sha256(SOURCES_LOCK_PATH)
+    license_sha = compute_license_manifest_sha()
+
+    if REJECTIONS_PATH.exists():
+        rejection_sha = calculate_file_sha256(REJECTIONS_PATH)
+    else:
+        # Fail-closed baseline: a build without a rejection artifact still
+        # documents it explicitly (PTG-02 replaces this with real records).
+        baseline = {
+            "buildProfile": profile,
+            "catalogBuildId": None,  # filled below after buildId computation
+            "generatedAtUtc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "byReason": {},
+            "totalRejections": 0,
+            "note": "baseline — PTG-02 will record real rejection counts",
+        }
+        REJECTIONS_PATH.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n")
+        rejection_sha = calculate_file_sha256(REJECTIONS_PATH)
+
+    schema_version = 5
+    catalog_build_id = compute_catalog_build_id(
+        schema_version, canonical_hash, source_lock_sha, rejection_sha, license_sha
+    )
+
     manifest = {
-        "schemaVersion": 4,
+        "catalogBuildId": catalog_build_id,
+        "schemaVersion": schema_version,
         "profile": profile,
         "generatedAtUtc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "pipelineVersion": "0.5.0-unified-catalog",
+        "pipelineVersion": "0.5.1-v5-native",
+        "databaseSha256": db_sha256,
+        "canonicalContentSha256": canonical_hash,
+        "sourceLockSha256": source_lock_sha,
+        "rejectionManifestSha256": rejection_sha,
+        "licenseManifestSha256": license_sha,
+        "policyVersion": BUILD_ID_POLICY_VERSION,
+        "databaseSizeBytes": DB_PATH.stat().st_size,
+        "counts": counts
+    }
+    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+    log(f"Manifest written: {MANIFEST_PATH} (buildId={catalog_build_id[:16]}...)")
+
+    # §10: stats artifact gets the SAME identity — no second truth.
+    stats = {
+        "catalogBuildId": catalog_build_id,
+        "schemaVersion": schema_version,
+        "profile": profile,
+        "generatedAtUtc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pipelineVersion": "5.1.0-v5-native",
         "databaseSha256": db_sha256,
         "canonicalContentSha256": canonical_hash,
         "databaseSizeBytes": DB_PATH.stat().st_size,
         "counts": counts
     }
-    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
-    log(f"Manifest written: {MANIFEST_PATH}")
+    STATS_PATH.write_text(json.dumps(stats, indent=2, ensure_ascii=False) + "\n")
+    log(f"Stats rewritten with same buildId: {STATS_PATH.name}")
 
 
 def step_verify_manifest():
@@ -164,6 +304,27 @@ def step_verify_manifest():
         conn.close()
 
     log(f"Manifest verified: SHA256={actual_hash}, integrity=ok")
+
+    # §10: artifacts must share ONE build identity — any divergence fails.
+    build_id = manifest.get("catalogBuildId", "")
+    if not build_id:
+        log("ERROR: manifest has no catalogBuildId (stale/pre-PTG-01 artifact).")
+        return False
+    if STATS_PATH.exists():
+        stats = json.loads(STATS_PATH.read_text())
+        if stats.get("catalogBuildId") != build_id:
+            log(f"STALE BUILD TRUTH: stats.catalogBuildId={stats.get('catalogBuildId')} != manifest={build_id}")
+            return False
+        if stats.get("databaseSha256") != expected_hash:
+            log(f"STALE BUILD TRUTH: stats.databaseSha256 differs from manifest")
+            return False
+        if stats.get("counts") != manifest.get("counts"):
+            log("STALE BUILD TRUTH: counts differ between stats and manifest")
+            return False
+        log("Build identity unified: manifest ↔ stats carry the same catalogBuildId")
+    else:
+        log("WARNING: ir_catalog_stats.json absent (run full build to regenerate)")
+
     return True
 
 
@@ -173,12 +334,12 @@ def main():
                         help="Build profile: production (approved sources) or research (all sources)")
     parser.add_argument("--verify-only", action="store_true",
                         help="Only verify existing catalog against manifest")
-    parser.add_argument("--seed-templates", action="store_true",
-                        help="Only run DeviceTemplate seeder")
-    parser.add_argument("--seed-brands", action="store_true",
-                        help="Only run curated brands seeder")
-    parser.add_argument("--seed-kintech", action="store_true",
-                        help="Only run Kintech seeder")
+    parser.add_argument("--import-templates", action="store_true",
+                        help="Source-import hypothesis templates (research only)")
+    parser.add_argument("--import-curated", action="store_true",
+                        help="Source-import curated TV dataset (fail-closed)")
+    parser.add_argument("--import-kintech", action="store_true",
+                        help="Source-import KINTECH dataset (fail-closed)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -188,15 +349,15 @@ def main():
         ok = step_verify_manifest()
         sys.exit(0 if ok else 1)
 
-    # Individual seed modes
-    if args.seed_templates:
-        step_seed_templates()
+    # Individual source-import modes (each obliges a rebuild of build identity)
+    if args.import_templates:
+        step_import_templates(args.profile)
         return
-    if args.seed_brands:
-        step_seed_brands()
+    if args.import_curated:
+        step_import_curated(args.profile)
         return
-    if args.seed_kintech:
-        step_seed_kintech()
+    if args.import_kintech:
+        step_import_kintech(args.profile)
         return
 
     # Full build pipeline
@@ -208,10 +369,10 @@ def main():
     # Step 2: Ingest from sources
     step_ingest(args.profile)
 
-    # Step 3-5: Seed curated data
-    step_seed_brands()
-    step_seed_templates()
-    step_seed_kintech()
+    # Step 3-5: SourceAdapter imports (Phase 1 — no direct-DB seeders)
+    step_import_curated(args.profile)
+    step_import_kintech(args.profile)
+    step_import_templates(args.profile)
 
     # Step 6: Optimize
     step_optimize()

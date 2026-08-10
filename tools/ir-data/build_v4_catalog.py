@@ -23,7 +23,7 @@ OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 MANIFEST_PATH = OUTPUT_DIR / "ir_catalog.manifest.json"
 REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
-SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v4.sql"
+SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v5.sql"
 
 sys.path.insert(0, str(ROOT / "tools" / "ir-data"))
 import export_canonical_catalog

@@ -2,6 +2,8 @@ package com.elysium.nexus.fabric.profile
 
 import android.content.Context
 import android.util.Log
+import com.elysium.nexus.core.device.IrCodeSet
+import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.InstalledIrProfile
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCommandBinding
@@ -12,6 +14,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val TAG = "ElysiumNexus.Revalidation"
+
+/**
+ * V06-P2: Narrow catalog seam so revalidation decisions are JVM-testable.
+ * Production uses [IrCatalogRepository] (which also implements [IrCatalog]).
+ */
+interface RevalidationCatalog {
+    suspend fun getSignal(signalId: String): IrSignal?
+    suspend fun getCodeSet(codeSetId: String): IrCodeSet?
+}
 
 /**
  * P0.1: Result of revalidating a single binding within a profile.
@@ -55,11 +66,31 @@ data class ProfileRevalidationResult(
  *
  * This replaces the incorrect comparison: catalogHash != sourceRevision.
  */
+/**
+ * V06-P2: Nano profile-store seam so applyRevalidation is JVM-testable.
+ */
+interface ProfileRevalidationStore {
+    suspend fun saveProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction>)
+}
+
 class ProfileRevalidationService(
-    private val context: Context
+    private val catalog: RevalidationCatalog,
+    private val profileStore: ProfileRevalidationStore,
+    private val currentCatalogHash: () -> String
 ) {
-    private val profileRepo = InstalledIrProfileRepository(context)
-    private val catalogRepo = IrCatalogRepository.getInstance(context)
+    /**
+     * Production wiring: full catalog + manufacturer manifest hash + Room store.
+     */
+    constructor(context: Context) : this(
+        catalog = IrCatalogRepository.getInstance(context),
+        profileStore = object : ProfileRevalidationStore {
+            private val repo = InstalledIrProfileRepository(context)
+            override suspend fun saveProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction>) {
+                repo.saveProfileSuspend(profile, verifiedActions)
+            }
+        },
+        currentCatalogHash = { Companion.readManifestHash(context) }
+    )
 
     /**
      * Revalidate a single profile against the current catalog.
@@ -77,7 +108,7 @@ class ProfileRevalidationService(
      */
     suspend fun revalidateProfile(profile: InstalledIrProfile): ProfileRevalidationResult {
         return withContext(Dispatchers.IO) {
-            val currentCatalogHash = readCurrentCatalogHash()
+            val currentCatalogHash = currentCatalogHash.invoke()
             val catalogHashMatches = currentCatalogHash != "unknown" &&
                 profile.catalogCanonicalHashAtInstall != "unknown" &&
                 currentCatalogHash == profile.catalogCanonicalHashAtInstall
@@ -139,10 +170,10 @@ class ProfileRevalidationService(
 
         val updatedProfile = profile.copy(
             commands = updatedCommands,
-            catalogCanonicalHashAtInstall = readCurrentCatalogHash()
+            catalogCanonicalHashAtInstall = currentCatalogHash.invoke()
         )
 
-        profileRepo.saveProfileSuspend(updatedProfile, profile.verifiedActions)
+        profileStore.saveProfile(updatedProfile, profile.verifiedActions)
         Log.d(TAG, "Applied revalidation to profile ${profile.id}")
         return updatedProfile
     }
@@ -153,7 +184,7 @@ class ProfileRevalidationService(
         binding: IrCommandBinding
     ): BindingRevalidationResult {
         // 1. Check if signalId exists in current catalog
-        val catalogSignal = catalogRepo.getSignal(binding.signalId)
+        val catalogSignal = catalog.getSignal(binding.signalId)
 
         if (catalogSignal != null) {
             // 2. Verify physical fingerprint matches
@@ -163,7 +194,7 @@ class ProfileRevalidationService(
             }
 
             // 3. Fingerprint changed — check if there's a unique equivalent
-            val codeSet = catalogRepo.getCodeSet(codeSetId)
+            val codeSet = catalog.getCodeSet(codeSetId)
             if (codeSet != null) {
                 // P0.2: Use selectedCommands as single authority
                 val equivalent = codeSet.selectedCommands[action]?.takeIf {
@@ -192,7 +223,7 @@ class ProfileRevalidationService(
         }
 
         // 4. Signal not found — check if codeSet still exists
-        val codeSet = catalogRepo.getCodeSet(codeSetId)
+        val codeSet = catalog.getCodeSet(codeSetId)
         if (codeSet == null) {
             return BindingRevalidationResult.NeedsRevalidation(
                 action = action,
@@ -207,7 +238,7 @@ class ProfileRevalidationService(
             ?: codeSet.commandBindings.firstOrNull { it.action == action }?.signalId
 
         if (alternativeSignalId != null) {
-            val alternativeSignal = catalogRepo.getSignal(alternativeSignalId)
+            val alternativeSignal = catalog.getSignal(alternativeSignalId)
             if (alternativeSignal != null) {
                 val newFingerprint = IrProbeEngine.fingerprintSignal(alternativeSignal)
                 val newBinding = binding.copy(
@@ -224,14 +255,16 @@ class ProfileRevalidationService(
         )
     }
 
-    private fun readCurrentCatalogHash(): String {
-        return try {
-            val manifestJson = context.assets.open("ir/ir_catalog.manifest.json")
-                .bufferedReader().use { it.readText() }
-            val manifest = org.json.JSONObject(manifestJson)
-            manifest.optString("canonicalContentSha256", "unknown")
-        } catch (e: Exception) {
-            "unknown"
+    companion object {
+        private fun readManifestHash(context: Context): String {
+            return try {
+                val manifestJson = context.assets.open("ir/ir_catalog.manifest.json")
+                    .bufferedReader().use { it.readText() }
+                val manifest = org.json.JSONObject(manifestJson)
+                manifest.optString("canonicalContentSha256", "unknown")
+            } catch (e: Exception) {
+                "unknown"
+            }
         }
     }
 }

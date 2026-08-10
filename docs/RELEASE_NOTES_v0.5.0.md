@@ -12,8 +12,8 @@
   runs end-to-end without crashes for Kintech, Universal TV and Control Universal
   TV. Regression that previously closed the APK is closed.
 - **Catalog is no longer "orphaned JSON".** The curated multi-brand seed is now a
-  real SQLite Schema v4 row-set with `production_approved=1` sources, canonical
-  actions, and NEC@38000 parametric signals.
+  real SQLite Schema v4 row-set with sources gated to schema approval state = 1,
+  canonical actions, and NEC@38000 parametric signals.
 - **Checksum-refreshed atomic catalog install.** The app reinstates `ir_catalog.db`
   when the asset SHA drifts; in-place `adb install -r` upgrades now correct a stale
   catalog. Install is atomic and fsync-durable.

@@ -28,7 +28,9 @@ def compute_canonical_hash(db_path: Path) -> tuple[str, dict]:
         "sources", "source_revisions", "source_files",
         "brands", "device_types", "device_models", "remotes",
         "code_sets", "actions", "signals", "command_bindings",
-        "code_set_models"
+        "code_set_models", "device_families", "protocol_definitions",
+        "protocol_variants", "compatibility_assertions",
+        "physical_test_evidence", "catalog_rejections", "signal_sources"
     ]
 
     entity_counts = {}

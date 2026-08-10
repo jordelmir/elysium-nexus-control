@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "artifactId": "ir-templates-v1",
+  "id": "elysium-template-hypotheses",
+  "status": "RESEARCH_ONLY",
+  "templates": [
+    {
+      "id": "tv-universal-generic",
+      "brand": "Control Universal TV",
+      "display": "Multimarca (Todas las marcas)",
+      "protocol": "NEC",
+      "address": 0,
+      "command": 0
+    },
+    {
+      "id": "tv-kintech-generic",
+      "brand": "Kintech",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 0,
+      "command": 18
+    },
+    {
+      "id": "tv-sankey-generic",
+      "brand": "Sankey",
+      "display": "Generic (Smart / LED TV)",
+      "protocol": "NEC",
+      "address": 0,
+      "command": 0
+    },
+    {
+      "id": "tv-sankey-smart",
+      "brand": "Sankey",
+      "display": "Smart TV (Android OS Series)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 18
+    },
+    {
+      "id": "tv-sankey-uhd",
+      "brand": "Sankey",
+      "display": "4K UHD Smart TV (Series C / S)",
+      "protocol": "NEC",
+      "address": 8,
+      "command": 2
+    },
+    {
+      "id": "tv-sankey-curved",
+      "brand": "Sankey",
+      "display": "Curved & Frameless LED TV",
+      "protocol": "NEC",
+      "address": 64,
+      "command": 26
+    },
+    {
+      "id": "tv-kalley-generic",
+      "brand": "Kalley",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 8
+    },
+    {
+      "id": "tv-challenger-generic",
+      "brand": "Challenger",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 18
+    },
+    {
+      "id": "tv-daewoo-generic",
+      "brand": "Daewoo",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 2,
+      "command": 16
+    },
+    {
+      "id": "tv-hyundai-generic",
+      "brand": "Hyundai",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 20
+    },
+    {
+      "id": "tv-samsung-generic",
+      "brand": "Samsung",
+      "display": "Generic (2010+)",
+      "protocol": "Samsung",
+      "address": 7,
+      "command": 2
+    },
+    {
+      "id": "tv-lg-generic",
+      "brand": "LG",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 8
+    },
+    {
+      "id": "tv-sony-generic",
+      "brand": "Sony",
+      "display": "Generic (2010+)",
+      "protocol": "SIRC",
+      "address": 1,
+      "command": 10
+    },
+    {
+      "id": "tv-panasonic-generic",
+      "brand": "Panasonic",
+      "display": "Generic (Smart / LED)",
+      "protocol": "Kaseikyo",
+      "address": 64,
+      "command": 1
+    },
+    {
+      "id": "tv-philips-generic",
+      "brand": "Philips",
+      "display": "Generic (RC5)",
+      "protocol": "RC5",
+      "address": 5,
+      "command": 12
+    },
+    {
+      "id": "tv-tcl-generic",
+      "brand": "TCL",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 18
+    },
+    {
+      "id": "tv-hisense-generic",
+      "brand": "Hisense",
+      "display": "Generic (Smart / LED)",
+      "protocol": "NEC",
+      "address": 4,
+      "command": 242
+    }
+  ]
+}

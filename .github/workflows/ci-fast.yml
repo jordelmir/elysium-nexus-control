@@ -1,0 +1,158 @@
+name: Android CI (fast)
+
+# V06-P35 — PR fast path (MASTER_ORDER §82–§86 Release Factory shape).
+#
+# Every pull request runs the CHEAP gates that catch 95% of breakage in
+# minutes: catalog integrity, canonical hash, source lock, Python lint,
+# device-matrix validation, JVM unit tests, androidTest compile coverage,
+# Android lint. It deliberately does NOT run the release build (R8), SBOM
+# or the emulator — those run on push (android-ci.yml) before a release is
+# considered.
+#
+# Split rationale: PR churn should not burn 30-minute release-gate budget;
+# the push job stays the authoritative full pipeline.
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+jobs:
+  fast:
+    name: Fast gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x apps/android/gradlew
+
+      # ── Gate 1: Catalog integrity (hash + quick_check + FK) ──
+      - name: Verify IR catalog integrity
+        run: |
+          cd apps/android/app/src/main/assets/ir
+          python3 - <<'PYEOF'
+          import hashlib, json, sqlite3, sys
+          db = "ir_catalog.db"
+          sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
+          manifest = json.load(open("ir_catalog.manifest.json"))
+          expected = manifest.get("databaseSha256")
+          status = "PASS" if (expected is not None and sha == expected) else "FAIL"
+          con = sqlite3.connect(db)
+          quick = con.execute("PRAGMA quick_check").fetchone()[0]
+          fk = con.execute("PRAGMA foreign_key_check").fetchall()
+          con.close()
+          ok = (quick == "ok") and (len(fk) == 0) and (status == "PASS")
+          print(f"hash check: {status}; quick_check: {quick}; fk: {len(fk)} violations")
+          if not ok:
+              print("FATAL: catalog integrity failed", file=sys.stderr)
+              sys.exit(1)
+          print("catalog integrity: PASS")
+          PYEOF
+
+      # ── Gate 2: Canonical hash reproducibility ──
+      - name: Verify canonical content hash matches manifest
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          sys.path.insert(0, "${{ github.workspace }}/tools/ir-data")
+          from export_canonical_catalog import compute_canonical_hash
+          from pathlib import Path
+          db_path = Path("apps/android/app/src/main/assets/ir/ir_catalog.db")
+          manifest = json.load(open("apps/android/app/src/main/assets/ir/ir_catalog.manifest.json"))
+          expected = manifest.get("canonicalContentSha256")
+          actual, _ = compute_canonical_hash(db_path)
+          if expected is None or actual != expected:
+              print("FATAL: canonical hash mismatch", file=sys.stderr)
+              sys.exit(1)
+          print("canonical hash: PASS")
+          PYEOF
+
+      # ── Gate 3: Source lock integrity ──
+      - name: Verify source lock integrity
+        run: |
+          python3 -c "
+          import json, sys
+          lock = json.load(open('ir-data/sources.lock.json'))
+          assert 'schemaVersion' in lock
+          sources = lock.get('sources', [])
+          assert len(sources) >= 3
+          for s in sources:
+              assert len(s.get('resolvedCommit','')) == 40, f'[{s[\"id\"]}] bad SHA'
+          print(f'lockfile integrity: PASS ({len(sources)} sources)')
+          "
+
+      # ── Gate 3b: Catalog eligibility (V06-PTG-02 §3) ──
+      - name: Enforce production catalog eligibility gate
+        run: |
+          python3 tools/ir-data/check_catalog_eligibility.py
+
+      # ── Gate 4: Python lint ──
+      - name: Lint Python scripts (ruff)
+        run: |
+          pip install --break-system-packages ruff 2>/dev/null || pip install ruff
+          ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505,E402
+
+      # ── Gate 5: Device-matrix validation (V06-P33) ──
+      - name: Validate devices-under-test matrix
+        run: |
+          pip install --break-system-packages pyyaml 2>/dev/null || pip install pyyaml
+          python3 tools/device-matrix/validate.py
+
+      # ── Gate 5b: Documentation claims audit (V06-P37) ──
+      - name: Audit docs for unproven claims
+        run: |
+          chmod +x tools/claims-audit/audit.sh
+          ./tools/claims-audit/audit.sh
+
+      # ── Gate 6: JVM unit tests ──
+      - name: Run JVM unit tests
+        run: |
+          cd apps/android
+          ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+
+      # ── Gate 7: androidTest compile coverage (keeps the instrumented
+      #    suite compiling without burning the emulator on every PR) ──
+      - name: Compile instrumented tests
+        run: |
+          cd apps/android
+          ./gradlew :app:compileDebugAndroidTestKotlin --console=plain --no-daemon
+
+      # ── Gate 8: Android lint ──
+      - name: Lint (abort on error)
+        run: |
+          cd apps/android
+          ./gradlew :app:lintDebug --console=plain --no-daemon
+
+      - name: Report test count
+        if: always()
+        run: |
+          cd apps/android
+          total=$(find app/build/test-results -name "*.xml" -exec grep -oE 'tests="[0-9]+"' {} \; | awk -F'"' '{sum+=$2} END {print sum}')
+          echo "Total tests: $total"

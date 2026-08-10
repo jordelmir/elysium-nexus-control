@@ -46,3 +46,7 @@ apps/mac-agent/.build/
 __pycache__/
 __pycache__/
 *.pyc
+*.db-shm
+*.db-wal
+
+# V0.6.1: catalog DB versioned via Git LFS (ir_catalog.db tracked in .gitattributes)

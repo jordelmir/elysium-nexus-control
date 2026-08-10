@@ -79,6 +79,9 @@ import java.util.UUID
 
 private const val TAG = "ElysiumNexus.IrProbe"
 
+/** PTG-01 §30: schema version written when NO manifest could be read (fail-closed marker, never a hardcoded version). */
+private const val INSTALLED_CATALOG_SCHEMA_UNKNOWN = 0
+
 // ═══════════════════════════════════════════════════════════════════════════
 // §23 Complete Probe State Machine
 // ═══════════════════════════════════════════════════════════════════════════
@@ -223,6 +226,23 @@ fun IrConnectFlow(
         }
 
         if (sqliteCandidates.isNotEmpty()) {
+            // PHASE 3: ensure a durable Room session exists BEFORE any
+            // transmission. sessionId also lives in SavedStateHandle so
+            // a killed process can look the session up on relaunch.
+            val manifestHash = try {
+                com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager
+                    .getInstance(context).catalogDatabaseHash()
+            } catch (e: Exception) {
+                Log.w(TAG, "Manifest hash unavailable: ${e.message}");
+                null
+            }
+            viewModel.ensureSession(
+                brand = template.brand,
+                deviceType = "TV",
+                targetModel = targetModel,
+                catalogHash = manifestHash
+            )
+
             // P0.3: Check for saved session to restore after process death
             val savedSession = viewModel.getSessionId()?.let { sid ->
                 viewModel.restoreSession(sid)
@@ -296,6 +316,8 @@ fun IrConnectFlow(
                     attemptId = attempt.attemptId
                 )
             }
+            // PHASE 3: durable attempt trail (every transmission recorded)
+            viewModel.persistAttempt(attempt)
 
             currentJob = scope.launch {
                 com.elysium.nexus.fabric.infrared.FileLog.d("PROBE_TX candidate=${candidate.id} action=$action signalId=${attempt.signalId} carrierHz=${encodeResult.waveform.carrierHz}")
@@ -394,7 +416,18 @@ fun IrConnectFlow(
 
     fun readCatalogHash(): String = readManifestKey("canonicalContentSha256")
 
-    fun readCatalogBuildId(): String = readManifestKey("buildId")
+    /** PTG-01 §31: catalog identity comes from the verified build's metadata. */
+    fun readCatalogBuildId(): String =
+        com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager.getInstance(context)
+            .currentCatalogMetadata()?.catalogBuildId
+            ?: readManifestKey("catalogBuildId")
+            ?: "unknown"
+
+    /** PTG-01 §30: schema version is READ from the manifest — never hardcoded. */
+    fun readCatalogSchemaVersion(): Int? =
+        com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager.getInstance(context)
+            .currentCatalogMetadata()?.schemaVersion
+            ?: readManifestKey("schemaVersion").toIntOrNull()
 
     fun buildAndPersistInstalledProfile(winnerCandidate: com.elysium.nexus.core.device.IrCodeSet, verifiedActions: Set<IrAction>): InstalledIrProfile? {
         val bindings = mutableMapOf<IrAction, IrCommandBinding>()
@@ -456,7 +489,8 @@ fun IrConnectFlow(
             sourceRevision = winnerCandidate.commandBindings.firstOrNull()?.sourceRevisionId
                 ?: winnerCandidate.provenance.commitSha
                 ?: "catalog-legacy",
-            catalogSchemaVersionAtInstall = 5,
+            catalogSchemaVersionAtInstall = readCatalogSchemaVersion()
+                ?: INSTALLED_CATALOG_SCHEMA_UNKNOWN,
             catalogCanonicalHashAtInstall = readCatalogHash(),
             catalogBuildIdAtInstall = readCatalogBuildId(),
             commands = bindings,

@@ -1,0 +1,11 @@
+# V06-P33: device-matrix validator
+# Python 3.10+; PyYAML is pinned in a tool-local venv (PEP 668 host).
+#
+# Setup (once):
+#   python3 -m venv tools/device-matrix/.venv
+#   tools/device-matrix/.venv/bin/pip install -r tools/device-matrix/requirements.txt
+#
+# Validate:
+#   tools/device-matrix/.venv/bin/python tools/device-matrix/validate.py
+#   (JVM/Kotlin gate: NOT running per phase — batch only when Jor asks)
+pyyaml==6.0.2

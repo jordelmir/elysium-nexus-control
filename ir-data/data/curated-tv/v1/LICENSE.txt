@@ -1,0 +1,30 @@
+Elysium Nexus — Curated TV IR Dataset v1
+=========================================
+
+Identifier  : elysium-curated-observed / curated-tv-v1
+Approval    : INTERNAL-CURATED-V1-AUDIT (internal engineering review)
+Status      : PROBE_ELIGIBLE — INTERNAL_UNVERIFIED. No lab or real-device
+              verification has been performed on this dataset. It may enter
+              on-device probing; it may NOT feed compatibility claims.
+
+Contents
+--------
+- ir_codes_db.json : NEC / Samsung32 / SIRC power-adjacent command sets
+  (POWER, VOLUME_UP, VOLUME_DOWN, MUTE, CHANNEL_*, INPUT, MENU, BACK,
+  D-PAD, OK, HOME) for 5 curated TV brands, derived from public IR
+  constant tables (LIRC-style NEC/Samsung/SIRC definitions).
+- Carrier semantics: an explicit "frequency_hz" in the JSON is
+  SOURCE_DECLARED; absence means the protocol format default
+  (FORMAT_NORMATIVE, 38 kHz / 40 kHz per protocol family).
+
+Derivation provenance
+---------------------
+Protocol encodings follow IRP-derived NEC/Samsung/SIRC bit layouts as
+implemented in the Elysium Nexus ingestor (parse_nec_32,
+parse_samsung_32, parse_sirc). These are encoding hypotheses from public
+reference tables, uniformly marked INTERNAL_UNVERIFIED until physically
+captured.
+
+THIS ARTIFACT IS THE AUTHORITATIVE SOURCE FOR THE CATALOG BUILD.
+The runtime asset copy (apps/android/.../assets/ir_codes_db.json) must
+match this file byte-for-byte; the catalog build verifies it via SHA-256.

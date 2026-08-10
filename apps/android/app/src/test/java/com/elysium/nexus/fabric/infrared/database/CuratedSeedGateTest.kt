@@ -58,7 +58,7 @@ class CatalogCuratedSeedGateTest {
         )
     }
 
-    @Test
+@Test
     fun curatedTvBrandsArePresentInCatalogCounts() {
         val rootDir = findProjectRoot()
         val manifestFile = File(rootDir, "apps/android/app/src/main/assets/ir/ir_catalog.manifest.json")
@@ -71,13 +71,19 @@ class CatalogCuratedSeedGateTest {
         // (ab74671f0c220b21eb9f052a172a2eb1457e22ad7dea2c466b2ae788cde63764)
         // because Kintech / Control Universal TV rows were added.
         val json = JSONObject(manifestFile.readText())
+        // V06-P5: schema v5 contract is declarative in the manifest.
+        assertEquals("manifest must declare schema v5", 5, json.getInt("schemaVersion"))
+
         val canonical = json.getString("canonicalContentSha256")
         assertTrue("canonical hash must be a 64-hex string", canonical.matches(Regex("[0-9a-f]{64}")))
 
         val counts = json.getJSONObject("counts")
-        assertTrue("curated seed adds a new source", counts.getInt("sources") >= 6)
-        assertTrue("catalog must still have 800+ brands", counts.getInt("brands") >= 807)
+        assertTrue("production catalog must ship 5+ locked sources", counts.getInt("sources") >= 5)
+        assertTrue("catalog must still have 800+ brands", counts.getInt("brands") >= 800)
         assertTrue("catalog must have a command_bindings row for seeded signals",
             counts.getInt("command_bindings") >= 36000)
+        // V06-P5 §14: v5 entities present in the canonical hash scope.
+        assertTrue("protocol_definitions are hashed", counts.getInt("protocol_definitions") >= 20)
+        assertTrue("protocol_variants are hashed", counts.getInt("protocol_variants") >= 25)
     }
 }

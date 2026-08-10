@@ -169,7 +169,7 @@ class InMemorySceneRegistryTest {
         assertNotNull(exported)
         assertEquals("cinema", exported?.scene)
         assertEquals(2, exported?.steps?.size)
-        assertEquals("PowerOn", exported?.steps?.get(0)?.action)
+        assertEquals("power_on", exported?.steps?.get(0)?.action)
         assertEquals("device_reachable", exported?.steps?.get(0)?.precondition?.type)
         assertEquals(setOf("night"), exported?.tags)
     }

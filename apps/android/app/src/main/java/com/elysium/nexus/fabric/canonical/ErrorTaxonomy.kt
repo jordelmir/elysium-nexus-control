@@ -72,7 +72,7 @@ sealed class NexusError {
 
     data class DeviceUnreachable(
         override val message: String,
-        override val deviceId: DeviceId,
+        override val deviceId: DeviceId? = null,
         override val severity: ErrorSeverity = ErrorSeverity.Warning
     ) : NexusError() {
         override val code: NexusErrorCode = NexusErrorCode.DeviceUnreachable

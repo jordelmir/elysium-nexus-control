@@ -41,7 +41,8 @@ CACHE = ROOT / ".cache" / "ir-sources"
 OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 STATS_PATH = OUTPUT_DIR / "ir_catalog_stats.json"
-SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v4.sql"
+REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
+SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v5.sql"
 
 sys.path.insert(0, str(ROOT / "tools" / "ir-data"))
 import export_canonical_catalog
@@ -256,11 +257,94 @@ PROTOCOL_MAP: dict[str, tuple[str, int]] = {
 }
 
 
-def normalize_protocol(raw_proto: str) -> tuple[str, int]:
+def normalize_protocol(raw_proto: str) -> tuple[str | None, int]:
+    """§7 (PTG-02): unknown protocols are REJECTED, never defaulted to 38 kHz.
+    Known protocols with no explicit carrier fall back to their canonical
+    carrier from PROTOCOL_MAP — that is normalization, not fabrication."""
     key = raw_proto.lower().strip()
     if key in PROTOCOL_MAP:
         return PROTOCOL_MAP[key]
-    return (raw_proto.strip(), 38000)
+    return (None, None)
+
+
+# ─── PTG-02 §8: Provenance Lock Authority ────────────────────────────────────
+SOURCES_LOCK_PATH = ROOT / "ir-data" / "sources.lock.json"
+
+
+def load_source_lock() -> dict[str, dict]:
+    """sources.lock.json is the provenance authority (§8). Production builds
+    may only reference sources present in the lock; every revision inherits
+    its identity (commit/tree/content/license hashes) from it."""
+    if not SOURCES_LOCK_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SOURCES_LOCK_PATH.read_text(encoding="utf-8"))
+        return {s["id"]: s for s in data.get("sources", [])}
+    except Exception:
+        return {}
+
+
+class RejectionCollector:
+    """§7: structured ingestion rejections. Every rejected unit is recorded
+    with source, file, row, reason, detail, action and protocol. The rejection
+    artifact joins the build identity (catalog.py hashes it into catalogBuildId)."""
+
+    def __init__(self) -> None:
+        self._by_row: list[dict] = []
+
+    REJECTION_KIND = {
+        "MALFORMED_ADDRESS": "MALFORMED_ADDRESS",
+        "MALFORMED_COMMAND": "MALFORMED_COMMAND",
+        "MISSING_CARRIER": "MISSING_CARRIER",
+        "INVALID_CARRIER": "INVALID_CARRIER",
+        "UNSUPPORTED_PROTOCOL": "UNSUPPORTED_PROTOCOL",
+        "AMBIGUOUS_VARIANT": "AMBIGUOUS_VARIANT",
+        "MALFORMED_RAW": "MALFORMED_RAW",
+        "RAW_DURATION_TOO_LONG": "RAW_DURATION_TOO_LONG",
+        "UNSUPPORTED_ENCODING": "UNSUPPORTED_ENCODING",
+        "STRUCTURAL": "STRUCTURE",
+    }
+
+    def add(self, source_id: str, file: str, row: int, reason: str,
+            detail: str = "", action: str = "", protocol: str = "",
+            source_file_id: str | None = None) -> None:
+        self._by_row.append({
+            "source": source_id, "file": file, "row": row, "reason": reason,
+            "detail": detail[:200], "action": action, "protocol": protocol,
+            "source_file_id": source_file_id,
+        })
+
+    def write_rows(self, cur) -> None:
+        """V0.6.1 §1/§4: rejections are part of the catalog truth — every
+        rejected unit lands in catalog_rejections (deterministic epoch 0)."""
+        for r in self._by_row:
+            rid = sha256_text("|".join([
+                "rej-v1", r["source"], r["file"], str(r["row"]),
+                r["reason"], r["detail"], r["action"], r["protocol"],
+            ]))
+            cur.execute(
+                "INSERT OR IGNORE INTO catalog_rejections ("
+                "id, source_file_id, reason, rejection_kind, rejection_epoch_ms"
+                ") VALUES (?, ?, ?, ?, 0)",
+                (rid, r.get("source_file_id"), r["reason"],
+                 self.REJECTION_KIND.get(r["reason"], "OTHER")))
+
+    def counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for r in self._by_row:
+            counts[r["reason"]] = counts.get(r["reason"], 0) + 1
+        return counts
+
+    def write_manifest(self, path: Path, profile: str) -> None:
+        manifest = {
+            "schemaVersion": 5,
+            "profile": profile,
+            "generatedAtUtc": "2026-08-08T00:00:00Z",
+            "totalRejections": len(self._by_row),
+            "byReason": self.counts(),
+            "rejections": self._by_row,
+        }
+        path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 
 # ─── Broadlink Base64 Decoder ─────────────────────────────────────────────────
@@ -311,17 +395,46 @@ def validate_raw_pattern(pattern: list[int], carrier_hz: int) -> bool:
 stats = defaultdict(int)
 
 
-# ─── Database Schema (from catalog-v4.sql) ───────────────────────────────────
+# ─── Database Schema (from catalog-v5.sql) ───────────────────────────────────
 def init_database(conn: sqlite3.Connection):
     ddl_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(ddl_sql)
     conn.commit()
 
 
+# ─── V5 §14: Protocol Definitions & Variants ─────────────────────────────────
+# Seeded from PROTOCOL_MAP — the same single authority the codec gate uses.
+def seed_protocol_definitions(conn: sqlite3.Connection):
+    seen_variants = set()
+    for key, (family_name, carrier_hz) in sorted(PROTOCOL_MAP.items()):
+        proto_id = short(f"proto:{family_name}")
+        conn.execute(
+            "INSERT OR IGNORE INTO protocol_definitions "
+            "(id, family_name, display_name, carrier_hz, encoding_kind) "
+            "VALUES (?, ?, ?, ?, 'PARAMETRIC')",
+            (proto_id, family_name, family_name, carrier_hz))
+        variant_id = short(f"variant:{family_name}:{key}")
+        if (family_name, key) not in seen_variants:
+            seen_variants.add((family_name, key))
+            conn.execute(
+                "INSERT OR IGNORE INTO protocol_variants "
+                "(id, protocol_id, variant_name) VALUES (?, ?, ?)",
+                (variant_id, proto_id, key))
+    conn.commit()
+
+
 # ─── V4 Entity Caches ────────────────────────────────────────────────────────
 class EntityCache:
-    def __init__(self, cur: sqlite3.Cursor):
+    def __init__(self, cur: sqlite3.Cursor, profile: str = "production",
+                 lock: dict | None = None,
+                 rejections: RejectionCollector | None = None):
         self.cur = cur
+        self.profile = profile
+        self.lock: dict[str, dict] = lock if lock is not None else {}
+        self.rejections: RejectionCollector = rejections if rejections is not None else RejectionCollector()
+        # V0.6.1 §5: signal eligibility floor tracked at insert time so code-set
+        # eligibility derives from its own physical stock (never guessed later).
+        self._signal_eligibility: dict[str, str] = {}
         self.brands: dict[str, str] = {}
         self.device_types: dict[str, str] = {}
         self.actions: dict[str, str] = {}
@@ -365,42 +478,84 @@ class EntityCache:
 
     def insert_signal_parametric(self, proto: str, carrier_hz: int,
                                   addr: int, cmd: int,
-                                  sub_device: int = -1) -> str:
-        sig_key = f"PARAMETRIC:{proto}:{carrier_hz}:{addr}:{sub_device}:{cmd}"
-        sig_id = short(sig_key)
+                                  sub_device: int = -1, *,
+                                  carrier_evidence: str = "UNKNOWN",
+                                  source_file_id: str | None = None,
+                                  eligibility: str = "PROBE_ELIGIBLE",
+                                  protocol_variant_id: str | None = None) -> str:
+        """V0.6.1 §3: full-SHA256 content-addressed physical identity. The
+        identity is PHYSICAL: encoding version, codec, variant, carrier and
+        parameters — not a storage representation. Changing any physical
+        parameter changes the id; changing storage never does."""
+        if protocol_variant_id is None:
+            family_key = next(
+                (k for k, (fam, _) in PROTOCOL_MAP.items()
+                 if fam == proto and k == proto.lower()),
+                next((k for k, (fam, _) in PROTOCOL_MAP.items()
+                      if fam == proto), None))
+            if family_key:
+                protocol_variant_id = short(f"variant:{proto}:{family_key}")
+        sig_key = "|".join([
+            "pid-v1", proto, protocol_variant_id or "-",
+            str(carrier_hz), str(addr), str(sub_device), str(cmd),
+            "r0", "tg-",  # repeat policy / toggle semantics (not yet modeled)
+        ])
+        sig_id = sha256_text(sig_key)
         if sig_id not in self.signals:
-            sig_sha = sha256_text(sig_key)
             self.cur.execute(
                 "INSERT OR IGNORE INTO signals ("
                 "id, encoding_type, codec_id, protocol_name_original, "
                 "carrier_hz, address_value, sub_device_value, command_value, "
                 "repeat_count, physical_sha256, canonical_sha256, "
-                "runtime_status, validation_status"
+                "runtime_status, validation_status, protocol_definition_id, "
+                "protocol_variant_id, carrier_evidence, evidence_level, "
+                "eligibility_status"
                 ") VALUES (?, 'PARAMETRIC', ?, ?, ?, ?, ?, ?, 0, ?, ?, "
-                "'SUPPORTED_PARAMETRIC', 'PASSED')",
+                "'SUPPORTED_PARAMETRIC', 'PASSED', ?, ?, ?, "
+                "'SOURCE_IMPORTED', ?)",
                 (sig_id, proto, proto, carrier_hz, addr, sub_device, cmd,
-                 sig_sha, sig_sha))
+                 sig_id, sig_id, short(f"proto:{proto}"),
+                 protocol_variant_id, carrier_evidence, eligibility))
             self.signals[sig_id] = True
+            self._signal_eligibility[sig_id] = eligibility
+            if source_file_id:
+                self.cur.execute(
+                    "INSERT OR IGNORE INTO signal_sources "
+                    "(signal_id, source_file_id) VALUES (?, ?)",
+                    (sig_id, source_file_id))
         return sig_id
 
-    def insert_signal_raw(self, carrier_hz: int, pattern: list[int]) -> str:
+    def insert_signal_raw(self, carrier_hz: int, pattern: list[int], *,
+                          carrier_evidence: str = "UNKNOWN",
+                          source_file_id: str | None = None,
+                          eligibility: str = "PROBE_ELIGIBLE") -> str:
+        """V0.6.1 §3 (P0-10): RAW physical identity is storage-agnostic — it
+        hashes the EXACT uncompressed duration sequence plus carrier. zlib or
+        any future codec can change without touching physical identity."""
         packed = struct.pack(f"<{len(pattern)}I", *pattern)
-        compressed = zlib.compress(packed, 9)
-        sig_key = f"RAW:{carrier_hz}:{hashlib.sha256(compressed).hexdigest()}"
-        sig_id = short(sig_key)
+        timing = "|".join(str(d) for d in pattern)
+        sig_key = "|".join(["rpid-v1", str(carrier_hz), timing])
+        sig_id = sha256_text(sig_key)
         if sig_id not in self.signals:
-            sig_sha = sha256_text(sig_key)
+            compressed = zlib.compress(packed, 9)
             self.cur.execute(
                 "INSERT OR IGNORE INTO signals ("
                 "id, encoding_type, protocol_name_original, carrier_hz, "
                 "pattern_blob, compression, slice_count, duration_us, "
                 "uncompressed_bytes, physical_sha256, canonical_sha256, "
-                "runtime_status, validation_status"
+                "runtime_status, validation_status, carrier_evidence, "
+                "evidence_level, eligibility_status"
                 ") VALUES (?, 'RAW', 'RAW', ?, ?, 'zlib', ?, ?, ?, ?, ?, "
-                "'SUPPORTED_RAW', 'PASSED')",
+                "'SUPPORTED_RAW', 'PASSED', ?, 'SOURCE_IMPORTED', ?)",
                 (sig_id, carrier_hz, compressed, len(pattern), sum(pattern),
-                 len(packed), sig_sha, sig_sha))
+                 len(packed), sig_id, sig_id, carrier_evidence, eligibility))
             self.signals[sig_id] = True
+            self._signal_eligibility[sig_id] = eligibility
+            if source_file_id:
+                self.cur.execute(
+                    "INSERT OR IGNORE INTO signal_sources "
+                    "(signal_id, source_file_id) VALUES (?, ?)",
+                    (sig_id, source_file_id))
         return sig_id
 
     def ensure_source(self, source_id: str, display_name: str,
@@ -418,7 +573,24 @@ class EntityCache:
 
     def ensure_revision(self, source_id: str, commit_sha: str,
                         tree_sha: str = "") -> str:
-        rev_key = f"{source_id}:{commit_sha}"
+        """§8 (PTG-02) fail-closed: in production the lock is the sole source
+        of revision identity. A source absent from sources.lock.json cannot
+        produce a revision — the build stops instead of fabricating hashes."""
+        entry = self.lock.get(source_id)
+        if entry:
+            resolved_commit = entry.get("resolvedCommit") or commit_sha
+            resolved_tree = entry.get("resolvedTree") or tree_sha
+            content_sha = entry.get("sourceContentSha256") or "0" * 64
+            license_sha = entry.get("licenseFileSha256") or "0" * 64
+        else:
+            if self.profile == "production":
+                raise RuntimeError(
+                    f"PTG-02 §8: source '{source_id}' absent from "
+                    f"sources.lock.json — fail-closed: no production revision "
+                    "without lock provenance")
+            resolved_commit, resolved_tree = commit_sha, tree_sha
+            content_sha, license_sha = "0" * 64, "0" * 64
+        rev_key = f"{source_id}:{resolved_commit}"
         if rev_key not in self._revisions:
             rev_id = short(rev_key)
             self.cur.execute(
@@ -426,8 +598,8 @@ class EntityCache:
                 "id, source_id, commit_sha, tree_sha, "
                 "content_sha256, license_sha256"
                 ") VALUES (?, ?, ?, ?, ?, ?)",
-                (rev_id, source_id, commit_sha,
-                 tree_sha or "0" * 64, "0" * 64, "0" * 64))
+                (rev_id, source_id, resolved_commit,
+                 resolved_tree, content_sha, license_sha))
             self._revisions[rev_key] = rev_id
             # Also store as HEAD so callers can look up by HEAD
             self._revisions[f"{source_id}:HEAD"] = rev_id
@@ -435,17 +607,25 @@ class EntityCache:
 
     def ensure_file(self, source_id: str, rel_path: str,
                     content_sha: str = "") -> str:
+        """§8 (PTG-02): license APPROVED is never asserted without evidence.
+        Only a lock entry carrying licenseFileSha256 AND sourceContentSha256
+        makes the file APPROVED; anything else stays AWAITING_EVIDENCE."""
         f_key = f"{source_id}:{rel_path}"
         if f_key not in self._files:
             rev_id = self._revisions.get(f"{source_id}:HEAD", "")
             file_id = short(f_key)
+            entry = self.lock.get(source_id) or {}
+            has_license_evidence = bool(
+                entry.get("licenseFileSha256") and entry.get("sourceContentSha256"))
+            license_status = "APPROVED" if has_license_evidence else "AWAITING_EVIDENCE"
             self.cur.execute(
                 "INSERT OR IGNORE INTO source_files ("
                 "id, source_revision_id, relative_path, "
                 "content_sha256, license_status"
-                ") VALUES (?, ?, ?, ?, 'APPROVED')",
+                ") VALUES (?, ?, ?, ?, ?)",
                 (file_id, rev_id, rel_path,
-                 content_sha or "0" * 64))
+                 content_sha or entry.get("sourceContentSha256") or "0" * 64,
+                 license_status))
             self._files[f_key] = file_id
         return self._files[f_key]
 
@@ -461,24 +641,43 @@ class EntityCache:
         return remote_id
 
     def create_code_set(self, remote_id: str, rev_id: str,
-                        protocol_family: str, num_commands: int) -> str:
-        cs_id = short(f"cs:{remote_id}:{num_commands}")
+                        protocol_family: str, num_commands: int,
+                        binding_specs: list[tuple[str, str, str, str]] | None = None) -> str:
+        """V0.6.1 §3 (P0-9): content-addressed code set. The identity covers
+        schema version, source revision, remote identity and the SORTED set of
+        authoritative bindings (action|signalPhysicalId|repeat|press). Any
+        physical change to a binding produces a NEW code set id."""
+        specs = binding_specs or [("?", "?", "?", "?")]
+        material = "|".join([
+            "csid-v1", rev_id, remote_id,
+            *sorted(f"{a}|{s}|{r}|{p}" for a, s, r, p in specs),
+        ])
+        cs_id = sha256_text(material)
+        el = "PROBE_ELIGIBLE"
+        for _, sig_id, _, _ in specs:
+            if self._signal_eligibility.get(sig_id, "RESEARCH_ONLY") != "PROBE_ELIGIBLE":
+                el = "RESEARCH_ONLY"
         self.cur.execute(
             "INSERT OR IGNORE INTO code_sets ("
             "id, remote_id, source_revision_id, protocol_family, "
-            "verification_status, runtime_status"
-            ") VALUES (?, ?, ?, ?, 'INTERNAL_UNVERIFIED', 'ACTIVE')",
-            (cs_id, remote_id, rev_id, protocol_family))
+            "verification_status, runtime_status, eligibility_status, "
+            "evidence_level"
+            ") VALUES (?, ?, ?, ?, 'INTERNAL_UNVERIFIED', 'ACTIVE', ?, "
+            "'SOURCE_IMPORTED')",
+            (cs_id, remote_id, rev_id, protocol_family, el))
         return cs_id
 
-    def create_binding(self, cs_id: str, act_id: str, sig_id: str) -> str:
-        bnd_id = short(f"b:{cs_id}:{act_id}:{sig_id}")
+    def create_binding(self, cs_id: str, act_id: str, sig_id: str,
+                       repeat_policy: str = "FULL_FRAME",
+                       press_type: str = "SINGLE_TAP") -> str:
+        bnd_id = sha256_text("|".join(
+            ["bnd-v1", cs_id, act_id, sig_id, repeat_policy, press_type]))
         self.cur.execute(
             "INSERT OR IGNORE INTO command_bindings ("
             "id, code_set_id, action_id, signal_id, "
             "repeat_policy, press_type"
-            ") VALUES (?, ?, ?, ?, 'FULL_FRAME', 'SINGLE_TAP')",
-            (bnd_id, cs_id, act_id, sig_id))
+            ") VALUES (?, ?, ?, ?, ?, ?)",
+            (bnd_id, cs_id, act_id, sig_id, repeat_policy, press_type))
         return bnd_id
 
 
@@ -535,48 +734,106 @@ def ingest_flipper(conn: sqlite3.Connection, cache: EntityCache):
         curr_proto = None
         curr_addr = None
         curr_cmd = None
-        curr_freq = 38000
+        curr_freq = None
         curr_data = None
 
-        def flush():
+        def flush(row: int = 0):
             nonlocal curr_name, curr_type, curr_proto, curr_addr
             nonlocal curr_cmd, curr_freq, curr_data
             if curr_name and curr_type:
                 action = normalize_action(curr_name)
-                if curr_type == "parsed" and curr_proto and curr_addr is not None and curr_cmd is not None:
+                if curr_type == "parsed" and curr_proto:
+                    if curr_addr is None:
+                        cache.rejections.add(
+                            source_id, rel_path, row, "MALFORMED_ADDRESS",
+                            detail=f"non-hex address for '{curr_name}'",
+                            action=action, protocol=curr_proto,
+                            source_file_id=file_id)
+                        stats["malformed_address_rejected"] += 1
+                    if curr_cmd is None:
+                        cache.rejections.add(
+                            source_id, rel_path, row, "MALFORMED_COMMAND",
+                            detail=f"non-hex command for '{curr_name}'",
+                            action=action, protocol=curr_proto,
+                            source_file_id=file_id)
+                        stats["malformed_command_rejected"] += 1
                     proto_name, default_hz = normalize_protocol(curr_proto)
-                    carrier = curr_freq if curr_freq else default_hz
-                    sig_id = cache.insert_signal_parametric(proto_name, carrier, curr_addr, -1, curr_cmd)
-                    remote_commands[remote_id].append((action, sig_id, proto_name))
-                    stats["inserted_parametric"] += 1
-                elif curr_type == "raw" and curr_data and curr_freq:
-                    if validate_raw_pattern(curr_data, curr_freq):
-                        sig_id = cache.insert_signal_raw(curr_freq, curr_data)
-                        remote_commands[remote_id].append((action, sig_id, "RAW"))
-                        stats["inserted_raw"] += 1
+                    if proto_name is None:
+                        cache.rejections.add(
+                            source_id, rel_path, row, "UNSUPPORTED_PROTOCOL",
+                            detail=f"unknown protocol '{curr_proto}'",
+                            action=action, protocol=curr_proto,
+                            source_file_id=file_id)
+                        stats["unsupported_protocol_rejected"] += 1
+                    elif curr_addr is not None and curr_cmd is not None:
+                        if curr_freq is None and default_hz is not None:
+                            stats["normative_carrier_default"] += 1
+                        if curr_freq is None and default_hz is None:
+                            cache.rejections.add(
+                                source_id, rel_path, row, "MISSING_CARRIER",
+                                detail=f"no frequency for '{curr_name}'",
+                                action=action, protocol=proto_name,
+                                source_file_id=file_id)
+                            stats["missing_carrier_rejected"] += 1
+                        else:
+                            carrier = curr_freq if curr_freq else default_hz
+                            sig_id = cache.insert_signal_parametric(
+                                proto_name, carrier, curr_addr, -1, curr_cmd,
+                                carrier_evidence=(
+                                    "SOURCE_DECLARED" if curr_freq
+                                    else "FORMAT_NORMATIVE"),
+                                source_file_id=file_id)
+                            remote_commands[remote_id].append(
+                                (action, sig_id, proto_name,
+                                 "FULL_FRAME", "SINGLE_TAP"))
+                            stats["inserted_parametric"] += 1
+                elif curr_type == "raw" and curr_data:
+                    if curr_freq is None:
+                        cache.rejections.add(
+                            source_id, rel_path, row, "MISSING_CARRIER",
+                            detail=f"raw '{curr_name}' without frequency",
+                            action=action, protocol="RAW",
+                            source_file_id=file_id)
+                        stats["missing_carrier_rejected"] += 1
+                    elif not validate_raw_pattern(curr_data, curr_freq):
+                        kind = ("RAW_DURATION_TOO_LONG"
+                                if max(curr_data) > 250_000
+                                else "MALFORMED_RAW")
+                        cache.rejections.add(
+                            source_id, rel_path, row, kind,
+                            detail=f"invalid raw '{curr_name}'",
+                            action=action, protocol="RAW",
+                            source_file_id=file_id)
+                        stats["raw_rejected"] += 1
                     else:
-                        stats["validation_rejected"] += 1
+                        sig_id = cache.insert_signal_raw(
+                            curr_freq, curr_data,
+                            carrier_evidence="SOURCE_DECLARED",
+                            source_file_id=file_id)
+                        remote_commands[remote_id].append(
+                            (action, sig_id, "RAW", "FULL_FRAME", "SINGLE_TAP"))
+                        stats["inserted_raw"] += 1
             curr_name = None
             curr_type = None
             curr_proto = None
             curr_addr = None
             curr_cmd = None
-            curr_freq = 38000
+            curr_freq = None
             curr_data = None
 
-        for line in text.splitlines():
+        for line_no, line in enumerate(text.splitlines(), start=1):
             line = line.strip()
             if not line or line.startswith("Filetype:") or line.startswith("Version:"):
                 continue
             if line.startswith("#"):
-                flush()
+                flush(row=line_no)
                 continue
             kv = line.split(":", 1)
             if len(kv) != 2:
                 continue
             key, val = kv[0].strip(), kv[1].strip()
             if key == "name":
-                flush()
+                flush(row=line_no)
                 curr_name = val
             elif key == "type":
                 curr_type = val
@@ -586,17 +843,22 @@ def ingest_flipper(conn: sqlite3.Connection, cache: EntityCache):
                 try:
                     curr_addr = int(val.strip().split()[0], 16)
                 except (ValueError, IndexError):
-                    curr_addr = 0
+                    curr_addr = None
             elif key == "command":
                 try:
                     curr_cmd = int(val.strip().split()[0], 16)
                 except (ValueError, IndexError):
-                    curr_cmd = 0
+                    curr_cmd = None
             elif key == "frequency":
                 try:
                     curr_freq = int(val)
                 except ValueError:
-                    curr_freq = 38000
+                    cache.rejections.add(
+                        source_id, rel_path, line_no, "INVALID_CARRIER",
+                        detail=f"non-integer frequency '{val}'",
+                        source_file_id=file_id)
+                    stats["invalid_carrier_rejected"] += 1
+                    curr_freq = None
             elif key == "data":
                 try:
                     curr_data = [int(x) for x in val.split()]
@@ -611,8 +873,10 @@ def ingest_flipper(conn: sqlite3.Connection, cache: EntityCache):
         b_id, dt_id, remote_model = remote_meta[remote_id]
         rev_id = cache._revisions.get(f"{source_id}:HEAD", short(f"{source_id}:HEAD"))
         proto_family = cmds[0][2] if cmds else "RAW"
-        cs_id = cache.create_code_set(remote_id, rev_id, proto_family, len(cmds))
-        for act_key, sig_id, _ in cmds:
+        specs = [(act_key, sig_id, rp, pt) for act_key, sig_id, _, rp, pt in cmds]
+        cs_id = cache.create_code_set(remote_id, rev_id, proto_family,
+                                      len(cmds), binding_specs=specs)
+        for act_key, sig_id, _, _, _ in cmds:
             act_id = cache.get_or_create_action(act_key)
             cache.create_binding(cs_id, act_id, sig_id)
             total += 1
@@ -659,13 +923,16 @@ def ingest_smartir(conn: sqlite3.Connection, cache: EntityCache):
         remote_id = cache.create_remote(source_id, b_id, dt_id,
                                          jf.stem, model_str, file_id)
 
-        remote_cmds: list[tuple[str, str, str]] = []
+        remote_cmds: list[tuple[str, str, str, str, str]] = []
         commands = data.get("commands", {})
-        n = _process_smartir_commands(cache, remote_cmds, commands, encoding)
+        n = _process_smartir_commands(cache, remote_cmds, commands, encoding,
+                                      source_file_id=file_id, rel_path=rel_path)
         if remote_cmds:
             rev_id_r = cache._revisions.get(f"{source_id}:HEAD", short(f"{source_id}:HEAD"))
-            cs_id = cache.create_code_set(remote_id, rev_id_r, "RAW", len(remote_cmds))
-            for act_key, sig_id, _ in remote_cmds:
+            specs = [(a, s, rp, pt) for a, s, _, rp, pt in remote_cmds]
+            cs_id = cache.create_code_set(remote_id, rev_id_r, "RAW",
+                                          len(remote_cmds), binding_specs=specs)
+            for act_key, sig_id, _, _, _ in remote_cmds:
                 act_id = cache.get_or_create_action(act_key)
                 cache.create_binding(cs_id, act_id, sig_id)
         total += n
@@ -676,64 +943,109 @@ def ingest_smartir(conn: sqlite3.Connection, cache: EntityCache):
 
 
 def _process_smartir_commands(cache: EntityCache,
-                              remote_cmds: list[tuple[str, str, str]],
+                              remote_cmds: list[tuple[str, str, str, str, str]],
                               commands: dict, encoding: str,
-                              prefix: str = "") -> int:
+                              prefix: str = "",
+                              source_file_id: str | None = None,
+                              rel_path: str = "") -> int:
     count = 0
     for key, value in commands.items():
         action_name = f"{prefix}{key}" if prefix else key
         if isinstance(value, str):
             count += _decode_smartir_value(cache, remote_cmds, action_name,
-                                           value, encoding)
+                                           value, encoding, source_file_id,
+                                           rel_path, 0)
         elif isinstance(value, list):
             for v in value:
                 if isinstance(v, str):
                     count += _decode_smartir_value(cache, remote_cmds,
-                                                   action_name, v, encoding)
+                                                   action_name, v, encoding,
+                                                   source_file_id, rel_path, 0)
         elif isinstance(value, dict):
             for sub_key, sub_val in value.items():
                 sub_action = f"{action_name}_{sub_key}"
                 if isinstance(sub_val, str):
                     count += _decode_smartir_value(cache, remote_cmds,
-                                                   sub_action, sub_val, encoding)
+                                                   sub_action, sub_val, encoding,
+                                                   source_file_id, rel_path, 0)
                 elif isinstance(sub_val, list):
                     for v in sub_val:
                         if isinstance(v, str):
                             count += _decode_smartir_value(cache, remote_cmds,
-                                                           sub_action, v, encoding)
+                                                           sub_action, v, encoding,
+                                                           source_file_id, rel_path, 0)
                 elif isinstance(sub_val, dict):
                     count += _process_smartir_commands(
                         cache, remote_cmds, {sub_key: sub_val}, encoding,
-                        f"{action_name}_")
+                        f"{action_name}_", source_file_id, rel_path)
     return count
 
 
 def _decode_smartir_value(cache: EntityCache,
-                          remote_cmds: list[tuple[str, str, str]],
+                          remote_cmds: list[tuple[str, str, str, str, str]],
                           action_name: str, value: str,
-                          encoding: str) -> int:
+                          encoding: str, source_file_id: str | None,
+                          rel_path: str, row: int) -> int:
+    """V0.6.1 §4: SmartIR never assumes. Broadlink packets are 38 kHz by
+    format (FORMAT_NORMATIVE); JSON raw lists are 38 kHz by SmartIR spec;
+    undecodable values become typed rejections, not silent drops."""
     action = normalize_action(action_name)
     if encoding == "base64" or (len(value) > 20 and not value.startswith("[")):
         carrier_hz, pattern = decode_broadlink_base64(value)
         if carrier_hz > 0 and validate_raw_pattern(pattern, carrier_hz):
-            sig_id = cache.insert_signal_raw(carrier_hz, pattern)
-            remote_cmds.append((action, sig_id, "RAW"))
+            sig_id = cache.insert_signal_raw(
+                carrier_hz, pattern,
+                carrier_evidence="FORMAT_NORMATIVE",
+                source_file_id=source_file_id)
+            remote_cmds.append((action, sig_id, "RAW", "FULL_FRAME", "SINGLE_TAP"))
             stats["inserted_raw"] += 1
             return 1
-        else:
-            stats["validation_rejected"] += 1
+        cache.rejections.add(
+            "smartir", rel_path, row, "MALFORMED_RAW",
+            detail="undecodable broadlink value", action=action,
+            protocol="RAW", source_file_id=source_file_id)
+        stats["raw_rejected"] += 1
     elif encoding == "raw" or value.startswith("["):
         try:
             pattern = json.loads(value)
             if isinstance(pattern, list) and all(isinstance(x, int) for x in pattern):
-                if validate_raw_pattern(pattern, 38000):
-                    sig_id = cache.insert_signal_raw(38000, pattern)
-                    remote_cmds.append((action, sig_id, "RAW"))
-                    stats["inserted_raw"] += 1
-                    return 1
+                if not pattern:
+                    cache.rejections.add(
+                        "smartir", rel_path, row, "MALFORMED_RAW",
+                        detail="empty raw pattern", action=action,
+                        protocol="RAW", source_file_id=source_file_id)
+                    stats["raw_rejected"] += 1
+                    return 0
+                if min(pattern) < 0:
+                    cache.rejections.add(
+                        "smartir", rel_path, row, "MALFORMED_RAW",
+                        detail=f"negative duration {min(pattern)}µs",
+                        action=action, protocol="RAW",
+                        source_file_id=source_file_id)
+                    stats["raw_rejected"] += 1
+                    return 0
+                if max(pattern) > 250_000:
+                    cache.rejections.add(
+                        "smartir", rel_path, row, "RAW_DURATION_TOO_LONG",
+                        detail=f"max duration {max(pattern)}µs", action=action,
+                        protocol="RAW", source_file_id=source_file_id)
+                    stats["raw_rejected"] += 1
+                    return 0
+                # SmartIR spec: raw command lists are 38 kHz timings.
+                sig_id = cache.insert_signal_raw(
+                    38000, pattern,
+                    carrier_evidence="FORMAT_NORMATIVE",
+                    source_file_id=source_file_id)
+                remote_cmds.append((action, sig_id, "RAW", "FULL_FRAME", "SINGLE_TAP"))
+                stats["inserted_raw"] += 1
+                return 1
         except (json.JSONDecodeError, TypeError):
             pass
-        stats["validation_rejected"] += 1
+        cache.rejections.add(
+            "smartir", rel_path, row, "MALFORMED_RAW",
+            detail="raw value is not an int list", action=action,
+            protocol="RAW", source_file_id=source_file_id)
+        stats["raw_rejected"] += 1
     return 0
 
 
@@ -779,7 +1091,7 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
         try:
             with open(csv_file, "r", encoding="utf-8", errors="replace") as f:
                 reader = csv.DictReader(f)
-                for row in reader:
+                for row_no, row in enumerate(reader, start=1):
                     fn = row.get("functionname", "").strip()
                     proto_raw = row.get("protocol", "").strip()
                     device_str = row.get("device", "0").strip()
@@ -789,24 +1101,43 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
                         continue
                     action = normalize_action(fn)
                     proto_name, carrier_hz = normalize_protocol(proto_raw)
+                    if proto_name is None:
+                        cache.rejections.add(
+                            "probonopd-irdb", csv_file, row_no, "UNSUPPORTED_PROTOCOL",
+                            detail=f"unknown protocol '{proto_raw}'",
+                            action=action, protocol=proto_raw)
+                        stats["unsupported_protocol_rejected"] += 1
+                        continue
                     try:
                         address = int(device_str)
                         sub_device = int(subdevice_str) if subdevice_str != "-1" else -1
                         command = int(func_str)
                     except ValueError:
-                        stats["parse_errors"] += 1
+                        cache.rejections.add(
+                            "probonopd-irdb", rel_path, row_no, "MALFORMED_ADDRESS",
+                            detail=f"non-hex device/function in '{fn}'",
+                            action=action, protocol=proto_raw,
+                            source_file_id=file_id)
+                        stats["malformed_address_rejected"] += 1
                         continue
-                    sig_id = cache.insert_signal_parametric(proto_name, carrier_hz,
-                                                             address, sub_device, command)
-                    remote_cmds.append((action, sig_id, proto_name))
+                    # CSV carries no frequency: the carrier comes from the
+                    # protocol format itself (normative), never guessed.
+                    sig_id = cache.insert_signal_parametric(
+                        proto_name, carrier_hz, address, sub_device, command,
+                        carrier_evidence="FORMAT_NORMATIVE",
+                        source_file_id=file_id)
+                    remote_cmds.append((action, sig_id, proto_name,
+                                        "FULL_FRAME", "SINGLE_TAP"))
                     total += 1
         except Exception:
             stats["parse_errors"] += 1
 
         if remote_cmds:
             rev_id_r = cache._revisions.get(f"{source_id}:HEAD", short(f"{source_id}:HEAD"))
-            cs_id = cache.create_code_set(remote_id, rev_id_r, remote_cmds[0][2], len(remote_cmds))
-            for act_key, sig_id, _ in remote_cmds:
+            specs = [(a, s, rp, pt) for a, s, _, rp, pt in remote_cmds]
+            cs_id = cache.create_code_set(remote_id, rev_id_r, remote_cmds[0][2],
+                                          len(remote_cmds), binding_specs=specs)
+            for act_key, sig_id, _, _, _ in remote_cmds:
                 act_id = cache.get_or_create_action(act_key)
                 cache.create_binding(cs_id, act_id, sig_id)
         conn.commit()
@@ -855,8 +1186,10 @@ def ingest_radioxoma(conn: sqlite3.Connection, cache: EntityCache):
             continue
         b_id, dt_id, remote_model = remote_meta[remote_id]
         proto_family = cmds[0][2] if cmds else "RAW"
-        cs_id = cache.create_code_set(remote_id, rev_id_r, proto_family, len(cmds))
-        for act_key, sig_id, _ in cmds:
+        specs = [(a, s, rp, pt) for a, s, _, rp, pt in cmds]
+        cs_id = cache.create_code_set(remote_id, rev_id_r, proto_family,
+                                      len(cmds), binding_specs=specs)
+        for act_key, sig_id, _, _, _ in cmds:
             act_id = cache.get_or_create_action(act_key)
             cache.create_binding(cs_id, act_id, sig_id)
     conn.commit()
@@ -885,7 +1218,7 @@ def _parse_lirc_conf(cache: EntityCache, filepath: Path,
     ptrail = 0
     pre_data = 0
     pre_data_bits = 0
-    frequency = 38000
+    frequency = None
     bits = 0
     in_codes = False
     codes: dict[str, int] = {}
@@ -906,7 +1239,11 @@ def _parse_lirc_conf(cache: EntityCache, filepath: Path,
                 try:
                     codes[parts_line[0]] = int(parts_line[1], 0)
                 except ValueError:
-                    pass
+                    cache.rejections.add(
+                        "radioxoma-infrared", str(filepath), 0, "MALFORMED_COMMAND",
+                        detail=f"non-numeric code '{' '.join(parts_line)}'",
+                        source_file_id=None)
+                    stats["malformed_command_rejected"] += 1
             continue
         parts_line = line.split()
         if len(parts_line) < 2:
@@ -914,7 +1251,15 @@ def _parse_lirc_conf(cache: EntityCache, filepath: Path,
         directive = parts_line[0].lower()
         try:
             if directive == "frequency":
-                frequency = int(parts_line[1])
+                try:
+                    frequency = int(parts_line[1])
+                except ValueError:
+                    cache.rejections.add(
+                        "radioxoma-infrared", str(filepath), 0, "INVALID_CARRIER",
+                        detail=f"non-integer frequency '{parts_line[1]}'",
+                        source_file_id=None)
+                    stats["invalid_carrier_rejected"] += 1
+                    frequency = None
             elif directive == "bits":
                 bits = int(parts_line[1])
             elif directive == "pre_data_bits":
@@ -951,10 +1296,20 @@ def _parse_lirc_conf(cache: EntityCache, filepath: Path,
         total_bits = pre_data_bits + bits if pre_data_bits > 0 else bits
 
         if total_bits <= 0 or (header[0] == 0 and one[0] == 0):
-            sig_id = cache.insert_signal_parametric("LIRC_RAW", frequency,
-                                                     pre_data, -1, key_code)
-            remote_commands[remote_id].append((action, sig_id, "LIRC_RAW"))
-            count += 1
+            # V0.6.1: raw LIRC files carry no bit-timing model — the physical
+            # signal cannot be reconstructed. Typed rejection, not a fake sig.
+            cache.rejections.add(
+                "radioxoma-infrared", rel_path, 0, "UNSUPPORTED_ENCODING",
+                detail=f"'{key_name}' has no bit timing model",
+                action=action, protocol="LIRC_RAW", source_file_id=file_id)
+            stats["unsupported_encoding_rejected"] += 1
+            continue
+        if frequency is None:
+            cache.rejections.add(
+                "radioxoma-infrared", rel_path, 0, "MISSING_CARRIER",
+                detail=f"'{key_name}' without frequency directive",
+                action=action, protocol="LIRC", source_file_id=file_id)
+            stats["missing_carrier_rejected"] += 1
             continue
 
         pattern = list(header)
@@ -967,11 +1322,18 @@ def _parse_lirc_conf(cache: EntityCache, filepath: Path,
             pattern.pop()
 
         if validate_raw_pattern(pattern, frequency):
-            sig_id = cache.insert_signal_raw(frequency, pattern)
-            remote_commands[remote_id].append((action, sig_id, "RAW"))
+            sig_id = cache.insert_signal_raw(
+                frequency, pattern, carrier_evidence="SOURCE_DECLARED",
+                source_file_id=file_id)
+            remote_commands[remote_id].append(
+                (action, sig_id, "RAW", "FULL_FRAME", "SINGLE_TAP"))
             count += 1
         else:
-            stats["validation_rejected"] += 1
+            cache.rejections.add(
+                "radioxoma-infrared", rel_path, 0, "MALFORMED_RAW",
+                detail=f"invalid raw for '{key_name}'",
+                action=action, protocol="LIRC", source_file_id=file_id)
+            stats["raw_rejected"] += 1
 
     return count
 
@@ -1007,31 +1369,64 @@ def _parse_irplus_xml(cache: EntityCache, filepath: Path,
         action = normalize_action(label)
 
         for raw_el in button.iter("raw"):
-            freq_str = raw_el.get("frequency", "38000")
+            declared = raw_el.get("frequency")
+            freq_str = declared if declared else "38000"
             data_str = raw_el.get("data", "")
             try:
                 freq = int(freq_str)
                 pattern = [int(x) for x in data_str.split() if x.strip()]
             except ValueError:
+                cache.rejections.add(
+                    "radioxoma-infrared", rel_path, 0, "INVALID_CARRIER",
+                    detail=f"non-integer frequency '{freq_str}' for '{label}'",
+                    action=action, protocol="RAW", source_file_id=file_id)
+                stats["invalid_carrier_rejected"] += 1
                 continue
             if validate_raw_pattern(pattern, freq):
-                sig_id = cache.insert_signal_raw(freq, pattern)
-                remote_commands[remote_id].append((action, sig_id, "RAW"))
+                # irplus XML: declared frequency = the transmitted carrier;
+                # absent frequency = 38 kHz by the irplus format mandate.
+                sig_id = cache.insert_signal_raw(
+                    freq, pattern,
+                    carrier_evidence=("SOURCE_DECLARED" if declared
+                                      else "FORMAT_NORMATIVE"),
+                    source_file_id=file_id)
+                remote_commands[remote_id].append(
+                    (action, sig_id, "RAW", "FULL_FRAME", "SINGLE_TAP"))
                 count += 1
+            else:
+                cache.rejections.add(
+                    "radioxoma-infrared", rel_path, 0, "MALFORMED_RAW",
+                    detail=f"invalid raw for '{label}'", action=action,
+                    protocol="RAW", source_file_id=file_id)
+                stats["raw_rejected"] += 1
 
         for coded in button.iter("code"):
             proto = coded.get("protocol", "")
             dev = coded.get("device", "0")
             sub = coded.get("subdevice", "-1")
             func = coded.get("function", "0")
+            proto_name, carrier = normalize_protocol(proto)
+            if proto_name is None:
+                cache.rejections.add(
+                    "radioxoma-infrared", rel_path, 0, "UNSUPPORTED_PROTOCOL",
+                    detail=f"unknown protocol '{proto}'",
+                    action=action, protocol=proto)
+                stats["unsupported_protocol_rejected"] += 1
+                continue
             try:
-                proto_name, carrier = normalize_protocol(proto)
-                sig_id = cache.insert_signal_parametric(proto_name, carrier,
-                                                         int(dev), int(sub), int(func))
-                remote_commands[remote_id].append((action, sig_id, proto_name))
+                sig_id = cache.insert_signal_parametric(
+                    proto_name, carrier, int(dev), int(sub), int(func),
+                    carrier_evidence="FORMAT_NORMATIVE",
+                    source_file_id=file_id)
+                remote_commands[remote_id].append(
+                    (action, sig_id, proto_name, "FULL_FRAME", "SINGLE_TAP"))
                 count += 1
             except ValueError:
-                pass
+                cache.rejections.add(
+                    "radioxoma-infrared", rel_path, 0, "MALFORMED_ADDRESS",
+                    detail=f"non-numeric device/function for '{label}'",
+                    action=action, protocol=proto, source_file_id=file_id)
+                stats["malformed_address_rejected"] += 1
 
     return count
 
@@ -1106,8 +1501,12 @@ def run_ingestion(profile: str = "production"):
     conn.execute("PRAGMA synchronous=NORMAL")
 
     init_database(conn)
+    seed_protocol_definitions(conn)
 
-    cache = EntityCache(conn.cursor())
+    collector = RejectionCollector()
+    lock = load_source_lock()
+    cache = EntityCache(conn.cursor(), profile=profile,
+                        lock=lock, rejections=collector)
 
     print("\n[1/5] Ingesting Flipper-IRDB...")
     ingest_flipper(conn, cache)
@@ -1160,14 +1559,21 @@ def run_ingestion(profile: str = "production"):
     print(f"  Deduped Parametric: {stats.get('inserted_parametric', 0)}")
     print(f"  Deduped Raw:      {stats.get('inserted_raw', 0)}")
     print(f"  Validation Rejects: {stats.get('validation_rejected', 0)}")
+    print(f"  Protocol Rejects: {stats.get('unsupported_protocol_rejected', 0)}")
     print(f"  Parse Errors:     {stats.get('parse_errors', 0)}")
+
+    # ─── Write Rejections Manifest + DB rows (§7/§4) ─────────────────
+    collector.write_rows(conn)
+    conn.commit()  # durability: row writes must not ride the closing rollback
+    collector.write_manifest(REJECTIONS_PATH, profile)
+    print(f"  ✓ Rejections manifest + {len(collector._by_row)} DB rows written")
 
     # ─── Write Stats JSON ─────────────────────────────────────────────
     manifest = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "profile": profile,
         "generatedAtUtc": "2026-08-08T00:00:00Z",
-        "pipelineVersion": "5.0.0-v4-native",
+        "pipelineVersion": "5.1.0-v5-native",
         "databaseSha256": hashlib.sha256(DB_PATH.read_bytes()).hexdigest(),
         "canonicalContentSha256": canonical_hash,
         "databaseSizeBytes": db_size,
@@ -1176,6 +1582,7 @@ def run_ingestion(profile: str = "production"):
             "dedupParametric": stats.get("inserted_parametric", 0),
             "dedupRaw": stats.get("inserted_raw", 0),
             "validationRejected": stats.get("validation_rejected", 0),
+            "unsupportedProtocolRejected": stats.get("unsupported_protocol_rejected", 0),
             "parseErrors": stats.get("parse_errors", 0),
         }
     }
