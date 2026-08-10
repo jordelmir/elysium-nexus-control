@@ -822,6 +822,49 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 34 — KPI harness: §1 metrics from real telemetry, nothing invented
+
+Audit (MASTER_ORDER §1 Success Metrics): the §1 KPIs (latency p50/p95,
+IR first candidate, silent fallback, wrong-device dispatch, discovery,
+reconnect, migration, HIL, setup time, crash-free) were written in a table
+but nothing computed them — no harness read the telemetry, so there was no
+way to ever report a measured number honestly.
+
+- `NEW fabric/diagnostics/KpiHarness.kt` — computes §1 KPIs from REAL
+  recorded sources; today that source is the FlightRecorder (now wired by
+  PHASE 22 + PHASE 24):
+  - `dispatch_success_rate` (≥ 0.99),
+  - `lan_command_p50_ms` / `lan_command_p95_ms` (< 50 / < 150) — percentiles
+    REUSED from `LatencyTracker` (type-7 linear, already test-pinned),
+  - `ir_first_candidate_rate` (≥ 0.80): first evaluated route DirectIr AND
+    succeeded — today's closest honest proxy of §1 "IR first candidate",
+  - `silent_fallback_count` (= 0): Fallback flights are counted as
+    silent-fallback evidence (never disguised as success),
+  - `wrong_device_dispatch` (= 0): correlationId reused across TWO target
+    devices is counted — constructively impossible in the single-target
+    dispatch loop, checked here as evidence.
+  - KPIs whose data source does not exist yet (discovery success,
+    known-device reconnect, migration loss, HIL regression, median setup,
+    crash-free sessions) are reported `UNMEASURED` with the reason —
+    "unproven production signals = 0" is enforced by explicit reporting,
+    not by silence.
+- `NEW KpiHarnessTest` (8): empty recorder → UNMEASURED latencies +
+  explicit unmeasured list; p50/p95 math pinned (type-7, 5 samples);
+  FAIL beyond thresholds; silent-fallback counting; IR rate at 0.8 PASS and
+  2/3 FAIL; wrong-device correlation integrity; success rate.
+- Honesty: these are the FIRST uncontestably-measured §1 numbers, but they
+  are flight-telemetry statistics on recorded dispatches — no physical
+  device is involved; "measured" means "computed from recorded evidence",
+  not "verified on hardware". The diagnostics screen consuming the harness
+  is an UI-phase decision.
+- **Total suite: 1,167 → 1,175 planned (8 new).** Gate pending Jor's batch.
+
+## Build Status (this update)
+
+```
+testDebugUnitTest   — pending (Jor: verify-on-request; no per-phase gradle waves)
+```
+
 ### V06 PHASE 33 — Devices-Under-Test matrix: stratified, validated, honest
 
 Audit (MASTER_ORDER §54–§56 "Device Test Matrix (stratified, not random)"):

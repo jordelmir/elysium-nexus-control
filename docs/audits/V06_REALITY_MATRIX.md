@@ -131,6 +131,12 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P34 KPI harness (§1 metrics from flight telemetry)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `KpiHarness` + `KpiSnapshot` | **UNIT_VERIFIED** | `KpiHarnessTest` (8: p50/p95 pinned math via LatencyTracker, thresholds FAIL/PASS, silent-fallback counting, IR first-candidate ≥0.80, wrong-device correlation integrity, UNMEASURED listing) | **consumes `FlightRecorder`** (real telemetry source, wired PH22/PH24) | measured = computed from evidence, NOT hardware-verified; diagnostics screen adoption = UI-phase; discovery/reconnect/migration/HIL/setup/crash-free = explicitly UNMEASURED |
+
 ### V06-P33 Devices-Under-Test matrix (stratified, validated)
 
 | Artifact | Status | Evidence | Wiring | Gaps |
