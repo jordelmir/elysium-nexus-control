@@ -120,6 +120,12 @@ jobs:
           pip install --break-system-packages pyyaml 2>/dev/null || pip install pyyaml
           python3 tools/device-matrix/validate.py
 
+      # ── Gate 5b: Documentation claims audit (V06-P37) ──
+      - name: Audit docs for unproven claims
+        run: |
+          chmod +x tools/claims-audit/audit.sh
+          ./tools/claims-audit/audit.sh
+
       # ── Gate 6: JVM unit tests ──
       - name: Run JVM unit tests
         run: |

@@ -822,6 +822,45 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 37 — Documentation claims audit: script + fixes + CI gate
+
+Audit (MASTER_ORDER §33 no-silent-claims): claim hygiene was policy-only —
+nothing enforced it over 40+ markdown files, so prose could overstate
+maturity without a tripwire (e.g. a release note calling the IR data
+fabric "Production-Ready" while no physical device has been verified).
+
+- `NEW tools/claims-audit/audit.sh` — read-only linter, zero deps:
+  flags maturity-state claims (`PRODUCTION_APPROVED`, `HIL_VERIFIED`,
+  `REAL_DEVICE_VERIFIED`, `DEVICE_MATRIX_VERIFIED`, `ON_DEVICE_VERIFIED`)
+  and absolutist compatibility phrases ("works with every", "compatible
+  con todas", "100% de los", "production-ready", "hardware-verified", …)
+  in every `.md` EXCEPT the recognized authorities (reality matrix,
+  changelogs, MASTER_ORDER — where state may only be stated and ladder
+  semantics honored). Exit 1 on any violation.
+- **Audit run on the repo: 24 hits → triaged → PASS.** Real findings
+  fixed in docs:
+  - `docs/RELEASE_NOTES_v0.3.0.md` — "Production-Ready Infrared Universal
+    Remote" → "Universal Infrared Remote (catalog complete; device
+    verification pending hardware)"; "professional-grade" removed;
+  - `docs/RELEASE_NOTES_v0.5.0.md` — schema-field reference reworded
+    (no unproven assertion).
+  - The remaining 22 hits were authority files + DB-schema enumerations
+    (state ladder definitions, matrix table headers, `EvidenceLevel`
+    enum) — after an allowlist path-normalization fix, they are correctly
+    not violations.
+- `UPDATED .github/workflows/ci-fast.yml` — Gate 5b: the audit runs on
+  every PR (cheap, no deps).
+- Honesty: the audit enforces the rule mechanically, the allowlist is the
+  documented exception (authority files only) — tuning the allowlist to
+  hide claims is itself a reviewable diff.
+
+## Build Status (this update)
+
+```
+tools/claims-audit/audit.sh   ✓ PASS (repo-wide, run locally)
+Workflow YAML                 — CI runs on push
+```
+
 ### V06 PHASE 35 — CI split: fast PR path + authoritative push pipeline
 
 Audit (MASTER_ORDER §82–§86 Release Factory): one workflow ran the FULL

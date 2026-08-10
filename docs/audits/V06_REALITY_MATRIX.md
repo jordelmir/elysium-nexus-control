@@ -131,6 +131,12 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P37 Claims audit (no-silent-claims tripwire)
+
+| Artifact | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `tools/claims-audit/audit.sh` | shipped | repo-wide run: 24 initial hits → 2 real doc fixes (RELEASE_NOTES v0.3.0 "Production-Ready" removed; v0.5.0 DB-field wording), 22 true negatives (authority files/enums) → PASS | Gate 5b in ci-fast.yml (every PR) | allowlist = documented exception (matrix, changelogs, MASTER_ORDER); tuning UNHIDABLE (diff-visible) |
+
 ### V06-P35 CI split (fast PR + full push)
 
 | Artifact | Status | Evidence | Wiring | Gaps |

@@ -9,9 +9,9 @@
 
 ## Highlights
 
-### 🔴 IR Data Fabric — Production-Ready Infrared Universal Remote
+### 🔴 IR Data Fabric — Universal Infrared Remote (catalog complete; device verification pending hardware)
 
-This release transforms the Elysium Nexus Controller into a **professional-grade universal infrared remote** with:
+This release transforms the Elysium Nexus Controller into an **infrared universal remote** with:
 
 - **915 brands** from 5 upstream IR data repositories
 - **108,681 verified IR commands** across 37 device types
