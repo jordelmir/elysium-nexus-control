@@ -822,6 +822,53 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 31 — BindingHealth vs RouteHealth: two health axes, one verdict
+
+Audit (MASTER_ORDER §57–§61 diagnostics, §17): `SelfHealingRouteManager`
+tracked ONE conflated health per (device, protocol) — it cannot tell a
+stale pairing (auth axis) from a dead transport link (route axis), so the
+heal action is guessed: a WiFi TV with the AP down and a TV with a stale
+pairing key get the same treatment, and re-pairing a healthy pairing is
+wasted motion.
+
+- `NEW healing/BindingHealthTracker.kt` — the binding axis, keyed by
+  `bindingId`: consecutive AUTH failures (auth/signature/credentials —
+  the "who are you" axis) mark the binding STALE (needs re-pair /
+  revalidation), while transport failures never advance the auth axis;
+  `recordBindingValidated` heals; `bindingsNeedingRepair` feeds the heal
+  loop. Unknown bindings are healthy (same default as routes).
+- `NEW healing/DeviceHealthView.kt` — the combined verdict:
+  `TwoAxisVerdict(device, binding, route, outcome, recommendedAction)`:
+  OK / ROUTE_DEGRADED / BINDING_STALE / BINDING_STALE_AND_ROUTE_DEGRADED
+  with the matching heal action (NONE / FAILOVER_AND_REVALIDATE_ROUTE /
+  REPAIR_BINDING / FAILOVER_THEN_REPAIR_BINDING) — the honest answer a
+  diagnostics screen renders instead of one conflated number.
+- `UPDATED healing/SelfHealingRouteManager.kt` — optional `bindingTracker`
+  injectable (null = original single-axis behavior bit-for-bit):
+  `recordFailure(..., isAuthFailure: Boolean = false, bindingId: String?)`
+  classifies typed (no message sniffing) into the correct axis;
+  `revalidationCandidates(bindingId, deviceId, protocol)` answers what the
+  background heal must re-check: ROUTE_RECHECK / REBIND /
+  REBIND_AND_FAILOVER / NONE.
+- Honesty: the tracker/view are unit-verified (host-side); an injected
+  tracker is not yet constructed by a production caller (heal-loop wiring
+  is a service-phase decision), and the diagnostics SCREEN is not claimed.
+  What is proven: the classification semantics, the cross-axis independence
+  and the verdict mapping.
+- `NEW HealthAxisTest` (15): BindingHealthTracker (unknown=valid, threshold
+  semantics, validation heals, auth/transport independence, per-binding
+  keys); SelfHealingRouteManager two-axis classification (auth→REBIND,
+  transport→ROUTE_RECHECK, both→REBIND_AND_FAILOVER, no-tracker passthrough
+  = NONE); DeviceHealthView verdicts + score-derived axis.
+  **Total suite: 1,152 → 1,167 planned (15 new).** Gate pending Jor's batch
+  request.
+
+## Build Status (this update)
+
+```
+testDebugUnitTest   — pending (Jor: verify-on-request; no per-phase gradle waves)
+```
+
 ### V06 PHASE 27 — Candidate paging: bounded memory for the universal sweep
 
 Audit (MASTER_ORDER §75–§78 "Memory Budget … candidate paging, bounded

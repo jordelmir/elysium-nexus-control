@@ -29,7 +29,15 @@ import com.elysium.nexus.fabric.evidence.EventResult
  */
 class SelfHealingRouteManager(
     private val failureThreshold: Int = 3,
-    private val recoveryCheckIntervalMs: Long = 60_000L
+    private val recoveryCheckIntervalMs: Long = 60_000L,
+    /**
+     * V06-P31: when injected, failures are classified into the two health
+     * axes — auth-class failures ALSO advance the binding axis (the
+     * pairing is stale and needs re-pair, not a transport retry);
+     * transport-class failures only advance this route axis.
+     * Null keeps the single-axis behavior of the original manager.
+     */
+    private val bindingTracker: BindingHealthTracker? = null
 ) {
     private val routeHealth = mutableMapOf<RouteKey, RouteHealth>()
 
@@ -47,9 +55,17 @@ class SelfHealingRouteManager(
     }
 
     /**
-     * Record a failed route usage.
+     * Record a failed route usage. When [isAuthFailure] is true (typed —
+     * no message sniffing) and a binding tracker is injected, the binding
+     * axis is advanced too: the pairing itself is suspect.
      */
-    fun recordFailure(deviceId: DeviceId, protocol: Protocol, reason: String) {
+    fun recordFailure(
+        deviceId: DeviceId,
+        protocol: Protocol,
+        reason: String,
+        isAuthFailure: Boolean = false,
+        bindingId: String? = null
+    ) {
         val key = RouteKey(deviceId, protocol)
         val existing = routeHealth[key] ?: RouteHealth()
         val newFailures = existing.consecutiveFailures + 1
@@ -59,6 +75,19 @@ class SelfHealingRouteManager(
             lastFailureReason = reason,
             isUnhealthy = newFailures >= failureThreshold
         )
+        if (isAuthFailure) {
+            bindingTracker?.recordAuthFailure(
+                bindingId = bindingId ?: "${deviceId.value}@${protocol.name}",
+                deviceId = deviceId,
+                protocol = protocol,
+                reason = reason
+            )
+        } else {
+            bindingTracker?.recordTransportFailure(
+                bindingId = bindingId ?: "${deviceId.value}@${protocol.name}",
+                reason = reason
+            )
+        }
     }
 
     /**
@@ -111,13 +140,48 @@ class SelfHealingRouteManager(
     }
 
     /**
-     * Get health summary for a device.
+     * V06-P31: when the route dies and the bindings were still valid, the
+     * background revalidation candidate is the ROUTE (not the pair). When
+     * the auth axis entered STALE, the candidate is the BINDING.
+     */
+    fun revalidationCandidates(
+        bindingId: String,
+        deviceId: DeviceId,
+        protocol: Protocol
+    ): RevalidationPlan {
+        val route = routeHealth[RouteKey(deviceId, protocol)]
+        val routeStale = route != null && route.isUnhealthy
+        val bindingStale = bindingTracker?.isBindingHealthy(bindingId) == false
+        return when {
+            bindingStale && routeStale -> RevalidationPlan.REBIND_AND_FAILOVER
+            bindingStale -> RevalidationPlan.REBIND
+            routeStale -> RevalidationPlan.ROUTE_RECHECK
+            else -> RevalidationPlan.NONE
+        }
+    }
+
+    /**
+     * Health summary for a device on the route axis.
      */
     fun healthSummary(deviceId: DeviceId): Map<Protocol, RouteHealth> {
         return routeHealth.entries
             .filter { it.key.deviceId == deviceId }
             .associate { it.key.protocol to it.value }
     }
+}
+
+/**
+ * V06-P31: what the background heal should re-check.
+ */
+enum class RevalidationPlan {
+    /** Nothing broken. */
+    NONE,
+    /** Transport link — reconnect / failover, revalidate the route. */
+    ROUTE_RECHECK,
+    /** Pairing axis — re-pair / revalidate the binding. */
+    REBIND,
+    /** Both — failover first, then repair the binding. */
+    REBIND_AND_FAILOVER
 }
 
 data class RouteKey(

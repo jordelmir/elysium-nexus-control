@@ -131,6 +131,14 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P31 BindingHealth vs RouteHealth (two health axes)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `BindingHealthTracker` | **UNIT_VERIFIED** | `HealthAxisTest` (binding axis: threshold → STALE, validation heals, auth/transport independence, per-binding keys) | consumed by `SelfHealingRouteManager.recordFailure` (typed `isAuthFailure`, optional injectable) | heal-loop caller not yet constructing a tracker (service-phase decision) |
+| `DeviceHealthView` (`TwoAxisVerdict`) | **UNIT_VERIFIED** | verdict mapping OK/ROUTE_DEGRADED/BINDING_STALE/BOTH + heal action; score→axis | pure diagnostic surface | diagnostics screen not claimed |
+| `SelfHealingRouteManager` (two-axis classification) | **UNIT_VERIFIED** | auth→REBIND, transport→ROUTE_RECHECK, both→REBIND_AND_FAILOVER; no-tracker → original behavior | optional `bindingTracker`; `revalidationCandidates(bindingId, deviceId, protocol)` | production caller absent (documented) |
+
 ### V06-P27 Candidate paging (bounded memory, §75–§78)
 
 | Class | Status | Evidence | Wiring | Gaps |
