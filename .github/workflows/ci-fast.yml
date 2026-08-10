@@ -108,6 +108,11 @@ jobs:
           print(f'lockfile integrity: PASS ({len(sources)} sources)')
           "
 
+      # ── Gate 3b: Catalog eligibility (V06-PTG-02 §3) ──
+      - name: Enforce production catalog eligibility gate
+        run: |
+          python3 tools/ir-data/check_catalog_eligibility.py
+
       # ── Gate 4: Python lint ──
       - name: Lint Python scripts (ruff)
         run: |

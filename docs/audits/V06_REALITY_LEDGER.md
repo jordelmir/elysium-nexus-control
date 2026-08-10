@@ -22,7 +22,7 @@ marked ⚡ reflect state already earned on this branch (commits referenced).
 | Position | Ledger today | Required before merge (§69) | Working phase |
 |---|---|---|---|
 | Catalog installer | ⚡ IMPLEMENTED (branch) — **hardcoded hash conflicts with manifest authority; no per-build layout** | UNIT_VERIFIED, fresh-install/tamper/kill instrumented gates | PTG-01 (this phase) |
-| Catalog eligibility | ⚡ IMPLEMENTED (logic) — **structural risk: INTERNAL_UNVERIFIED candidates excluded by runtime query** | Eligible POWER/VOLUME_UP/VOLUME_DOWN/MUTE > 0 proven by SQL gate | PTG-02 |
+| Catalog eligibility | ⚡ GATE SHIPPED (CI Gate 3b/2c) — probe surface PASSES: POWER 1,432 / VOLUME_UP 964 / VOLUME_DOWN 812 / MUTE 891; eligible surface RED by design (2,350 code sets INTERNAL_UNVERIFIED — evidence floor, PTG-05 upgrades) | Eligible POWER/VOLUME_UP/VOLUME_DOWN/MUTE > 0 proven by SQL gate | PTG-02 ✅ / PTG-05 (evidence pipeline) |
 | Production signing | IMPLEMENTED (debug-signed release) | **demo-only until production key exists** (§65, §69) | PTG-14 |
 | Paired-device storage | IMPLEMENTED — **plaintext clientKey/pairingToken in Room** | Android Keystore vault, plaintext removed | PTG-07 |
 | LG webOS vertical | DESIGNED/IMPLEMENTED SKELETON — HTTP POST framed as WebSocket; claim downgraded | REAL transport or honest SKELETON label (§32–§39) | PTG-09 |
@@ -43,8 +43,8 @@ marked ⚡ reflect state already earned on this branch (commits referenced).
 | Profile probe session durability (Room fields) | UNIT_VERIFIED | entity/migration tests | **NOT EARNED**: real process-death recovery via latest-active-session DAO (PTG-06 §32/§20) |
 | Catalog installer | ⚡ IMPLEMENTED | branch commit `2f1855d`+ | PTG-01 completes UNIT_VERIFIED + instrumented gates |
 | IR catalog schema | ⚡ INTEGRATION_VERIFIED (schema v5 assets in branch) | manifest schemaVersion=5, `catalog-rejections`/`signal_sources` tables present, `verify_reproducibility` | True native Schema V5 builder (PTG-03 §4) |
-| Catalog eligibility policy | IMPLEMENTED (queries exist) | — | **SQL CI gate** (§3, PTG-02); candidates must be >0 |
-| Data ingestion (ingest_v5) | ⚡ IMPLEMENTED | manifest stats (2,367 code sets; 85,392 signals) | unknown protocol → REJECT (not 38 kHz default), rejection collector with real counts (PTG-02 §7) |
+| Catalog eligibility policy | ⚡ GATE SHIPPED (SQL, exit-code enforced, CI-wired) | gate run: 4/4 probe surfaces OK; eligible surfaces RED (status floor §3) — the gate proves the gap, never fakes it | PTG-05: evidence upgrades flip eligible green |
+| Data ingestion (ingest_v5) | ⚡ IMPLEMENTED (§7/§8 shipped: unknown protocol → REJECT + structured rejection manifest `ir_catalog_rejections.json`; lock-authority provenance — zero-hash impossible in production, license APPROVED only with lock evidence) | manifest stats (2,367 code sets; 85,392 signals) | carrier rejection for known protocols with out-of-range carrier; schema-v5 native builder (PTG-03 §4) |
 | Evidence ontology (verification_status) | IMPLEMENTED | — | unit-status inflation mapper removed; per-binding evidence levels (§12, §19; PTG-05) |
 | Canonical hash / provenance export | ⚡ IMPLEMENTED | canonical hash per manifest | MUST include `signal_sources` + protocol definitions + eligibility (§13, PTG-03) |
 | Catalog build identity | ⚡ DESIGNED | this ledger | `catalogBuildId` in manifest + stats agreement (PTG-01 §10) |
@@ -101,8 +101,8 @@ signing key exist. Nothing on this branch will claim otherwise.
 
 | Phase | Order sections | Deliverable |
 |---|---|---|
-| PTG-01 | §1, §2, §10, §18(partial), §31(partial) | Reality ledger; catalog installer rebuild (manifest sole authority, builds/<buildId> layout, atomic promotion, rollback); buildId in manifest+stats |
-| PTG-02 | §3, §7, §8 | Eligibility SQL gates; strict ingestion (unknown protocol/carrier REJECT); RejectionCollector; provenance fail-closed |
+| PTG-01 | §1, §2, §10, §18(partial), §31(partial) | ✅ SHIPPED — Reality ledger; catalog installer rebuild (manifest sole authority, builds/<buildId> layout, atomic promotion, rollback); buildId in manifest+stats |
+| PTG-02 | §3, §7, §8 | ⚡ IN PROGRESS — eligibility SQL gate shipped + wired in CI (Gate 3b/2c); POWER canonical key discovered (`POWER_TOGGLE`, 1,432 candidates — probe was dead on `POWER`); strict ingestion (unknown protocol → REJECT + structured rejection manifest); provenance fail-closed (lock authority, zero-hash impossible in production, license APPROVED only with evidence) |
 | PTG-03 | §4, §5, §9, §13, §11, §15 | Native Schema V5 builder; one authoritative pipeline; canonical hash covers signal_sources; reproducible factory A/B; seeders out of production path |
 | PTG-04 | §6, §10–§12 | Content-addressed full-SHA256 identities; RAW canonical timing hash (zlib-independent) |
 | PTG-05 | §12, §14–§16, §19–§23 | Evidence ontology; variant fail-closed; SIRC12/15/20 explicit + golden vectors; fingerprint += codecId/variantId |
@@ -118,4 +118,4 @@ signing key exist. Nothing on this branch will claim otherwise.
 | PTG-15 | §61–§64, §67, §84–§85 | HIL rig spec + physical matrix results once hardware lands |
 | PTG-16 | §69, §70 | Branch exit criteria review; no tag/release until Physical Truth Gate |
 
-*Updated:* 2026-08-09 — PTG-01 in progress.
+*Updated:* 2026-08-09 — PTG-02 shipped (gate + strict ingestion + provenance fail-closed). PTG-03 pending: native Schema V5 builder.

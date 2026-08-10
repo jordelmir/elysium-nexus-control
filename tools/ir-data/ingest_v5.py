@@ -41,6 +41,7 @@ CACHE = ROOT / ".cache" / "ir-sources"
 OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 STATS_PATH = OUTPUT_DIR / "ir_catalog_stats.json"
+REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
 SCHEMA_PATH = ROOT / "ir-data" / "schema" / "catalog-v5.sql"
 
 sys.path.insert(0, str(ROOT / "tools" / "ir-data"))
@@ -256,11 +257,64 @@ PROTOCOL_MAP: dict[str, tuple[str, int]] = {
 }
 
 
-def normalize_protocol(raw_proto: str) -> tuple[str, int]:
+def normalize_protocol(raw_proto: str) -> tuple[str | None, int]:
+    """§7 (PTG-02): unknown protocols are REJECTED, never defaulted to 38 kHz.
+    Known protocols with no explicit carrier fall back to their canonical
+    carrier from PROTOCOL_MAP — that is normalization, not fabrication."""
     key = raw_proto.lower().strip()
     if key in PROTOCOL_MAP:
         return PROTOCOL_MAP[key]
-    return (raw_proto.strip(), 38000)
+    return (None, None)
+
+
+# ─── PTG-02 §8: Provenance Lock Authority ────────────────────────────────────
+SOURCES_LOCK_PATH = ROOT / "ir-data" / "sources.lock.json"
+
+
+def load_source_lock() -> dict[str, dict]:
+    """sources.lock.json is the provenance authority (§8). Production builds
+    may only reference sources present in the lock; every revision inherits
+    its identity (commit/tree/content/license hashes) from it."""
+    if not SOURCES_LOCK_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SOURCES_LOCK_PATH.read_text(encoding="utf-8"))
+        return {s["id"]: s for s in data.get("sources", [])}
+    except Exception:
+        return {}
+
+
+class RejectionCollector:
+    """§7: structured ingestion rejections. Every rejected unit is recorded
+    with source, file, row, reason, detail, action and protocol. The rejection
+    artifact joins the build identity (catalog.py hashes it into catalogBuildId)."""
+
+    def __init__(self) -> None:
+        self._by_row: list[dict] = []
+
+    def add(self, source_id: str, file: str, row: int, reason: str,
+            detail: str = "", action: str = "", protocol: str = "") -> None:
+        self._by_row.append({
+            "source": source_id, "file": file, "row": row, "reason": reason,
+            "detail": detail[:200], "action": action, "protocol": protocol,
+        })
+
+    def counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for r in self._by_row:
+            counts[r["reason"]] = counts.get(r["reason"], 0) + 1
+        return counts
+
+    def write_manifest(self, path: Path, profile: str) -> None:
+        manifest = {
+            "schemaVersion": 5,
+            "profile": profile,
+            "generatedAtUtc": "2026-08-08T00:00:00Z",
+            "totalRejections": len(self._by_row),
+            "byReason": self.counts(),
+            "rejections": self._by_row,
+        }
+        path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
 
 # ─── Broadlink Base64 Decoder ─────────────────────────────────────────────────
@@ -341,8 +395,13 @@ def seed_protocol_definitions(conn: sqlite3.Connection):
 
 # ─── V4 Entity Caches ────────────────────────────────────────────────────────
 class EntityCache:
-    def __init__(self, cur: sqlite3.Cursor):
+    def __init__(self, cur: sqlite3.Cursor, profile: str = "production",
+                 lock: dict | None = None,
+                 rejections: RejectionCollector | None = None):
         self.cur = cur
+        self.profile = profile
+        self.lock: dict[str, dict] = lock if lock is not None else {}
+        self.rejections: RejectionCollector = rejections if rejections is not None else RejectionCollector()
         self.brands: dict[str, str] = {}
         self.device_types: dict[str, str] = {}
         self.actions: dict[str, str] = {}
@@ -439,7 +498,24 @@ class EntityCache:
 
     def ensure_revision(self, source_id: str, commit_sha: str,
                         tree_sha: str = "") -> str:
-        rev_key = f"{source_id}:{commit_sha}"
+        """§8 (PTG-02) fail-closed: in production the lock is the sole source
+        of revision identity. A source absent from sources.lock.json cannot
+        produce a revision — the build stops instead of fabricating hashes."""
+        entry = self.lock.get(source_id)
+        if entry:
+            resolved_commit = entry.get("resolvedCommit") or commit_sha
+            resolved_tree = entry.get("resolvedTree") or tree_sha
+            content_sha = entry.get("sourceContentSha256") or "0" * 64
+            license_sha = entry.get("licenseFileSha256") or "0" * 64
+        else:
+            if self.profile == "production":
+                raise RuntimeError(
+                    f"PTG-02 §8: source '{source_id}' absent from "
+                    f"sources.lock.json — fail-closed: no production revision "
+                    "without lock provenance")
+            resolved_commit, resolved_tree = commit_sha, tree_sha
+            content_sha, license_sha = "0" * 64, "0" * 64
+        rev_key = f"{source_id}:{resolved_commit}"
         if rev_key not in self._revisions:
             rev_id = short(rev_key)
             self.cur.execute(
@@ -447,8 +523,8 @@ class EntityCache:
                 "id, source_id, commit_sha, tree_sha, "
                 "content_sha256, license_sha256"
                 ") VALUES (?, ?, ?, ?, ?, ?)",
-                (rev_id, source_id, commit_sha,
-                 tree_sha or "0" * 64, "0" * 64, "0" * 64))
+                (rev_id, source_id, resolved_commit,
+                 resolved_tree, content_sha, license_sha))
             self._revisions[rev_key] = rev_id
             # Also store as HEAD so callers can look up by HEAD
             self._revisions[f"{source_id}:HEAD"] = rev_id
@@ -456,17 +532,25 @@ class EntityCache:
 
     def ensure_file(self, source_id: str, rel_path: str,
                     content_sha: str = "") -> str:
+        """§8 (PTG-02): license APPROVED is never asserted without evidence.
+        Only a lock entry carrying licenseFileSha256 AND sourceContentSha256
+        makes the file APPROVED; anything else stays AWAITING_EVIDENCE."""
         f_key = f"{source_id}:{rel_path}"
         if f_key not in self._files:
             rev_id = self._revisions.get(f"{source_id}:HEAD", "")
             file_id = short(f_key)
+            entry = self.lock.get(source_id) or {}
+            has_license_evidence = bool(
+                entry.get("licenseFileSha256") and entry.get("sourceContentSha256"))
+            license_status = "APPROVED" if has_license_evidence else "AWAITING_EVIDENCE"
             self.cur.execute(
                 "INSERT OR IGNORE INTO source_files ("
                 "id, source_revision_id, relative_path, "
                 "content_sha256, license_status"
-                ") VALUES (?, ?, ?, ?, 'APPROVED')",
+                ") VALUES (?, ?, ?, ?, ?)",
                 (file_id, rev_id, rel_path,
-                 content_sha or "0" * 64))
+                 content_sha or entry.get("sourceContentSha256") or "0" * 64,
+                 license_status))
             self._files[f_key] = file_id
         return self._files[f_key]
 
@@ -559,17 +643,24 @@ def ingest_flipper(conn: sqlite3.Connection, cache: EntityCache):
         curr_freq = 38000
         curr_data = None
 
-        def flush():
+        def flush(row: int = 0):
             nonlocal curr_name, curr_type, curr_proto, curr_addr
             nonlocal curr_cmd, curr_freq, curr_data
             if curr_name and curr_type:
                 action = normalize_action(curr_name)
                 if curr_type == "parsed" and curr_proto and curr_addr is not None and curr_cmd is not None:
                     proto_name, default_hz = normalize_protocol(curr_proto)
-                    carrier = curr_freq if curr_freq else default_hz
-                    sig_id = cache.insert_signal_parametric(proto_name, carrier, curr_addr, -1, curr_cmd)
-                    remote_commands[remote_id].append((action, sig_id, proto_name))
-                    stats["inserted_parametric"] += 1
+                    if proto_name is None:
+                        cache.rejections.add(
+                            source_id, rel_path, row, "UNSUPPORTED_PROTOCOL",
+                            detail=f"unknown protocol '{curr_proto}'",
+                            action=action, protocol=curr_proto)
+                        stats["unsupported_protocol_rejected"] += 1
+                    else:
+                        carrier = curr_freq if curr_freq else default_hz
+                        sig_id = cache.insert_signal_parametric(proto_name, carrier, curr_addr, -1, curr_cmd)
+                        remote_commands[remote_id].append((action, sig_id, proto_name))
+                        stats["inserted_parametric"] += 1
                 elif curr_type == "raw" and curr_data and curr_freq:
                     if validate_raw_pattern(curr_data, curr_freq):
                         sig_id = cache.insert_signal_raw(curr_freq, curr_data)
@@ -585,19 +676,19 @@ def ingest_flipper(conn: sqlite3.Connection, cache: EntityCache):
             curr_freq = 38000
             curr_data = None
 
-        for line in text.splitlines():
+        for line_no, line in enumerate(text.splitlines(), start=1):
             line = line.strip()
             if not line or line.startswith("Filetype:") or line.startswith("Version:"):
                 continue
             if line.startswith("#"):
-                flush()
+                flush(row=line_no)
                 continue
             kv = line.split(":", 1)
             if len(kv) != 2:
                 continue
             key, val = kv[0].strip(), kv[1].strip()
             if key == "name":
-                flush()
+                flush(row=line_no)
                 curr_name = val
             elif key == "type":
                 curr_type = val
@@ -800,7 +891,7 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
         try:
             with open(csv_file, "r", encoding="utf-8", errors="replace") as f:
                 reader = csv.DictReader(f)
-                for row in reader:
+                for row_no, row in enumerate(reader, start=1):
                     fn = row.get("functionname", "").strip()
                     proto_raw = row.get("protocol", "").strip()
                     device_str = row.get("device", "0").strip()
@@ -810,6 +901,13 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
                         continue
                     action = normalize_action(fn)
                     proto_name, carrier_hz = normalize_protocol(proto_raw)
+                    if proto_name is None:
+                        cache.rejections.add(
+                            "probonopd-irdb", csv_file, row_no, "UNSUPPORTED_PROTOCOL",
+                            detail=f"unknown protocol '{proto_raw}'",
+                            action=action, protocol=proto_raw)
+                        stats["unsupported_protocol_rejected"] += 1
+                        continue
                     try:
                         address = int(device_str)
                         sub_device = int(subdevice_str) if subdevice_str != "-1" else -1
@@ -1045,8 +1143,15 @@ def _parse_irplus_xml(cache: EntityCache, filepath: Path,
             dev = coded.get("device", "0")
             sub = coded.get("subdevice", "-1")
             func = coded.get("function", "0")
+            proto_name, carrier = normalize_protocol(proto)
+            if proto_name is None:
+                cache.rejections.add(
+                    "radioxoma-infrared", rel_path, 0, "UNSUPPORTED_PROTOCOL",
+                    detail=f"unknown protocol '{proto}'",
+                    action=action, protocol=proto)
+                stats["unsupported_protocol_rejected"] += 1
+                continue
             try:
-                proto_name, carrier = normalize_protocol(proto)
                 sig_id = cache.insert_signal_parametric(proto_name, carrier,
                                                          int(dev), int(sub), int(func))
                 remote_commands[remote_id].append((action, sig_id, proto_name))
@@ -1129,7 +1234,10 @@ def run_ingestion(profile: str = "production"):
     init_database(conn)
     seed_protocol_definitions(conn)
 
-    cache = EntityCache(conn.cursor())
+    collector = RejectionCollector()
+    lock = load_source_lock()
+    cache = EntityCache(conn.cursor(), profile=profile,
+                        lock=lock, rejections=collector)
 
     print("\n[1/5] Ingesting Flipper-IRDB...")
     ingest_flipper(conn, cache)
@@ -1182,7 +1290,12 @@ def run_ingestion(profile: str = "production"):
     print(f"  Deduped Parametric: {stats.get('inserted_parametric', 0)}")
     print(f"  Deduped Raw:      {stats.get('inserted_raw', 0)}")
     print(f"  Validation Rejects: {stats.get('validation_rejected', 0)}")
+    print(f"  Protocol Rejects: {stats.get('unsupported_protocol_rejected', 0)}")
     print(f"  Parse Errors:     {stats.get('parse_errors', 0)}")
+
+    # ─── Write Rejections Manifest (§7) ───────────────────────────────
+    collector.write_manifest(REJECTIONS_PATH, profile)
+    print(f"  ✓ Rejections written to {REJECTIONS_PATH}")
 
     # ─── Write Stats JSON ─────────────────────────────────────────────
     manifest = {
@@ -1198,6 +1311,7 @@ def run_ingestion(profile: str = "production"):
             "dedupParametric": stats.get("inserted_parametric", 0),
             "dedupRaw": stats.get("inserted_raw", 0),
             "validationRejected": stats.get("validation_rejected", 0),
+            "unsupportedProtocolRejected": stats.get("unsupported_protocol_rejected", 0),
             "parseErrors": stats.get("parse_errors", 0),
         }
     }

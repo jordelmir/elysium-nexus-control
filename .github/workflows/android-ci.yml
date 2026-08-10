@@ -129,6 +129,11 @@ jobs:
           pip install --break-system-packages pyyaml 2>/dev/null || pip install pyyaml
           python3 tools/device-matrix/validate.py
 
+      # ── Gate 2c: Catalog eligibility (V06-PTG-02 §3) ──
+      - name: Enforce production catalog eligibility gate
+        run: |
+          python3 tools/ir-data/check_catalog_eligibility.py
+
       # ── Gate 3: Python lint ──
       - name: Lint Python scripts (ruff)
         run: |
