@@ -131,6 +131,13 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P35 CI split (fast PR + full push)
+
+| Artifact | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `.github/workflows/ci-fast.yml` | shipped | 8 fast gates (catalog/canonical/lock/ruff/device-matrix/JVM/androidTest-compile/lint), ~20 min | PR trigger on main/develop | no runner execution yet (runs on first push/PR) |
+| `.github/workflows/android-ci.yml` | updated | authoritative push path; device-matrix Gate 2b added | push + workflow_dispatch; full factory incl. R8 + SBOM + emulator (continue-on-error) | — |
+
 ### V06-P34 KPI harness (§1 metrics from flight telemetry)
 
 | Class | Status | Evidence | Wiring | Gaps |

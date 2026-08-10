@@ -822,6 +822,34 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 35 — CI split: fast PR path + authoritative push pipeline
+
+Audit (MASTER_ORDER §82–§86 Release Factory): one workflow ran the FULL
+pipeline (release R8, SBOM, artifacts, emulator) on every PR — PR churn
+burned 30-minute release-gate budget, and the device-matrix validator
+(PHASE 33) had nowhere to run.
+
+- `NEW .github/workflows/ci-fast.yml` — the PR path (main/develop), ~20 min:
+  catalog integrity (hash + quick_check + FK), canonical hash, source lock,
+  ruff, **device-matrix validation** (P33 wiring), JVM unit tests,
+  `compileDebugAndroidTestKotlin` (instrumented coverage WITHOUT burning
+  the emulator per PR), Android lint. No release build, no SBOM, no
+  emulator.
+- `UPDATED .github/workflows/android-ci.yml` — authoritative push path:
+  PR trigger removed (fast path owns PRs); pushes to main/develop +
+  `workflow_dispatch` run the full factory (debug + release R8 + SBOM +
+  artifacts + instrumented continue-on-error). Device-matrix validation
+  added as Gate 2b.
+- Honesty: workflow YAML is reviewed-by-eyeball this phase (no runner
+  execution without Jor's batch — the CI itself is the gate when pushed).
+  No behavior regression: full gates identical on push.
+
+## Build Status (this update)
+
+```
+Workflow YAML — no local execution (runs in GitHub CI)
+```
+
 ### V06 PHASE 34 — KPI harness: §1 metrics from real telemetry, nothing invented
 
 Audit (MASTER_ORDER §1 Success Metrics): the §1 KPIs (latency p50/p95,
