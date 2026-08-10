@@ -228,9 +228,35 @@ is the honest remainder.
 **Rule honored:** nothing above is claimed `REAL_DEVICE_VERIFIED` or `PRODUCTION_APPROVED`.
 Physical gates pending: LG TV, HIL receiver, device matrix.
 
+## 5. Hardware-blocked positions (documented, never claimed)
+
+> Per §33/§44: a position with zero physical evidence stays at its honest
+> rung. These phases need lab hardware that does **not exist yet** (lab =
+> Honor Magic V2 only; no LG TV, no Nexus Receiver board, no HIL bench,
+> no second TV). Scores are engineering-maturity estimates of the *code
+> that exists today*, with the unblocking resource named explicitly.
+
+| Phase | Requires | Score today | Why blocked / unblocker |
+|---|---|---|---|
+| V06-P8 | durable CLI-photo IR capture flow | ~60 % | NEEDS: physical IR emitter + receiver rig on lab bench + golden capture against known remote; code path unit-verified, zero optical evidence |
+| V06-P10 | IR convention conformance (physical) | ~55 % | NEEDS: captured IR corpus from P8; conformance against NEC@38000 measured on oscilloscope/ADC; schema+codec verified, waveforms unmeasured |
+| V06-P16 | Cross-transport calibration E2E | ~20 % | NEEDS: WiFi Oracle (fixed IP LG TV) + IR path SAME scene, side-by-side latency capture; class exists, no E2E |
+| V06-P17-E2E | End-to-end controller journey on-device | ~30 % | NEEDS: app on Android host (Magic V2 available) + a real controllable TV (LG WebOS first); UI wired, transport unproven |
+| V06-P25 | on-device image capture UI | ~45 % | NEEDS: camera permission flow + physical capture on Magic V2; UI/logic unit-verified only |
+| V06-P26 | IR codebook import | ~55 % | NEEDS: P10 physical corpus decision (capture-vs-import approval); schema v4 + seed tooling verified, zero physical signals |
+| V06-P32 | IR transmission hardening | ~40 % | NEEDS: IR emitter + timing rig (jitter/long-burst bounds measured); scheduling logic unit-verified |
+| V06-P36 | IR receiver + remote learning | ~0 % | NEEDS: IR receiver hardware (not in lab); not even DESIGNED-secure beyond spec notes |
+| V06-P38 | disconnect-neutralization physical test | ~35 % | NEEDS: physical host (TV + transport) to cut abruptly; release-blocking §38 — units pass, real disconnect untested |
+
+**Actionable unblockers:** (1) acquire LG WebOS TV + IR emitter/receiver rig
+(lowest cost, unlocks P8/P10/P16/P17/P32/P38); (2) Nexus Receiver board
+(unlocks P25/P26/P36+/Receiver); (3) HIL bench (unlocks HIL ladder rungs).
+No claim in any phase above exceeds its table status regardless of these.
+
+---
 ---
 
-*Next:* V06-P9, P18, P13/14, P19 and P22 complete — 1,124 JVM green, lint + assemble green.
+*Next:* V06-P9, P18, P13/14, P19, P22, P24, P27, P31, P33, P34, P35, P37 complete — 1,124 JVM green, lint + assemble green.
 Then: PHASE 24 (error taxonomy UX) and the remaining software phases; physical-only
 phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) remain blocked on hardware and are
 documented, not claimed.

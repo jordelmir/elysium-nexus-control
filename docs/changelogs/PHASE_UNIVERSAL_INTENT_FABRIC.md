@@ -822,6 +822,18 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06-T10 — Hardware-blocked positions documented (9 phases, zero claims)
+
+The reality matrix gains §5 "Hardware-blocked positions": the nine physical
+phases (8, 10, 16, 17-E2E, 25, 26, 32, 36, 38) now carry an explicit
+per-phase table — what hardware each needs, honest engineering-maturity
+score of the code that exists today, and the named unblocker resource.
+Blockers: no LG TV / IR emitter-receiver rig / Nexus Receiver board / HIL
+bench in the lab (only Honor Magic V2 is available). Unblockers ordered by
+cost: LG TV + IR rig first (unlocks 6 phases), Receiver board, HIL bench.
+Footer updated: software sweep complete, batch verification est. 1,175
+tests pending Jor's order.
+
 ### V06 PHASE 37 — Documentation claims audit: script + fixes + CI gate
 
 Audit (MASTER_ORDER §33 no-silent-claims): claim hygiene was policy-only —
