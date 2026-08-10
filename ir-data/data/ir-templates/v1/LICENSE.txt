@@ -1,0 +1,16 @@
+Elysium Nexus — IR Template Hypotheses v1
+==========================================
+
+Identifier  : elysium-template-hypotheses / ir-templates-v1
+Approval    : HYPOTHESIS-ONLY — no engineering review evidence exists.
+Status      : RESEARCH_ONLY — NEURO EVER imported into a production catalog
+              build by construction (source_adapters.import_templates raises
+              under --profile production). This dataset has NO physical
+              verification and NO real-device observation.
+
+Contents
+--------
+17 hypothetical NEC-family command sets (TV universal / KINTECH / SANKEY /
+generic) with address/command guesses. These exist only to seed lab probe
+experiments in the research profile. They must never influence ranking,
+compatibility claims, or production code sets.

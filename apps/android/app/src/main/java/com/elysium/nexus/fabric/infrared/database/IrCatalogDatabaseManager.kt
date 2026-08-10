@@ -231,7 +231,7 @@ class IrCatalogDatabaseManager private constructor(
             }
             fsyncDirectory(targetDirectory)
 
-            pruneBuilds(keep = setOf(buildId, previousBuildId))
+            pruneBuilds(keep = setOfNotNull(buildId, previousBuildId))
 
             Log.i(TAG, "Installed catalog build $buildId (${promotedDb.length()} bytes, sha256=$computedHash)")
             return InstallResult.Installed(buildId, computedHash)
@@ -271,7 +271,7 @@ class IrCatalogDatabaseManager private constructor(
             }
             if (!swapped) return InstallResult.Failed("Atomic pointer swap failed (adoption) for build ${metadata.catalogBuildId}")
             fsyncDirectory(targetDirectory)
-            pruneBuilds(keep = setOf(metadata.catalogBuildId, previousBuildId))
+            pruneBuilds(keep = setOfNotNull(metadata.catalogBuildId, previousBuildId))
             InstallResult.AlreadyInstalled
         } catch (e: Exception) {
             InstallResult.Failed("Legacy adoption failed: ${e.message}", e)

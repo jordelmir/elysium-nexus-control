@@ -1,12 +1,21 @@
 package com.elysium.nexus.fabric.infrared.database
 
+import org.json.JSONObject
+
 /**
- * V06-PTG-01 §2/§9: Catalog manifest identity — pure, JVM-testable.
+ * V06-PTG-01 §2/§9 + V06.1 Phase 0.1: Catalog manifest identity — pure, JVM-testable.
  *
  * The packaged `ir_catalog.manifest.json` is the SINGLE authority for what a
  * catalog build is. No duplicated hash constants are allowed in code: the
  * installed database must match the manifest's `databaseSha256`, and every
  * artifact (db, manifest, stats, rejections) carries the same `catalogBuildId`.
+ *
+ * Parser: `org.json.JSONObject` (platform class on Android, reference
+ * implementation on local JVM tests). The real manifest carries nested
+ * objects (`counts`, allowed future extensions such as `stats`); a security
+ * manifest is not a place for a proprietary JSON parser. Every identity field
+ * is type-checked explicitly — fail-closed on any missing, blank, or
+ * wrong-typed value.
  */
 object CatalogManifest {
 
@@ -24,7 +33,8 @@ object CatalogManifest {
         "canonicalContentSha256",
         "sourceLockSha256",
         "rejectionManifestSha256",
-        "licenseManifestSha256"
+        "licenseManifestSha256",
+        "policyVersion"
     )
 
     data class CatalogMetadata(
@@ -34,7 +44,8 @@ object CatalogManifest {
         val canonicalContentSha256: String,
         val sourceLockSha256: String,
         val rejectionManifestSha256: String,
-        val licenseManifestSha256: String
+        val licenseManifestSha256: String,
+        val policyVersion: String
     )
 
     sealed interface ParseResult {
@@ -51,32 +62,42 @@ object CatalogManifest {
         declaredSchemaVersion != null && declaredSchemaVersion >= MIN_SCHEMA_VERSION
 
     fun parse(jsonText: String): ParseResult {
-        val values = ManifestJson.parseObject(jsonText)
-            ?: return ParseResult.Failure("manifest is not a parseable JSON object")
+        val root = try {
+            JSONObject(jsonText)
+        } catch (e: Exception) {
+            return ParseResult.Failure("manifest is not valid JSON: ${e.javaClass.simpleName}")
+        }
 
-        val missing = REQUIRED_KEYS.filter { values[it] == null }
+        val missing = REQUIRED_KEYS.filter { !root.has(it) }
         if (missing.isNotEmpty()) {
             return ParseResult.Failure("manifest missing required identity fields: ${missing.joinToString()}")
         }
 
-        val buildId = (values["catalogBuildId"] as? ManifestJson.Value.Str)?.v?.trim().orEmpty()
+        val buildId = root.optString("catalogBuildId").trim()
         if (buildId.isEmpty()) return ParseResult.Failure("catalogBuildId is empty")
 
-        val schemaVersion = (values["schemaVersion"] as? ManifestJson.Value.Num)?.v?.toInt()
-        if (schemaVersion == null) return ParseResult.Failure("schemaVersion is not an integer")
+        val schemaVersion: Int = root.opt("schemaVersion") as? Int
+            ?: return ParseResult.Failure("schemaVersion is not an integer")
 
-        fun str(key: String): String = (values[key] as? ManifestJson.Value.Str)?.v?.trim().orEmpty()
+        fun nonBlankString(key: String): String {
+            val raw = root.optString(key).trim()
+            if (raw.isEmpty()) {
+                throw IllegalArgumentException("$key is blank")
+            }
+            return raw
+        }
 
-        val fields = mapOf(
-            "databaseSha256" to str("databaseSha256"),
-            "canonicalContentSha256" to str("canonicalContentSha256"),
-            "sourceLockSha256" to str("sourceLockSha256"),
-            "rejectionManifestSha256" to str("rejectionManifestSha256"),
-            "licenseManifestSha256" to str("licenseManifestSha256")
-        )
-        val blankHashes = fields.filter { it.value.isEmpty() }
-        if (blankHashes.isNotEmpty()) {
-            return ParseResult.Failure("manifest hashes must be non-blank: ${blankHashes.keys.joinToString()}")
+        val fields = try {
+            mapOf(
+                "databaseSha256" to nonBlankString("databaseSha256"),
+                "canonicalContentSha256" to nonBlankString("canonicalContentSha256"),
+                "sourceLockSha256" to nonBlankString("sourceLockSha256"),
+                "rejectionManifestSha256" to nonBlankString("rejectionManifestSha256"),
+                "licenseManifestSha256" to nonBlankString("licenseManifestSha256"),
+                "policyVersion" to nonBlankString("policyVersion")
+            )
+        } catch (e: IllegalArgumentException) {
+            return ParseResult.Failure("manifest hashes must be non-blank: ${e.message}")
         }
 
         return ParseResult.Success(
@@ -87,94 +108,9 @@ object CatalogManifest {
                 canonicalContentSha256 = fields.getValue("canonicalContentSha256"),
                 sourceLockSha256 = fields.getValue("sourceLockSha256"),
                 rejectionManifestSha256 = fields.getValue("rejectionManifestSha256"),
-                licenseManifestSha256 = fields.getValue("licenseManifestSha256")
+                licenseManifestSha256 = fields.getValue("licenseManifestSha256"),
+                policyVersion = fields.getValue("policyVersion")
             )
         )
-    }
-}
-
-/**
- * Minimal strict JSON object parser for the catalog manifest. The manifest is
- * our own artifact (flat object of strings/ints + a nested `counts` object);
- * this deliberately does NOT pull a general JSON dependency into the fabric.
- * Fails (null) on malformed input — fail-closed.
- */
-internal object ManifestJson {
-
-    sealed interface Value {
-        data class Str(val v: String) : Value
-        data class Num(val v: Long) : Value
-    }
-
-    fun parseObject(text: String): Map<String, Value>? {
-        val s = text.trim()
-        if (!s.startsWith("{") || !s.endsWith("}")) return null
-
-        val result = LinkedHashMap<String, Value>()
-        var i = 1
-        val n = s.length
-        while (i < n) {
-            while (i < n && s[i].isWhitespace() || (i < n && s[i] == ',')) i++
-            if (i >= n || s[i] == '}') break
-
-            if (s[i] != '"') return null
-            val key = readString(s, i) ?: return null
-            i = key.second
-            while (i < n && s[i].isWhitespace()) i++
-            if (i >= n || s[i] != ':') return null
-            i++
-            while (i < n && s[i].isWhitespace()) i++
-            if (i >= n) return null
-
-            when (s[i]) {
-                '"' -> {
-                    val v = readString(s, i) ?: return null
-                    result[key.first] = Value.Str(v.first)
-                    i = v.second
-                }
-                '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' -> {
-                    val start = i
-                    while (i < n && (s[i].isDigit() || s[i] == '-' || s[i] == '.' || s[i] == 'e' || s[i] == 'E')) i++
-                    val numText = s.substring(start, i)
-                    val num = numText.toLongOrNull() ?: return null
-                    result[key.first] = Value.Num(num)
-                }
-                else -> return null
-            }
-        }
-        return result
-    }
-
-    /** Reads a quoted JSON string starting at [start] (which must point at '"'). */
-    private fun readString(s: String, start: Int): Pair<Pair<String, Int>, Int>? {
-        var i = start + 1
-        val sb = StringBuilder()
-        val n = s.length
-        while (i < n) {
-            val c = s[i]
-            if (c == '"') return Pair(Pair(sb.toString(), i + 1), i + 1)
-            if (c == '\\') {
-                i++
-                if (i >= n) return null
-                sb.append(
-                    when (s[i]) {
-                        '"' -> '"'
-                        '\\' -> '\\'
-                        '/' -> '/'
-                        'b' -> '\b'
-                        'f' -> '\u000C'
-                        'n' -> '\n'
-                        'r' -> '\r'
-                        't' -> '\t'
-                        else -> return null
-                    }
-                )
-                i++
-            } else {
-                sb.append(c)
-                i++
-            }
-        }
-        return null
     }
 }

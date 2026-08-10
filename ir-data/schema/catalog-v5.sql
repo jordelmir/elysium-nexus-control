@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS code_sets (
     region TEXT,
     verification_status TEXT NOT NULL,
     runtime_status TEXT NOT NULL,
+    -- V0.6.1 §5: independent evidence/eligibility axes (code-set level).
+    evidence_level TEXT NOT NULL DEFAULT 'SOURCE_IMPORTED',
+    eligibility_status TEXT NOT NULL DEFAULT 'RESEARCH_ONLY',
     FOREIGN KEY(remote_id) REFERENCES remotes(id),
     FOREIGN KEY(source_revision_id) REFERENCES source_revisions(id)
 );
@@ -124,7 +127,21 @@ CREATE TABLE IF NOT EXISTS signals (
     canonical_sha256 TEXT NOT NULL,
     runtime_status TEXT NOT NULL,
     validation_status TEXT NOT NULL,
-    rejection_reason TEXT
+    rejection_reason TEXT,
+    -- V0.6.1 §0.3: typed FK chain to the authoritative protocol catalogue.
+    -- storage-identity (codec_id) stays as provenance only; eligibility uses
+    -- these FKs. RAW signals never carry a parametric definition/variant.
+    protocol_definition_id TEXT,
+    protocol_variant_id TEXT,
+    -- V0.6.1 §4: carrier truth lane — never infer into exact observation.
+    carrier_evidence TEXT NOT NULL DEFAULT 'UNKNOWN',
+    -- V0.6.1 §5: evidence/eligibility are INDEPENDENT axes (never inferred
+    -- from verification_status). Importers set the floor; only the evidence
+    -- pipeline promotes.
+    evidence_level TEXT NOT NULL DEFAULT 'SOURCE_IMPORTED',
+    eligibility_status TEXT NOT NULL DEFAULT 'RESEARCH_ONLY',
+    FOREIGN KEY(protocol_definition_id) REFERENCES protocol_definitions(id),
+    FOREIGN KEY(protocol_variant_id) REFERENCES protocol_variants(id)
 );
 
 CREATE TABLE IF NOT EXISTS command_bindings (
@@ -217,7 +234,7 @@ CREATE TABLE IF NOT EXISTS catalog_rejections (
     id TEXT PRIMARY KEY,
     source_file_id TEXT,
     reason TEXT NOT NULL,
-    rejection_kind TEXT NOT NULL CHECK(rejection_kind IN ('LICENSE', 'STRUCTURE', 'UNSUPPORTED_PROTOCOL', 'DEDUP', 'OTHER')),
+    rejection_kind TEXT NOT NULL CHECK(rejection_kind IN ('LICENSE', 'STRUCTURE', 'UNSUPPORTED_PROTOCOL', 'UNSUPPORTED_ENCODING', 'AMBIGUOUS_VARIANT', 'INVALID_CARRIER', 'MISSING_CARRIER', 'MALFORMED_ADDRESS', 'MALFORMED_COMMAND', 'MALFORMED_RAW', 'RAW_DURATION_TOO_LONG', 'DEDUP', 'OTHER')),
     rejection_epoch_ms INTEGER NOT NULL,
     FOREIGN KEY(source_file_id) REFERENCES source_files(id)
 );
@@ -233,3 +250,8 @@ CREATE INDEX IF NOT EXISTS idx_remotes_device_type ON remotes(device_type_id);
 CREATE INDEX IF NOT EXISTS idx_protocol_variants_protocol ON protocol_variants(protocol_id);
 CREATE INDEX IF NOT EXISTS idx_compatibility_assertions_codeset ON compatibility_assertions(code_set_id);
 CREATE INDEX IF NOT EXISTS idx_physical_test_evidence_codeset ON physical_test_evidence(code_set_id);
+
+-- V0.6.1 §0.3: eligibility indexes.
+CREATE INDEX IF NOT EXISTS idx_signals_protocol_definition ON signals(protocol_definition_id);
+CREATE INDEX IF NOT EXISTS idx_signals_eligibility ON signals(eligibility_status);
+CREATE INDEX IF NOT EXISTS idx_code_sets_eligibility ON code_sets(eligibility_status);

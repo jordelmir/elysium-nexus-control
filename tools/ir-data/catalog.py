@@ -121,28 +121,73 @@ def step_ingest(profile: str):
     log("Ingestion complete.")
 
 
-def step_seed_brands():
-    """Step 3: Seed curated brands from ir_codes_db.json."""
-    log("Seeding curated brands...")
-    import seed_curated_brands_v4
-    seed_curated_brands_v4.main()
-    log("Curated brands seeded.")
+def step_import_curated(profile: str):
+    """Step 3: V0.6.1 Phase 1/2 — curated TV dataset through the SourceAdapter
+    (fail-closed EntityCache + sources.lock authority, real per-file SHA-256).
+    NO legacy direct-DB seeder may touch the production artifact."""
+    log(f"Importing curated TV dataset (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_curated(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"Curated imported: {stats}")
 
 
-def step_seed_templates():
-    """Step 4: Seed DeviceTemplate-based TV brands."""
-    log("Seeding device templates...")
-    import seed_templates_v4
-    seed_templates_v4.main()
-    log("Device templates seeded.")
+def step_import_kintech(profile: str):
+    """Step 4: V0.6.1 Phase 1/2 — KINTECH subset under its own locked source
+    identity (elysium-nexus-curated)."""
+    log(f"Importing KINTECH dataset (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_kintech(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"KINTECH imported: {stats}")
 
 
-def step_seed_kintech():
-    """Step 5: Seed Kintech brand."""
-    log("Seeding Kintech...")
-    import seed_kintech_v4
-    seed_kintech_v4.main()
-    log("Kintech seeded.")
+def step_import_templates(profile: str):
+    """Step 5 (RESEARCH ONLY): hypothesis templates enter ONLY research
+    catalogs. import_templates raises under production by construction —
+    the dangerous data does not exist in the production artifact."""
+    if profile == "production":
+        log("Templates skipped: elysium-template-hypotheses is RESEARCH_ONLY "
+            "(Phase 1 fail-safe)")
+        return
+    log(f"Importing hypothesis templates (profile={profile})...")
+    import sqlite3 as _sql
+    import ingest_v5
+    import source_adapters
+    conn = _sql.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    collector = ingest_v5.RejectionCollector()
+    lock = ingest_v5.load_source_lock()
+    cache = ingest_v5.EntityCache(conn.cursor(), profile=profile,
+                                  lock=lock, rejections=collector)
+    stats = source_adapters.import_templates(cache, profile=profile)
+    collector.write_rows(conn)
+    conn.commit()
+    conn.close()
+    log(f"Templates imported: {stats}")
 
 
 def step_optimize():
@@ -289,12 +334,12 @@ def main():
                         help="Build profile: production (approved sources) or research (all sources)")
     parser.add_argument("--verify-only", action="store_true",
                         help="Only verify existing catalog against manifest")
-    parser.add_argument("--seed-templates", action="store_true",
-                        help="Only run DeviceTemplate seeder")
-    parser.add_argument("--seed-brands", action="store_true",
-                        help="Only run curated brands seeder")
-    parser.add_argument("--seed-kintech", action="store_true",
-                        help="Only run Kintech seeder")
+    parser.add_argument("--import-templates", action="store_true",
+                        help="Source-import hypothesis templates (research only)")
+    parser.add_argument("--import-curated", action="store_true",
+                        help="Source-import curated TV dataset (fail-closed)")
+    parser.add_argument("--import-kintech", action="store_true",
+                        help="Source-import KINTECH dataset (fail-closed)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -304,15 +349,15 @@ def main():
         ok = step_verify_manifest()
         sys.exit(0 if ok else 1)
 
-    # Individual seed modes
-    if args.seed_templates:
-        step_seed_templates()
+    # Individual source-import modes (each obliges a rebuild of build identity)
+    if args.import_templates:
+        step_import_templates(args.profile)
         return
-    if args.seed_brands:
-        step_seed_brands()
+    if args.import_curated:
+        step_import_curated(args.profile)
         return
-    if args.seed_kintech:
-        step_seed_kintech()
+    if args.import_kintech:
+        step_import_kintech(args.profile)
         return
 
     # Full build pipeline
@@ -324,10 +369,10 @@ def main():
     # Step 2: Ingest from sources
     step_ingest(args.profile)
 
-    # Step 3-5: Seed curated data
-    step_seed_brands()
-    step_seed_templates()
-    step_seed_kintech()
+    # Step 3-5: SourceAdapter imports (Phase 1 — no direct-DB seeders)
+    step_import_curated(args.profile)
+    step_import_kintech(args.profile)
+    step_import_templates(args.profile)
 
     # Step 6: Optimize
     step_optimize()
