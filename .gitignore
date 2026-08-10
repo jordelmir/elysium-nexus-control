@@ -48,3 +48,7 @@ __pycache__/
 *.pyc
 *.db-shm
 *.db-wal
+
+# V0.6.1: catalog DB is a BUILD ARTIFACT (>100MB) — rebuilt by tools/ir-data/catalog.py
+# manifest/stats/rejections remain committed as the build identity record.
+apps/android/app/src/main/assets/ir/ir_catalog.db
