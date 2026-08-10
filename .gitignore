@@ -46,3 +46,5 @@ apps/mac-agent/.build/
 __pycache__/
 __pycache__/
 *.pyc
+*.db-shm
+*.db-wal
