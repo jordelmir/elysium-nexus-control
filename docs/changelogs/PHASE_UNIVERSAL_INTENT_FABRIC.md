@@ -822,6 +822,42 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 33 — Devices-Under-Test matrix: stratified, validated, honest
+
+Audit (MASTER_ORDER §54–§56 "Device Test Matrix (stratified, not random)"):
+no matrix existed — the physical reality axes of the product (fold posture,
+cheap-Android degradation, TV verticals, receiver, hosts) were not declared
+anywhere, so the eventual HIL runs would have no stratified targeting.
+
+- `NEW databases/devices-under-test.yaml` — the stratified matrix:
+  - 8 strata covering every reality axis: foldable flagship (Honor Magic V2,
+    lab, available), cheap Android (degradation path as a feature),
+    mid Android, LG TV vertical (C2 planned), other TV brands, Nexus
+    Receiver (planned), desktop hosts (MacBook available), CI emulator
+    (available);
+  - per-device: id/brand/model, stratum, transports, firmware (honest
+    "unknown" where unmeasured), priority 1–5, state available|planned,
+    owner, unlocked MASTER_ORDER gates, notes;
+  - `coverage_rule: required_strata_must_have_devices` — a required stratum
+    without a device FAILS validation (the matrix cannot silently drop a
+    reality axis).
+- `NEW tools/device-matrix/validate.py` + `requirements.txt` — strict
+  schema enforcement (PyYAML in a tool-local venv, PEP 668 host):
+  unique lowercase-kebab ids, declared strata/transports enums, priority
+  and state checks, owner required, stratification coverage.
+- Honesty: `state: available` only means the hardware exists in the lab —
+  no entry claims measurement; verification levels (`VERIFIED_LAB`, …)
+  are only granted by test reports with compatibility states. V2 is the
+  lab device, not the target (§9).
+- Validation gate: `python3 tools/device-matrix/validate.py` — pending
+  (runs only in Jor's verification batch, per operating mode).
+
+## Build Status (this update)
+
+```
+validate.py (device-matrix) — pending (Jor: verify-on-request)
+```
+
 ### V06 PHASE 31 — BindingHealth vs RouteHealth: two health axes, one verdict
 
 Audit (MASTER_ORDER §57–§61 diagnostics, §17): `SelfHealingRouteManager`

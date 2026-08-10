@@ -131,6 +131,13 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P33 Devices-Under-Test matrix (stratified, validated)
+
+| Artifact | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `databases/devices-under-test.yaml` | shipped (schema) | 8 strata × 10 devices; required-stratum coverage rule | consumed by `tools/device-matrix/validate.py` | no physical device verified (matrix is targeting, not evidence) |
+| `tools/device-matrix/validate.py` | implemented | strict schema + coverage enforcement (PyYAML via tool-local venv) | CI job consumes it (PHASE 35 CI split) | validation run pending Jor's batch |
+
 ### V06-P31 BindingHealth vs RouteHealth (two health axes)
 
 | Class | Status | Evidence | Wiring | Gaps |
