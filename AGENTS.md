@@ -71,6 +71,14 @@ Mirrored from `~/.minimax/memory/user.md`. Apply it here the same way it applies
 * **Bilingual UI strings stay bilingual** (es + en), as the existing convention dictates once UI lands.
 * **Test-discovered regressions are good news.** Surface them. Don't bury.
 * **Verify-on-request (Jor, 2026-08-09).** Duración de las olas de gradle: Jor manda que NO se corra la compilación/pruebas por fase. Regla: escribir código + tests unitarios como parte de cada entrega, actualizar changelog/matriz, commitea; correr gradle (`testDebugUnitTest`/`assembleDebug`/`lintDebug`/`compileDebugKotlin`) SOLO cuando Jor lo pida explícitamente. La verificación batch final se ejecuta cuando Jor pide "haz las pruebas". No compilar "por si acaso".
+* **Operating mode (Jor, 2026-08-09).** Modo de trabajo:
+  - Durante el desarrollo: solo editar código, revisar archivos y documentar. Cero pruebas, cero lint, cero suites, cero compilaciones — a menos que Jor lo ordene.
+  - Cuando Jor ordene: compilaciones incrementales + pruebas específicas durante el desarrollo; la suite completa SOLO antes de publicar.
+  - Un solo proceso Gradle a la vez (sin colisiones).
+  - Cambios divididos en entregas comprobables (commit por fase).
+  - Actualizaciones claras de estado: implementando → probando → compilando → subiendo → esperando CI.
+  - Reutilizar el APK cuando el hash demuestre que no cambió.
+  - Sin loops de autopilot ni subagentes: trabajo directo del agente principal.
 
 ## Iteration loop (mirrors `elysium-autopilot` for this project)
 
