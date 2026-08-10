@@ -822,6 +822,53 @@ assembleDebug                   ✓ BUILD SUCCESSFUL
 ```
 
 
+### V06 PHASE 27 — Candidate paging: bounded memory for the universal sweep
+
+Audit (MASTER_ORDER §75–§78 "Memory Budget … candidate paging, bounded
+cache"): `IrProbeEngine` materializes the ENTIRE universal sweep
+(`filter → distinctBy fingerprint → sortedByDescending` over all candidates)
+in memory. The catalog explicitly supports sweeps without an eager limit
+(`getAllCandidates`, §P0-8 progressive ordering) — paging was designed for
+but never built.
+
+- `NEW fabric/ranking/CandidatePager.kt` — generic bounded pager over a
+  PRE-RANKED source (the catalog's probability-ordered sweep):
+  - slice loaders `(fromIndex, count) -> List<T>` (LIMIT/OFFSET shape),
+  - LRU page cache bounded by `maxCachedPages` — memory bound
+    `loadedItems <= pageSize * maxCachedPages` (test-enforced),
+  - `findWithin` bounded search (position-aware, honest misses),
+  - page immutability + strict loader over-delivery validation.
+- `NEW fabric/infrared/PagedIrProbeEngine.kt` — paged twin of the probe
+  engine with the same public API (`nextCandidate` / `selectById` /
+  `hasMore` / `currentProbeNumber` / `reset` / `totalCandidates`):
+  - walks the sweep page by page: VOLUME_UP filter, cross-page fingerprint
+    dedup (bounded seen-set), local page re-rank via `CandidateScorer`;
+  - never materializes more than `pageSize * maxCachedPages` candidates,
+    whatever the sweep size;
+  - `selectById` searches every visited page + at most `maxCachedPages`
+    fresh pages (auto-sweep re-position semantic), honest false beyond;
+  - Honesty: pages arrive pre-ranked by the source; each page is re-scored
+    locally (strict cross-page global re-rank is NOT claimed);
+    `totalCandidates` is the source count (catalog-level), as in the eager
+    engine.
+- The eager `IrProbeEngine` is untouched — old constructor behavior and its
+  tests are byte-identical (both engines exist as sibling paths; the UI
+  sweep adoption is an UI-phase decision, not claimed here).
+- `NEW CandidatePagerTest` (9) + `NEW PagedIrProbeEngineTest` (7):
+  1,000-candidate drain with `loadedItems <= 30` (the memory bound, proven
+  on a real-sized sweep); empty-page skipping; across-page fingerprint
+  dedup; bounded windowed selectById + honest miss; reset; source-count
+  reporting. **Total suite: 1,136 → 1,152 green.** Lint + assemble green.
+
+## Build Status (this update)
+
+```
+compileDebugKotlin              ✓ BUILD SUCCESSFUL
+testDebugUnitTest               ✓ BUILD SUCCESSFUL (1,152 tests)
+lintDebug                       ✓ BUILD SUCCESSFUL
+assembleDebug                   ✓ BUILD SUCCESSFUL
+```
+
 ### V06 PHASE 24 — Error taxonomy UX: typed, bilingual, wired
 
 Audit (MASTER_ORDER §79–§81): the taxonomy existed — 20 NexusError types,

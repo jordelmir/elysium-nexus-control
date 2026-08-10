@@ -131,6 +131,13 @@ PRODUCTION_APPROVED
 |---|---|---|---|---|
 | `ConcreteAutomationEngineService.runSteps` | **INTEGRATION_VERIFIED (JVM)** | `ConcreteAutomationEngineServiceTest` (5 new: idempotent retries to 3rd attempt; VolumeUp retryCount=5 → exactly 1 dispatch; factory_reset → 1 dispatch; history recorded for scene; error recorded for failed macro) | single shared scene/macro path; `MutationSemantics`-gated retries; `recordExecution` wired | E2E on device still pending (physical) |
 
+### V06-P27 Candidate paging (bounded memory, §75–§78)
+
+| Class | Status | Evidence | Wiring | Gaps |
+|---|---|---|---|---|
+| `CandidatePager<T>` | **UNIT_VERIFIED** | `CandidatePagerTest` (9: slicing, LRU bound pageSize×maxCachedPages over 1,000 items, immutability, over-delivery rejection, bounded findWithin) | generic over PRE-RANKED sources (catalog §P0-8 progressive ordering) | UI sweep adoption = UI-phase decision |
+| `PagedIrProbeEngine` (paged twin of `IrProbeEngine`) | **UNIT_VERIFIED** | `PagedIrProbeEngineTest` (7: 1,000-candidate drain with `loadedItems <= 30`, empty-page skip, cross-page fingerprint dedup, windowed selectById + honest miss, reset, source-count) | same public API as eager engine; eager engine + tests untouched | strict cross-page global re-rank NOT claimed (per-page local re-score); catalog-level `totalCandidates`; selectById may re-hand an already-consumed fingerprint (documented) |
+
 ### V06-P24 Error taxonomy UX (typed + bilingual + wired)
 
 | Class | Status | Evidence | Wiring | Gaps |

@@ -70,6 +70,7 @@ Mirrored from `~/.minimax/memory/user.md`. Apply it here the same way it applies
 * **No platform gates.** "puede pesar 20GB, qué me vale". No size pressure, no Play Store packaging, no min-SDK dance for store compliance. We DO respect min-SDK where it's a real device-compatibility need (the cheap-Android degradation path is a *feature*, not a gate).
 * **Bilingual UI strings stay bilingual** (es + en), as the existing convention dictates once UI lands.
 * **Test-discovered regressions are good news.** Surface them. Don't bury.
+* **Verify-on-request (Jor, 2026-08-09).** Duración de las olas de gradle: Jor manda que NO se corra la compilación/pruebas por fase. Regla: escribir código + tests unitarios como parte de cada entrega, actualizar changelog/matriz, commitea; correr gradle (`testDebugUnitTest`/`assembleDebug`/`lintDebug`/`compileDebugKotlin`) SOLO cuando Jor lo pida explícitamente. La verificación batch final se ejecuta cuando Jor pide "haz las pruebas". No compilar "por si acaso".
 
 ## Iteration loop (mirrors `elysium-autopilot` for this project)
 
