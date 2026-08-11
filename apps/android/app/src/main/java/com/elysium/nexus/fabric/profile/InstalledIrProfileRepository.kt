@@ -133,66 +133,59 @@ class InstalledIrProfileRepository(
     // Save: Room authoritative + in-memory cache
     // ═══════════════════════════════════════════════════════════════════
 
-    fun saveProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
+    /**
+     * V06.2 PR3 Phase 10: DURABLE profile save.
+     *
+     * "Saved" means a durable COMMIT in Room, nothing less. The in-memory
+     * cache is only updated AFTER the commit succeeds — a failed Room write
+     * can never leave a ghost profile in the cache (P0-18).
+     *
+     * Transaction (P0-19): the exact current command set replaces previous
+     * commands atomically (DELETE old → INSERT new, inside one transaction).
+     */
+    suspend fun installProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
         if (profile.codeSetId.isBlank()) {
             return SaveProfileResult.ValidationFailure("codeSetId is blank")
         }
         if (profile.commands.isEmpty()) {
             return SaveProfileResult.ValidationFailure("commands map is empty")
         }
-
-        if (context != null) {
-            val dbWrite: suspend () -> Unit = {
-                try {
-                    val db = ElysiumUserDatabase.getInstance(context)
-                    val pe = mapProfileToEntity(profile, verifiedActions)
-                    val ces = profile.commands.map { (action, binding) ->
-                        val wasVerified = action in verifiedActions
-                        mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
-                    }
-                    db.profileDao().saveProfileWithCommands(pe, ces)
-                    memoryCache[profile.id] = profile
-                    Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
-                }
-            }
-            if (scope != null) {
-                scope.launch(Dispatchers.IO) { dbWrite() }
-            } else {
-                runBlocking(Dispatchers.IO) { dbWrite() }
-            }
-        } else {
+        if (context == null) {
             memoryCache[profile.id] = profile
+            return SaveProfileResult.Saved(profile.id)
         }
-        return SaveProfileResult.Saved(profile.id)
+        try {
+            val db = ElysiumUserDatabase.getInstance(context)
+            val pe = mapProfileToEntity(profile, verifiedActions)
+            val ces = profile.commands.map { (action, binding) ->
+                val wasVerified = action in verifiedActions
+                mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
+            }
+            // Room @Transaction: insert profile + delete stale commands + insert exact set.
+            db.profileDao().saveProfileWithCommands(pe, ces)
+            // Commit succeeded → now (and only now) update the cache projection.
+            memoryCache[profile.id] = profile
+            Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
+            return SaveProfileResult.Saved(profile.id)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
+            // V06.2 PR3 Phase 10: never return Saved before the durable commit;
+            // never enqueue a fire-and-forget write that returns Saved anyway.
+            return SaveProfileResult.StorageFailure(e)
+        }
     }
 
-    suspend fun saveProfileSuspend(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
-        if (profile.codeSetId.isBlank()) {
-            return SaveProfileResult.ValidationFailure("codeSetId is blank")
-        }
-        if (profile.commands.isEmpty()) {
-            return SaveProfileResult.ValidationFailure("commands map is empty")
-        }
+    /**
+     * V06.2 PR3 Phase 10: compatibility facade — delegates to the durable
+     * suspend path and returns the REAL result. Never fire-and-forget.
+     */
+    fun saveProfile(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
+        return runBlocking { installProfile(profile, verifiedActions) }
+    }
 
-        memoryCache[profile.id] = profile
-        if (context != null) {
-            try {
-                val db = ElysiumUserDatabase.getInstance(context)
-                val pe = mapProfileToEntity(profile, verifiedActions)
-                val ces = profile.commands.map { (action, binding) ->
-                    val wasVerified = action in verifiedActions
-                    mapBindingToEntity(profile.id, profile.codeSetId, action, binding, profile.verificationStatus, wasVerified)
-                }
-                db.profileDao().saveProfileWithCommands(pe, ces)
-                Log.d(TAG, "Saved profile ${profile.id} to Room with ${ces.size} commands, verified=$verifiedActions")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to save profile ${profile.id} to Room: ${e.message}")
-                return SaveProfileResult.StorageFailure(e)
-            }
-        }
-        return SaveProfileResult.Saved(profile.id)
+    /** Legacy alias kept for callers that migrated to suspend semantics. */
+    suspend fun saveProfileSuspend(profile: InstalledIrProfile, verifiedActions: Set<IrAction> = emptySet()): SaveProfileResult {
+        return installProfile(profile, verifiedActions)
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -287,7 +280,12 @@ class InstalledIrProfileRepository(
                     actionKey = actionKey,
                     transmittedAtEpochMs = System.currentTimeMillis(),
                     result = result,
-                    transmitDurationMs = transmitDurationMs
+                    transmitDurationMs = transmitDurationMs,
+                    physicalSha256 = null,
+                    carrierHz = null,
+                    catalogBuildId = null,
+                    confirmedAtEpochMs = null,
+                    confirmedBy = null
                 )
             )
         } catch (e: Exception) {
@@ -465,19 +463,18 @@ class InstalledIrProfileRepository(
     }
 
     private fun computeCatalogHash(): String {
-        // P0.1: Read the real canonicalContentSha256 from ir_catalog.manifest.json.
-        // This is the CATALOG hash, not a profile hash.
-        return try {
+        // V06.2 PR3 Phase 11: ONE source for catalog truth — the installer's
+        // verified metadata (validated manifest), never a regex over the asset.
+        val metadata = try {
             if (context != null) {
-                val manifestJson = context.assets.open("ir/ir_catalog.manifest.json").bufferedReader().use { it.readText() }
-                val manifest = org.json.JSONObject(manifestJson)
-                manifest.optString("canonicalContentSha256", "unknown")
-            } else {
-                "unknown"
-            }
+                com.elysium.nexus.fabric.infrared.database.IrCatalogDatabaseManager
+                    .getInstance(context).currentCatalogMetadata()
+            } else null
         } catch (e: Exception) {
-            "unknown"
+            null
         }
+        val hash = metadata?.canonicalContentSha256
+        return if (hash.isNullOrBlank() || hash == "unknown") "unknown" else hash
     }
 
     // ═══════════════════════════════════════════════════════════════════

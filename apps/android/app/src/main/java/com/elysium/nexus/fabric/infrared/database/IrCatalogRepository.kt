@@ -47,41 +47,13 @@ private fun resolveProtocolFromFamily(familyName: String?): IrProtocol? = when {
 private data class CodeSetCommandsResult(
     val commands: Map<IrAction, IrSignal>,
     val commandSignalIds: Map<IrAction, String>,
-    val commandBindings: List<CatalogCommandBinding>
+    val commandBindings: List<CatalogCommandBinding>,
+    /** V06.2 PR3 Phase 9: single authority built from the SELECTED binding (no firstOrNull re-lookup). */
+    val selectedCommands: Map<IrAction, SelectedCommandBinding>
 )
 
-/** P0.2: Build the single-authority selectedCommands map from parallel representations. */
-private fun buildSelectedCommands(
-    codeSetId: String,
-    commands: Map<IrAction, IrSignal>,
-    commandSignalIds: Map<IrAction, String>,
-    commandBindings: List<CatalogCommandBinding>,
-    verification: VerificationStatus
-): Map<IrAction, SelectedCommandBinding> {
-    val result = mutableMapOf<IrAction, SelectedCommandBinding>()
-    for ((action, signal) in commands) {
-        val binding = commandBindings.firstOrNull { it.action == action }
-        val signalId = commandSignalIds[action] ?: binding?.signalId ?: continue
-        result[action] = SelectedCommandBinding(
-            bindingId = binding?.bindingId ?: "binding-${codeSetId}-${action.name}",
-            action = action,
-            signalId = signalId,
-            signal = signal,
-            physicalSha256 = binding?.physicalSha256 ?: "",
-            sourceId = binding?.sourceRevisionId ?: "",
-            sourceRevisionId = binding?.sourceRevisionId ?: "",
-            verificationStatus = verification,
-            evidenceLevel = when (verification) {
-                VerificationStatus.VERIFIED_LAB -> EvidenceLevel.LAB_MATRIX_VERIFIED
-                VerificationStatus.VERIFIED_COMMUNITY -> EvidenceLevel.EXTERNAL_HIL_VERIFIED
-                VerificationStatus.SESSION_VERIFIED -> EvidenceLevel.SESSION_VERIFIED
-                VerificationStatus.PARTIALLY_VERIFIED -> EvidenceLevel.MODEL_INFERRED
-                else -> EvidenceLevel.INTERNAL_UNVERIFIED
-            }
-        )
-    }
-    return result
-}
+// V06.2 PR3 Phase 9: The parallel map projections are built FROM the selected
+// bindings, never the other way around. selectedCommands is the source of truth.
 
 /**
  * §2 Canonical Schema v4 SQLite IR Catalog Repository.
@@ -199,10 +171,7 @@ class IrCatalogRepository private constructor(
                             commands = codeSetResult.commands,
                             commandSignalIds = codeSetResult.commandSignalIds,
                             commandBindings = codeSetResult.commandBindings,
-                            selectedCommands = buildSelectedCommands(
-                                csId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                                codeSetResult.commandBindings, verification
-                            ),
+                            selectedCommands = codeSetResult.selectedCommands,
                             provenance = CodeProvenance(
                                 sourceName = sourceName,
                                 sourceUrl = "",
@@ -305,10 +274,7 @@ class IrCatalogRepository private constructor(
                                 commands = codeSetResult.commands,
                                 commandSignalIds = codeSetResult.commandSignalIds,
                                 commandBindings = codeSetResult.commandBindings,
-                                selectedCommands = buildSelectedCommands(
-                                    csId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                                    codeSetResult.commandBindings, verification
-                                ),
+                                selectedCommands = codeSetResult.selectedCommands,
                                 provenance = CodeProvenance(
                                     sourceName = sourceName,
                                     sourceUrl = "",
@@ -323,6 +289,94 @@ class IrCatalogRepository private constructor(
         }
 
         Log.d(TAG, "getAllCandidates(deviceType=$deviceType, action=$actionKey): ${results.size} Code Sets (progressive brand-first)")
+        results
+    }
+
+    // V0.6.2 PR3 Phase 14 — Paged probe: bounded-memory candidate access.
+    // Deterministic stable ordering (brand, id) — no duplicates across pages.
+
+    private fun pagedBaseWhere(deviceType: String, actionKey: String) = """
+        FROM code_sets cs
+        JOIN remotes r ON cs.remote_id = r.id
+        JOIN brands b ON r.brand_id = b.id
+        JOIN device_types dt ON r.device_type_id = dt.id
+        JOIN source_revisions sr ON cs.source_revision_id = sr.id
+        JOIN sources s ON sr.source_id = s.id
+        JOIN command_bindings cb ON cb.code_set_id = cs.id
+        JOIN actions a ON cb.action_id = a.id
+        WHERE a.canonical_key = ?
+          AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
+          AND s.production_approved = 1
+          AND cs.verification_status != 'BLOCKED'
+    """.trimIndent()
+
+    override suspend fun getCandidateCount(
+        deviceType: String,
+        action: IrAction
+    ): Int = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val actionKey = action.name
+        val devTypeArg = deviceType.trim()
+        val query = "SELECT COUNT(DISTINCT cs.id) ${pagedBaseWhere(devTypeArg, actionKey)}"
+        val params = arrayOf(actionKey, "$devTypeArg%", devTypeArg)
+        database.rawQuery(query, params).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    override suspend fun getCandidatePage(
+        deviceType: String,
+        action: IrAction,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val actionKey = action.name
+        val devTypeArg = deviceType.trim()
+        val results = mutableListOf<IrCodeSet>()
+
+        val selectCols = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
+        """.trimIndent()
+        val query = "$selectCols ${pagedBaseWhere(devTypeArg, actionKey)} GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ? OFFSET ?"
+        val params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, count.toString(), fromIndex.toString())
+
+        database.rawQuery(query, params).use { cursor ->
+            while (cursor.moveToNext()) {
+                val csId = cursor.getString(0)
+                val brandName = cursor.getString(1) ?: "Desconocido"
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+                val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
+
+                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                    val verification = parseVerificationStatus(verificationStr)
+                    results.add(
+                        IrCodeSet(
+                            id = csId,
+                            brand = brandName,
+                            modelPatterns = setOf(remoteModel),
+                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                            commands = codeSetResult.commands,
+                            commandSignalIds = codeSetResult.commandSignalIds,
+                            commandBindings = codeSetResult.commandBindings,
+                            selectedCommands = codeSetResult.selectedCommands,
+                            provenance = CodeProvenance(
+                                sourceName = sourceName,
+                                sourceUrl = "",
+                                licenseSpdx = licenseSpdx
+                            ),
+                            verification = verification
+                        )
+                    )
+                }
+            }
+        }
+        Log.d(TAG, "getCandidatePage(deviceType=$deviceType, from=$fromIndex, count=$count): ${results.size} candidates")
         results
     }
 
@@ -505,8 +559,17 @@ class IrCatalogRepository private constructor(
         //   2. RAW signals preferred over PARAMETRIC
         //   3. Higher source_priority wins
         //   4. Stable tie-break by bindingId (alphabetical)
+        // V06.2 PR3 Phase 9: selectedCommands built from the WINNING binding —
+        // all parallel projections derive from it, never the reverse.
         val commands = mutableMapOf<IrAction, IrSignal>()
         val commandSignalIds = mutableMapOf<IrAction, String>()
+        val selectedCommands = mutableMapOf<IrAction, SelectedCommandBinding>()
+        val codeSetStatus = allBindingsPerAction.values
+            .flatten()
+            .maxByOrNull { verificationRank(it.verificationStatus) }
+            ?.verificationStatus
+            ?: "UNVERIFIED"
+        val verification = parseVerificationStatus(codeSetStatus)
         for ((action, bindings) in allBindingsPerAction) {
             val selected = bindings.sortedWith(
                 compareByDescending<PendingBinding> { verificationRank(it.verificationStatus) }
@@ -516,9 +579,27 @@ class IrCatalogRepository private constructor(
             ).firstOrNull() ?: continue
             commands[action] = selected.signal
             commandSignalIds[action] = selected.signalId
+            selectedCommands[action] = SelectedCommandBinding(
+                bindingId = selected.bindingId,
+                codeSetId = codeSetId,
+                action = action,
+                signalId = selected.signalId,
+                signal = selected.signal,
+                physicalSha256 = selected.physicalSha256,
+                sourceId = selected.sourceRevisionSha,
+                sourceRevisionId = selected.sourceRevisionSha,
+                verificationStatus = verification,
+                evidenceLevel = when (verification) {
+                    VerificationStatus.VERIFIED_LAB -> EvidenceLevel.LAB_MATRIX_VERIFIED
+                    VerificationStatus.VERIFIED_COMMUNITY -> EvidenceLevel.EXTERNAL_HIL_VERIFIED
+                    VerificationStatus.SESSION_VERIFIED -> EvidenceLevel.SESSION_VERIFIED
+                    VerificationStatus.PARTIALLY_VERIFIED -> EvidenceLevel.MODEL_INFERRED
+                    else -> EvidenceLevel.INTERNAL_UNVERIFIED
+                }
+            )
         }
 
-        return CodeSetCommandsResult(commands, commandSignalIds, allBindings)
+        return CodeSetCommandsResult(commands, commandSignalIds, allBindings, selectedCommands)
     }
 
     override suspend fun getSignal(signalId: String): IrSignal? = withContext(Dispatchers.IO) {
@@ -827,10 +908,7 @@ class IrCatalogRepository private constructor(
                         commands = codeSetResult.commands,
                         commandSignalIds = codeSetResult.commandSignalIds,
                         commandBindings = codeSetResult.commandBindings,
-                        selectedCommands = buildSelectedCommands(
-                            codeSetId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                            codeSetResult.commandBindings, verification
-                        ),
+                        selectedCommands = codeSetResult.selectedCommands,
                         provenance = CodeProvenance(
                             sourceName = sourceName,
                             sourceUrl = "",

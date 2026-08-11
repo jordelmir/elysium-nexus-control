@@ -35,7 +35,7 @@ class PagedIrProbeEngine(
     private val penaltyMap: Map<String, Int> = emptyMap(),
     private val successMap: Map<String, Int> = emptyMap(),
     private val failMap: Map<String, Int> = emptyMap()
-) {
+) : ProbeCursor {
     private val targetModel: String? = targetModel
 
     private val seenFingerprints: MutableSet<String> = HashSet()
@@ -46,12 +46,12 @@ class PagedIrProbeEngine(
     private var consumed = 0
 
     /** Catalog-level sweep size (source count, not dedup-adjusted). */
-    val totalCandidates: Int get() = pager.totalCount
+    override val totalCandidates: Int get() = pager.totalCount
 
     /** How many candidates the cursor has handed out. */
-    val currentProbeNumber: Int get() = consumed
+    override val currentProbeNumber: Int get() = consumed
 
-    val hasMore: Boolean
+    override val hasMore: Boolean
         get() = itemIndex < pageItems.size || (pageIndex + 1) < pager.pageCount
 
     /** Pages materialized so far (memory accounting). */
@@ -61,10 +61,10 @@ class PagedIrProbeEngine(
     val loadedItemsCount: Int get() = pager.loadedItems
 
     /** Get the currently selected candidate, or null if exhausted. */
-    fun currentCandidate(): IrCodeSet? = pageItems.getOrNull(itemIndex)
+    override fun currentCandidate(): IrCodeSet? = pageItems.getOrNull(itemIndex)
 
     /** Advance to the next ranked candidate. Returns null when exhausted. */
-    fun nextCandidate(): IrCodeSet? {
+    override suspend fun nextCandidate(): IrCodeSet? {
         while (true) {
             if (itemIndex < pageItems.size) {
                 val current = pageItems[itemIndex]
@@ -88,10 +88,11 @@ class PagedIrProbeEngine(
      * The auto-sweep re-positions to the LAST transmitted candidate, which
      * is never previously consumed.
      */
-    fun selectById(candidateId: String): Boolean {
+    override fun selectById(candidateId: String): Boolean {
+        // Search only already-loaded pages (non-suspend, called from UI).
         val end = minOf(maxOf(pageIndex, 0) + pager.maxCachedPages + 1, pager.pageCount)
         for (p in 0 until end) {
-            val view = pageView(p)
+            val view = pageView(p) ?: continue
             val idx = view.indexOfFirst { it.id == candidateId }
             if (idx >= 0) {
                 pageIndex = p
@@ -105,7 +106,7 @@ class PagedIrProbeEngine(
     }
 
     /** Reset back to the beginning of the sweep. */
-    fun reset() {
+    override fun reset() {
         pageIndex = -1
         pageItems = emptyList()
         itemIndex = 0
@@ -115,7 +116,7 @@ class PagedIrProbeEngine(
 
     // ── internals ─────────────────────────────────────────────
 
-    private fun loadNextPage(): Boolean {
+    private suspend fun loadNextPage(): Boolean {
         pageIndex++
         if (pageIndex >= pager.pageCount) return false
         pageItems = indexedPage(pageIndex)
@@ -124,7 +125,7 @@ class PagedIrProbeEngine(
     }
 
     /** Filter + cross-page dedup + local page re-rank (cursor view). */
-    private fun indexedPage(index: Int): List<IrCodeSet> {
+    private suspend fun indexedPage(index: Int): List<IrCodeSet> {
         val page = pager.page(index)
         return page.asSequence()
             .filter { IrAction.VOLUME_UP in it.commands }
@@ -133,13 +134,13 @@ class PagedIrProbeEngine(
             .toList()
     }
 
-    /** Filter + local re-rank WITHOUT dedup (id-lookup view). */
-    private fun pageView(index: Int): List<IrCodeSet> =
-        pager.page(index)
-            .asSequence()
-            .filter { IrAction.VOLUME_UP in it.commands }
-            .sortedByDescending { score(it) }
-            .toList()
+    /** Filter + local re-rank WITHOUT dedup (id-lookup view). Returns null if page not cached. */
+    private fun pageView(index: Int): List<IrCodeSet>? =
+        pager.getCachedPage(index)
+            ?.asSequence()
+            ?.filter { IrAction.VOLUME_UP in it.commands }
+            ?.sortedByDescending { score(it) }
+            ?.toList()
 
     private fun score(candidate: IrCodeSet): Int =
         CandidateScorer.scoreCandidate(

@@ -104,7 +104,7 @@ class IrProbeEngine(
     private val successMap: Map<String, Int> = emptyMap(),
     /** P1-EVIDENCE: Failure counts per codeSetId from CompatibilityEvidenceEntity */
     private val failMap: Map<String, Int> = emptyMap()
-) {
+) : ProbeCursor {
     /**
      * Distinct candidate code sets containing a [IrAction.VOLUME_UP] command,
      * deduplicated by signal fingerprint and ordered by [CandidateScorer] ranking score
@@ -128,15 +128,15 @@ class IrProbeEngine(
 
     private var currentIndex = 0
 
-    val totalCandidates: Int get() = candidates.size
-    val currentProbeNumber: Int get() = (currentIndex + 1).coerceAtMost(totalCandidates)
-    val hasMore: Boolean get() = currentIndex < candidates.size
+    override val totalCandidates: Int get() = candidates.size
+    override val currentProbeNumber: Int get() = (currentIndex + 1).coerceAtMost(totalCandidates)
+    override val hasMore: Boolean get() = currentIndex < candidates.size
 
     /** Get the currently selected candidate code set, or null if exhausted. */
-    fun currentCandidate(): IrCodeSet? = candidates.getOrNull(currentIndex)
+    override fun currentCandidate(): IrCodeSet? = candidates.getOrNull(currentIndex)
 
     /** Advance to the next candidate code set. Returns the candidate consumed or null if exhausted. */
-    fun nextCandidate(): IrCodeSet? {
+    override suspend fun nextCandidate(): IrCodeSet? {
         if (currentIndex >= candidates.size) return null
         val current = candidates.getOrNull(currentIndex)
         currentIndex++
@@ -144,7 +144,7 @@ class IrProbeEngine(
     }
 
     /** Reset state back to beginning. */
-    fun reset() {
+    override fun reset() {
         currentIndex = 0
     }
 
@@ -154,7 +154,7 @@ class IrProbeEngine(
      * candidate, so the engine must point at it before verification.
      * Returns false if no candidate matches (position unchanged).
      */
-    fun selectById(candidateId: String): Boolean {
+    override fun selectById(candidateId: String): Boolean {
         val idx = candidates.indexOfFirst { it.id == candidateId }
         if (idx < 0) return false
         currentIndex = idx

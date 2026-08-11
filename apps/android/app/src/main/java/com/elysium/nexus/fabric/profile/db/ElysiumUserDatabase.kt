@@ -166,7 +166,14 @@ data class ProbeAttemptEntity(
     val actionKey: String,
     val transmittedAtEpochMs: Long,
     val result: String,
-    val transmitDurationMs: Long
+    val transmitDurationMs: Long,
+    // V0.6.2 PR3 Phase 13 — full evidence on every transmission:
+    val physicalSha256: String?,
+    val carrierHz: Int?,
+    val catalogBuildId: String?,
+    val confirmedAtEpochMs: Long?,
+    /** CHALLENGE_CONFIRMED | SECONDARY_CONFIRMED | USER_CONFIRMED — which evidence step confirmed this attempt. */
+    val confirmedBy: String?
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -286,6 +293,10 @@ interface InstalledProfileDao {
     @Transaction
     suspend fun saveProfileWithCommands(profile: InstalledIrProfileEntity, commands: List<InstalledIrCommandEntity>) {
         insertProfile(profile)
+        // V06.2 PR3 Phase 10 (P0-19): the authoritative install replaces the
+        // exact command set — stale commands from a previous install must never
+        // survive. DELETE previous → INSERT exact current, inside the SAME transaction.
+        deleteCommands(profile.profileId)
         insertCommands(commands)
     }
 
@@ -302,6 +313,12 @@ interface InstalledProfileDao {
 
     @Query("SELECT * FROM probe_sessions WHERE sessionId = :sessionId LIMIT 1")
     suspend fun getProbeSession(sessionId: String): ProbeSessionEntity?
+
+    // V0.6.2 PR3 Phase 12 — real process-death recovery: find the latest active
+    // (non-completed) session matching the current brand/device. Never restore
+    // against a different catalog silently — callers compare catalogHashAtStart.
+    @Query("SELECT * FROM probe_sessions WHERE brand = :brand AND deviceType = :deviceType AND status != 'COMPLETED' ORDER BY startedAtEpochMs DESC LIMIT 1")
+    suspend fun getLatestActiveProbeSession(brand: String, deviceType: String): ProbeSessionEntity?
 
     @Query("UPDATE probe_sessions SET status = :status, completedAtEpochMs = :completedAtMs, winnerCodeSetId = :winnerCodeSetId WHERE sessionId = :sessionId")
     suspend fun completeProbeSession(sessionId: String, status: String, completedAtMs: Long, winnerCodeSetId: String?)
@@ -339,6 +356,14 @@ interface InstalledProfileDao {
 
     @Query("SELECT * FROM probe_attempts WHERE sessionId = :sessionId AND actionKey = :actionKey AND result = 'SUCCESS' ORDER BY transmittedAtEpochMs DESC LIMIT 1")
     suspend fun getLastSuccessfulAttempt(sessionId: String, actionKey: String): ProbeAttemptEntity?
+
+    // V0.6.2 PR3 Phase 13 — Attempt evidence lifecycle
+
+    @Query("UPDATE probe_attempts SET result = :result, transmitDurationMs = :durationMs WHERE attemptId = :attemptId")
+    suspend fun updateAttemptResult(attemptId: String, result: String, durationMs: Long)
+
+    @Query("UPDATE probe_attempts SET result = :result, confirmedAtEpochMs = :confirmedAtMs, confirmedBy = :confirmedBy WHERE attemptId = :attemptId")
+    suspend fun updateAttemptConfirmation(attemptId: String, result: String, confirmedAtMs: Long, confirmedBy: String)
 
     // ── Compatibility Evidence ─────────────────────────────────────────
 
@@ -431,7 +456,7 @@ interface InstalledProfileDao {
         DeviceIdentityEntity::class,
         DeviceIdentityHistoryEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class ElysiumUserDatabase : RoomDatabase() {
@@ -664,6 +689,19 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
             }
         }
 
+        // V0.6.2 PR3 Phase 13 — Attempt evidence lifecycle (v10):
+        // add physicalSha256, carrierHz, catalogBuildId, confirmedAtEpochMs,
+        // confirmedBy to probe_attempts.
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE probe_attempts ADD COLUMN physicalSha256 TEXT")
+                db.execSQL("ALTER TABLE probe_attempts ADD COLUMN carrierHz INTEGER")
+                db.execSQL("ALTER TABLE probe_attempts ADD COLUMN catalogBuildId TEXT")
+                db.execSQL("ALTER TABLE probe_attempts ADD COLUMN confirmedAtEpochMs INTEGER")
+                db.execSQL("ALTER TABLE probe_attempts ADD COLUMN confirmedBy TEXT")
+            }
+        }
+
         fun getInstance(context: Context): ElysiumUserDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -674,7 +712,7 @@ abstract class ElysiumUserDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9, MIGRATION_9_10
                     )
                     .build()
                 INSTANCE = instance

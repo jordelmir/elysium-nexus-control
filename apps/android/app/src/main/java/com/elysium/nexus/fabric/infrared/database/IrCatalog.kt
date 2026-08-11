@@ -122,12 +122,35 @@ interface IrCatalog {
      *   1. Popular global brands (Samsung, LG, Sony, Panasonic, Philips)
      *   2. Regional brands (Sankey, Kintech, Kalley, Hisense, TCL)
      *   3. All remaining brands
-     * No LIMIT 400 — caller drains via IrProbeEngine.nextCandidate().
+     * No LIMIT 400 — caller drains via [ProbeCursor.nextCandidate].
      */
     suspend fun getAllCandidates(
         deviceType: String = "TV",
         action: IrAction = IrAction.VOLUME_UP,
         limit: Int = 400
+    ): List<IrCodeSet>
+
+    // V0.6.2 PR3 Phase 14 — Paged probe: bounded-memory candidate access
+
+    /**
+     * Count of production-approved code sets containing [action] for [deviceType].
+     * Used to initialise the [CandidatePager] total count.
+     */
+    suspend fun getCandidateCount(
+        deviceType: String = "TV",
+        action: IrAction = IrAction.VOLUME_UP
+    ): Int
+
+    /**
+     * A single page of candidates, deterministically ordered by
+     * (brand display_name, code_set id).  No duplicates across pages.
+     * [fromIndex] is 0-based inclusive; [count] is the page size.
+     */
+    suspend fun getCandidatePage(
+        deviceType: String = "TV",
+        action: IrAction = IrAction.VOLUME_UP,
+        fromIndex: Int,
+        count: Int
     ): List<IrCodeSet>
 
     /**
@@ -201,6 +224,22 @@ class InMemoryIrCatalog(
             .filter { action in it.commands }
             .take(limit)
     }
+
+    override suspend fun getCandidateCount(
+        deviceType: String,
+        action: IrAction
+    ): Int = candidateMap.values.flatten().count { action in it.commands }
+
+    override suspend fun getCandidatePage(
+        deviceType: String,
+        action: IrAction,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = candidateMap.values.flatten()
+        .filter { action in it.commands }
+        .sortedBy { it.brand }
+        .drop(fromIndex)
+        .take(count)
 
     override suspend fun getSignal(signalId: String): IrSignal? {
         return signalMap[signalId]

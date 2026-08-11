@@ -5,6 +5,7 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -67,7 +68,7 @@ class IrProbeEngineTest {
     }
 
     @Test
-    fun `IrProbeEngine advances through candidates on nextCandidate()`() {
+    fun `IrProbeEngine advances through candidates on nextCandidate()`() = runTest {
         val cs1 = mockCodeSet("cs1", 0x00, 0x07)
         val cs2 = mockCodeSet("cs2", 0x04, 0x07)
 
@@ -86,7 +87,7 @@ class IrProbeEngineTest {
     }
 
     @Test
-    fun `IrProbeEngine selects a previously transmitted candidate by ID`() {
+    fun `IrProbeEngine selects a previously transmitted candidate by ID`() = runTest {
         val cs1 = mockCodeSet("cs1", 0x00, 0x07)
         val cs2 = mockCodeSet("cs2", 0x04, 0x07)
         val cs3 = mockCodeSet("cs3", 0x08, 0x07)
@@ -116,7 +117,7 @@ class IrProbeEngineTest {
     }
 
     @Test
-    fun `IrProbeEngine universal sweep respects totalCandidates ceiling`() {
+    fun `IrProbeEngine universal sweep respects totalCandidates ceiling`() = runTest {
         // 400 universal candidates with DISTINCT fingerprints stay reachable one-by-one.
         val many = (0 until 400).map { mockCodeSet("cs_$it", it * 17 + 1, 0x07) }
         val engine = IrProbeEngine(many)

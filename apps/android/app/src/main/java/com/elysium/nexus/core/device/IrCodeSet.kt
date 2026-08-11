@@ -57,6 +57,7 @@ data class CatalogCommandBinding(
  */
 data class SelectedCommandBinding(
     val bindingId: String,
+    val codeSetId: String = "",
     val action: IrAction,
     val signalId: String,
     val signal: IrSignal,

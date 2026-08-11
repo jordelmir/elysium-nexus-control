@@ -1,5 +1,6 @@
 package com.elysium.nexus.fabric.ranking
 
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -22,7 +23,7 @@ class CandidatePagerTest {
     )
 
     @Test
-    fun `pages slice the source without overlap or gaps`() {
+    fun `pages slice the source without overlap or gaps`() = runTest {
         val pager = pagerOf(total = 25, pageSize = 10)
         assertEquals(3, pager.pageCount)
         assertEquals(listOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), pager.page(0))
@@ -31,7 +32,7 @@ class CandidatePagerTest {
     }
 
     @Test
-    fun `memory bound holds after touching every page`() {
+    fun `memory bound holds after touching every page`() = runTest {
         val pager = pagerOf(total = 1_000, pageSize = 10, maxCachedPages = 3)
         for (i in 0 until pager.pageCount) pager.page(i)
         // 100 pages consumed, but the cache is bounded by maxCachedPages
@@ -41,7 +42,7 @@ class CandidatePagerTest {
     }
 
     @Test
-    fun `LRU evicts the least recently used page`() {
+    fun `LRU evicts the least recently used page`() = runTest {
         val pager = pagerOf(total = 50, pageSize = 10, maxCachedPages = 2)
         pager.page(0); pager.page(1)
         pager.page(2) // evicts page 0
@@ -54,7 +55,7 @@ class CandidatePagerTest {
     }
 
     @Test
-    fun `pages are immutable once loaded`() {
+    fun `pages are immutable once loaded`() = runTest {
         val pager = pagerOf(total = 10, pageSize = 10)
         val first = pager.page(0)
         pager.clearCache()
@@ -69,7 +70,7 @@ class CandidatePagerTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun `rejects out of range page index`() {
+    fun `rejects out of range page index`() = runTest {
         pagerOf(total = 5).page(2)
     }
 
@@ -79,7 +80,7 @@ class CandidatePagerTest {
     }
 
     @Test(expected = IllegalStateException::class)
-    fun `rejects loader over-delivery`() {
+    fun `rejects loader over-delivery`() = runTest {
         val pager = CandidatePager<Int>(
             pageSize = 5,
             maxCachedPages = 2,
@@ -89,7 +90,7 @@ class CandidatePagerTest {
     }
 
     @Test
-    fun `findWithin is bounded and position-aware`() {
+    fun `findWithin is bounded and position-aware`() = runTest {
         val pager = pagerOf(total = 40, pageSize = 10, maxCachedPages = 2)
         val found = pager.findWithin(0, 2, predicate = { it == 15 })
         assertEquals(1, found!!.pageIndex)

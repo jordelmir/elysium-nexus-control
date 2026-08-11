@@ -6,6 +6,7 @@ import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.ranking.CandidatePager
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -47,7 +48,7 @@ class PagedIrProbeEngineTest {
     )
 
     @Test
-    fun `drains the whole sweep with bounded memory`() {
+    fun `drains the whole sweep with bounded memory`() = runTest {
         val pager = sweep(count = 1_000, pageSize = 10, maxCachedPages = 3)
         val engine = PagedIrProbeEngine(pager)
 
@@ -63,7 +64,7 @@ class PagedIrProbeEngineTest {
     }
 
     @Test
-    fun `pages with no VOLUME_UP are skipped until candidates exist`() {
+    fun `pages with no VOLUME_UP are skipped until candidates exist`() = runTest {
         val all = (0 until 20).map { mockCodeSet("cs$it", address = it, command = 0x07) }
         val noVol = IrCodeSet(
             id = "noVol",
@@ -97,7 +98,7 @@ class PagedIrProbeEngineTest {
     }
 
     @Test
-    fun `deduplicates identical fingerprint signals across page boundaries`() {
+    fun `deduplicates identical fingerprint signals across page boundaries`() = runTest {
         // same address+command → same fingerprint, spread across two pages
         val pager = CandidatePager(
             pageSize = 2,
@@ -114,7 +115,7 @@ class PagedIrProbeEngineTest {
     }
 
     @Test
-    fun `selectById finds candidates inside the loaded window`() {
+    fun `selectById finds candidates inside the loaded window`() = runTest {
         val engine = PagedIrProbeEngine(sweep(count = 50, pageSize = 10, maxCachedPages = 4))
         repeat(12) { engine.nextCandidate() }  // consumed through page 1
 
@@ -123,7 +124,7 @@ class PagedIrProbeEngineTest {
     }
 
     @Test
-    fun `selectById is bounded beyond the window and honest when missing`() {
+    fun `selectById is bounded beyond the window and honest when missing`() = runTest {
         val pager = sweep(count = 1_000, pageSize = 10, maxCachedPages = 2)
         val engine = PagedIrProbeEngine(pager)
 
@@ -138,7 +139,7 @@ class PagedIrProbeEngineTest {
     }
 
     @Test
-    fun `reset restores the sweep from the beginning`() {
+    fun `reset restores the sweep from the beginning`() = runTest {
         val engine = PagedIrProbeEngine(sweep(count = 30, pageSize = 10, maxCachedPages = 2))
         repeat(15) { engine.nextCandidate() }
         engine.reset()

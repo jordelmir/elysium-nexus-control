@@ -5,6 +5,7 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -46,7 +47,7 @@ class ProbeRestoreResolverTest {
     private val csC = mockCodeSet("cs-c", address = 3)
 
     @Test
-    fun `restores by exact id preserving position`() {
+    fun `restores by exact id preserving position`() = runTest {
         val eng = engine(csA, csB, csC)
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 2, restoreCandidateId = "cs-c")
 
@@ -56,7 +57,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `restores by id regardless of saved index`() {
+    fun `restores by id regardless of saved index`() = runTest {
         // Saved index points at cs-a but saved id is cs-c: id wins.
         val eng = engine(csA, csB, csC)
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 1, restoreCandidateId = "cs-c")
@@ -66,7 +67,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `id gone but index identity intact resumes at that index`() {
+    fun `id gone but index identity intact resumes at that index`() = runTest {
         // Catalog changed: candidate list reordered, but the candidate AT the
         // saved index still matches the saved identity (index-based restore).
         val eng = engine(csB, csA, csC)
@@ -77,7 +78,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `id gone and index mismatch requires recovery`() {
+    fun `id gone and index mismatch requires recovery`() = runTest {
         // Saved: index 2 / id cs-c. New catalog dropped cs-b: index 2 is now cs-a.
         val eng = engine(csA, csB) // only 2 candidates remain
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 2, restoreCandidateId = "cs-c")
@@ -89,7 +90,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `no saved position returns Ready at candidate zero`() {
+    fun `no saved position returns Ready at candidate zero`() = runTest {
         val eng = engine(csA, csB)
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 0, restoreCandidateId = null)
 
@@ -98,7 +99,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `index without id stays at candidate zero`() {
+    fun `index without id stays at candidate zero`() = runTest {
         // Conservative: without an id we cannot verify identity → Ready at 0
         // (caller decides whether that is acceptable).
         val eng = engine(csA, csB, csC)
@@ -109,7 +110,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `empty candidate list yields Ready with null candidate`() {
+    fun `empty candidate list yields Ready with null candidate`() = runTest {
         val eng = engine()
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 0, restoreCandidateId = null)
 
@@ -118,7 +119,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `index beyond candidate count requires recovery when id mismatches`() {
+    fun `index beyond candidate count requires recovery when id mismatches`() = runTest {
         val eng = engine(csA)
         val decision = ProbeRestoreResolver.resolve(eng, restoreCandidateIndex = 5, restoreCandidateId = "cs-z")
 
@@ -127,7 +128,7 @@ class ProbeRestoreResolverTest {
     }
 
     @Test
-    fun `resolve never leaves engine on recovery-required state silently`() {
+    fun `resolve never leaves engine on recovery-required state silently`() = runTest {
         // Saved identity cs-c is GONE from the catalog; the index fallback
         // climbs forward but cannot find cs-c → RecoveryRequired.
         // The engine must not be parked at candidate zero pretending a resume.
