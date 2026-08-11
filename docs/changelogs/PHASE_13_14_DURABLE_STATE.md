@@ -18,8 +18,10 @@
 - `computeCatalogHash()` now reads `canonicalContentSha256` from `currentCatalogMetadata()` instead of computing file hash
 
 ### Phase 11 — ProfileRevalidationService
-- Pending: `Ambiguous` status, unsafe migration path elimination, per-binding `applyRevalidation`
-- Current revalidation uses `selectedCommands` as single authority (correct path)
+- `Ambiguous` status added to `BindingRevalidationResult` — returned when binding has multiple candidates with equal confidence
+- Fallback `commandBindings` eliminated: `selectedCommands` is the sole authority for installed bindings
+- `applyBindingRevalidation()` now operates per-binding (not batch)
+- `needsUserAction` includes `Ambiguous` status as actionable
 
 ### Phase 12 — Process-death recovery
 - `ProbeSessionEntity.catalogHashAtStart` field + `MIGRATION_9_10` adds column to `probe_sessions`

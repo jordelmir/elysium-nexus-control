@@ -3,6 +3,7 @@ package com.elysium.nexus.fabric.dispatch
 import android.content.Context
 import android.util.Log
 import com.elysium.nexus.fabric.adapter.DeviceAdapter
+import com.elysium.nexus.fabric.adapter.ErrorCode
 import com.elysium.nexus.fabric.adapter.WriteResult
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
@@ -29,6 +30,8 @@ import com.elysium.nexus.fabric.session.SessionState
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
+import com.elysium.nexus.fabric.hedging.HedgedExecutor
+import com.elysium.nexus.fabric.hedging.HedgedResult
 import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import java.util.UUID
 
@@ -81,7 +84,9 @@ class ActionDispatcher(
     private val flightRecorder: FlightRecorder? = null,
     // V0.6.2 PR4 Phase 16: zero-trust gate (optional — null disables the check)
     private val trustResolver: ((DeviceId) -> com.elysium.nexus.fabric.identity.DeviceTrustRecord?)? = null,
-    private val trustAuditor: ((com.elysium.nexus.fabric.identity.ZeroTrustPolicy.TrustAuditEntry) -> Unit)? = null
+    private val trustAuditor: ((com.elysium.nexus.fabric.identity.ZeroTrustPolicy.TrustAuditEntry) -> Unit)? = null,
+    // V0.6.2 PR4 Phase 18: hedged execution for idempotent actions (§61)
+    private val hedgedExecutor: HedgedExecutor? = null
 ) {
     private val deviceCommandResolver: IrCommandResolver? by lazy {
         injectedIrResolver ?: context?.let { DeviceCommandResolver(it) }
@@ -252,7 +257,33 @@ class ActionDispatcher(
             }
 
             val sendStartNs = System.nanoTime()
-            val writeResult = route.adapter.write(action.targetDeviceId, deviceState)
+
+            // V0.6.2 PR4 Phase 18: §61 hedged execution for idempotent actions
+            val hedge = hedgedExecutor
+            val writeResult: WriteResult = if (hedge != null && routesToTry.size > 1) {
+                val backupRoute = routesToTry.firstOrNull { it != route }
+                val hedgedResult = hedge.executeWithHedge(
+                    action = action,
+                    primary = route,
+                    backup = backupRoute,
+                    executor = { r -> r.adapter.write(action.targetDeviceId, deviceState) }
+                )
+                when (hedgedResult) {
+                    is HedgedResult.PrimarySuccess -> hedgedResult.value ?: WriteResult.Error(ErrorCode.Unknown, "Hedge primary returned null")
+                    is HedgedResult.BackupSuccess -> {
+                        Log.d(TAG, "Hedge: backup route succeeded for ${action::class.simpleName}")
+                        hedgedResult.value ?: WriteResult.Error(ErrorCode.Unknown, "Hedge backup returned null")
+                    }
+                    is HedgedResult.PrimaryFailed -> {
+                        WriteResult.Error(ErrorCode.NetworkError, hedgedResult.reason)
+                    }
+                    is HedgedResult.BothFailed -> {
+                        WriteResult.Error(ErrorCode.NetworkError, hedgedResult.reason)
+                    }
+                }
+            } else {
+                route.adapter.write(action.targetDeviceId, deviceState)
+            }
 
             when (writeResult) {
                 is WriteResult.Ok -> {
