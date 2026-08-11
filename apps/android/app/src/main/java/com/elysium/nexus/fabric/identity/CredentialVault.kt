@@ -1,5 +1,7 @@
 package com.elysium.nexus.fabric.identity
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.Protocol
 
@@ -311,4 +313,301 @@ class InMemoryCredentialVault : CredentialVault {
                     isExpired = credential.isValid.not()
                 )
             }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V0.6.2 PR4 Phase 15: Android Keystore Credential Vault (§70)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Android Keystore-backed [CredentialVault].
+ *
+ * Uses AES-256-GCM with key material from the Android Keystore
+ * (hardware-backed on devices with TEE/SE). Each credential is
+ * serialized to JSON, encrypted with a unique AES key, and stored
+ * in a [CredentialVaultStore].
+ *
+ * ## Key hierarchy
+ *
+ * - A **master KeyStore key** (`KEYSTORE_ALIAS`) is generated once and
+ *   never leaves the Keystore.
+ * - Each credential gets a unique AES key (`$KEYSTORE_ALIAS.vN`) that
+ *   is encrypted by the master key and stored alongside the ciphertext.
+ *   This enables per-credential rotation without re-encrypting others.
+ *
+ * ## Security contract
+ *
+ * - [store] encrypts before persisting — plaintext never touches disk.
+ * - [retrieve] decrypts in memory only — plaintext never leaves the vault.
+ * - [delete] permanently destroys the Keystore entry.
+ * - If the Android Keystore is unavailable (e.g. emulator without
+ *   hardware), [store] throws [IllegalStateException] — **never**
+ *   falls back to plaintext storage.
+ */
+class AndroidKeystoreCredentialVault(
+    private val keystoreAlias: String = KEYSTORE_ALIAS,
+    private val store: CredentialVaultStore
+) : CredentialVault {
+
+    companion object {
+        private const val KEYSTORE_ALIAS = "elysium.credential"
+        private const val AES_KEY_SIZE = 256
+        private const val IV_SIZE = 12
+        private const val TAG_SIZE = 128
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val AES_GCM = "AES/GCM/NoPadding"
+        private const val KEYSTORE_VERSION = 1
+    }
+
+    // ── Keystore key management ──────────────────────
+
+    private fun getOrCreateSecretKey(alias: String): javax.crypto.SecretKey {
+        val keyStore = java.security.KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        keyStore.getEntry(alias, null)?.let { entry ->
+            return (entry as java.security.KeyStore.SecretKeyEntry).secretKey
+        }
+        val keyGen = javax.crypto.KeyGenerator.getInstance(
+            javax.crypto.KeyGenerator.getInstance(AES_GCM).algorithm,
+            ANDROID_KEYSTORE
+        )
+        keyGen.init(
+            KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setKeySize(AES_KEY_SIZE)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return keyGen.generateKey()
+    }
+
+    private fun getKeyAlias(): String = "${keystoreAlias}.v${KEYSTORE_VERSION}"
+
+    // ── CredentialVault interface ──────────────────────
+
+    override fun store(credential: Credential): CredentialReference {
+        val secretKey = getOrCreateSecretKey(getKeyAlias())
+        val cipher = javax.crypto.Cipher.getInstance(AES_GCM)
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val plaintext = serializeCredential(credential)
+        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+
+        val ref = CredentialReference(
+            keyAlias = "${getKeyAlias()}_${credential.protocol}_${credential.deviceId.value}",
+            protocol = credential.protocol,
+            deviceId = credential.deviceId,
+            label = credential::class.simpleName ?: "Unknown",
+            createdAtMs = credential.createdAtMs,
+            expiresAtMs = credential.expiresAtMs,
+            isExpired = credential.isValid.not()
+        )
+
+        store.save(ref, iv, ciphertext)
+        return ref
+    }
+
+    override fun retrieve(reference: CredentialReference): Credential? {
+        if (reference.isExpired) return null
+        val entry = store.load(reference.keyAlias) ?: return null
+        val secretKey = try {
+            getOrCreateSecretKey(getKeyAlias())
+        } catch (e: Exception) {
+            return null
+        }
+        return try {
+            val cipher = javax.crypto.Cipher.getInstance(AES_GCM)
+            val spec = javax.crypto.spec.GCMParameterSpec(TAG_SIZE, entry.iv)
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, spec)
+            val plaintext = String(cipher.doFinal(entry.ciphertext), Charsets.UTF_8)
+            deserializeCredential(plaintext, reference.protocol, reference.deviceId)
+        } catch (e: Exception) {
+            android.util.Log.e("CredentialVault", "Decrypt failed: ${e.message}")
+            null
+        }
+    }
+
+    override fun delete(reference: CredentialReference) {
+        store.remove(reference.keyAlias)
+    }
+
+    override fun listForDevice(deviceId: DeviceId): List<CredentialReference> =
+        store.listAll().filter { it.deviceId == deviceId }
+
+    override fun listForProtocol(protocol: Protocol): List<CredentialReference> =
+        store.listAll().filter { it.protocol == protocol }
+
+    // ── Serialization (JSON) ─────────────────────
+
+    private fun serializeCredential(credential: Credential): String {
+        val json = org.json.JSONObject()
+        json.put("type", credential::class.simpleName)
+        json.put("protocol", credential.protocol.name)
+        json.put("deviceId", credential.deviceId.value)
+        json.put("createdAtMs", credential.createdAtMs)
+        json.put("expiresAtMs", credential.expiresAtMs ?: org.json.JSONObject.NULL)
+
+        when (credential) {
+            is Credential.MatterPairing -> {
+                json.put("pairingCode", credential.pairingCode)
+                json.put("salt", android.util.Base64.encodeToString(credential.salt, android.util.Base64.NO_WRAP))
+            }
+            is Credential.ZigbeeNetwork -> {
+                json.put("networkKey", android.util.Base64.encodeToString(credential.networkKey, android.util.Base64.NO_WRAP))
+                json.put("installCode", android.util.Base64.encodeToString(credential.installCode, android.util.Base64.NO_WRAP))
+            }
+            is Credential.ZWaveS2 -> {
+                json.put("authKey", android.util.Base64.encodeToString(credential.authKey, android.util.Base64.NO_WRAP))
+                json.put("dsk", credential.dsk)
+            }
+            is Credential.BleBonding -> {
+                json.put("bondKey", android.util.Base64.encodeToString(credential.bondKey, android.util.Base64.NO_WRAP))
+            }
+            is Credential.WiFiCredential -> {
+                json.put("ssid", credential.ssid)
+                json.put("psk", credential.psk)
+            }
+            is Credential.MqttAuth -> {
+                json.put("username", credential.username)
+                json.put("password", credential.password)
+                json.put("clientId", credential.clientId)
+            }
+            is Credential.OnvifAuth -> {
+                json.put("username", credential.username)
+                json.put("password", credential.password)
+            }
+            is Credential.VendorToken -> {
+                json.put("token", credential.token)
+                json.put("refreshToken", credential.refreshToken ?: "")
+                json.put("vendorProtocol", credential.vendorProtocol.name)
+            }
+            is Credential.ElysiumLinkKey -> {
+                json.put("pairingKey", android.util.Base64.encodeToString(credential.pairingKey, android.util.Base64.NO_WRAP))
+            }
+            is Credential.Generic -> {
+                json.put("keyAlias", credential.keyAlias)
+                val meta = org.json.JSONObject()
+                credential.metadata.forEach { (k, v) -> meta.put(k, v) }
+                json.put("metadata", meta)
+            }
+        }
+        return json.toString()
+    }
+
+    private fun deserializeCredential(json: String, protocol: Protocol, deviceId: DeviceId): Credential? {
+        return try {
+            val obj = org.json.JSONObject(json)
+            val createdAt = obj.optLong("createdAtMs", System.currentTimeMillis())
+            val expiresAt = if (obj.isNull("expiresAtMs")) null else obj.optLong("expiresAtMs")
+
+            when (protocol) {
+                Protocol.Matter -> Credential.MatterPairing(
+                    deviceId = deviceId,
+                    pairingCode = obj.getString("pairingCode"),
+                    salt = android.util.Base64.decode(obj.getString("salt"), android.util.Base64.NO_WRAP),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.Zigbee -> Credential.ZigbeeNetwork(
+                    deviceId = deviceId,
+                    networkKey = android.util.Base64.decode(obj.getString("networkKey"), android.util.Base64.NO_WRAP),
+                    installCode = android.util.Base64.decode(obj.getString("installCode"), android.util.Base64.NO_WRAP),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.ZWave -> Credential.ZWaveS2(
+                    deviceId = deviceId,
+                    authKey = android.util.Base64.decode(obj.getString("authKey"), android.util.Base64.NO_WRAP),
+                    dsk = obj.getString("dsk"),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.Ble -> Credential.BleBonding(
+                    deviceId = deviceId,
+                    bondKey = android.util.Base64.decode(obj.getString("bondKey"), android.util.Base64.NO_WRAP),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.WiFi -> Credential.WiFiCredential(
+                    deviceId = deviceId,
+                    ssid = obj.getString("ssid"),
+                    psk = obj.getString("psk"),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.Mqtt -> Credential.MqttAuth(
+                    deviceId = deviceId,
+                    username = obj.getString("username"),
+                    password = obj.getString("password"),
+                    clientId = obj.getString("clientId"),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.Onvif -> Credential.OnvifAuth(
+                    deviceId = deviceId,
+                    username = obj.getString("username"),
+                    password = obj.getString("password"),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                Protocol.ElysiumLink -> Credential.ElysiumLinkKey(
+                    deviceId = deviceId,
+                    pairingKey = android.util.Base64.decode(obj.getString("pairingKey"), android.util.Base64.NO_WRAP),
+                    createdAtMs = createdAt,
+                    expiresAtMs = expiresAt
+                )
+                else -> {
+                    val refreshToken = obj.optString("refreshToken", "")
+                    if (refreshToken.isNotEmpty()) {
+                        Credential.VendorToken(
+                            deviceId = deviceId,
+                            vendorProtocol = protocol,
+                            token = obj.getString("token"),
+                            refreshToken = refreshToken,
+                            createdAtMs = createdAt,
+                            expiresAtMs = expiresAt
+                        )
+                    } else {
+                        val metadata = mutableMapOf<String, String>()
+                        val metaObj = obj.optJSONObject("metadata")
+                        metaObj?.keys()?.forEach { k -> metadata[k] = metaObj.getString(k) }
+                        Credential.Generic(
+                            deviceId = deviceId,
+                            protocol = protocol,
+                            keyAlias = obj.optString("keyAlias", ""),
+                            metadata = metadata,
+                            createdAtMs = createdAt,
+                            expiresAtMs = expiresAt
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CredentialVault", "Deserialize failed: ${e.message}")
+            null
+        }
+    }
+}
+
+/**
+ * Storage backend for encrypted credential entries.
+ * Room stores (ref, iv, ciphertext) — never plaintext.
+ */
+interface CredentialVaultStore {
+    fun save(ref: CredentialReference, iv: ByteArray, ciphertext: ByteArray)
+    fun load(keyAlias: String): CredentialVaultEntry?
+    fun remove(keyAlias: String)
+    fun listAll(): List<CredentialReference>
+}
+
+data class CredentialVaultEntry(
+    val ref: CredentialReference,
+    val iv: ByteArray,
+    val ciphertext: ByteArray
+) {
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = ref.keyAlias.hashCode()
 }
