@@ -34,7 +34,6 @@ import zlib
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -898,7 +897,7 @@ def ingest_smartir(conn: sqlite3.Connection, cache: EntityCache):
     source_id = "smartir"
     cache.ensure_source(source_id, "SmartIR",
                         "https://github.com/smartHomeHub/SmartIR", "MIT", True)
-    rev_id = cache.ensure_revision(source_id, "HEAD")
+    cache.ensure_revision(source_id, "HEAD")
 
     json_files = list(smartir_root.rglob("*.json"))
     print(f"  Found {len(json_files)} SmartIR JSON files")
@@ -1063,7 +1062,7 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
     cache.ensure_source(source_id, "probonopd/irdb",
                         "https://github.com/probonopd/irdb",
                         "LicenseRef-IRDB-CUSTOM", False)
-    rev_id = cache.ensure_revision(source_id, "HEAD")
+    cache.ensure_revision(source_id, "HEAD")
 
     csv_files = list(irdb_root.rglob("*.csv"))
     print(f"  Found {len(csv_files)} probonopd CSV files")
@@ -1159,7 +1158,7 @@ def ingest_radioxoma(conn: sqlite3.Connection, cache: EntityCache):
     source_id = "radioxoma-infrared"
     cache.ensure_source(source_id, "radioxoma/infrared",
                         "https://github.com/radioxoma/infrared", "MIT", True)
-    rev_id = cache.ensure_revision(source_id, "HEAD")
+    cache.ensure_revision(source_id, "HEAD")
 
     total = 0
 
@@ -1445,7 +1444,7 @@ def ingest_irp_protocols(conn: sqlite3.Connection, cache: EntityCache):
     cache.ensure_source(source_id, "IrpProtocols.xml",
                         "https://github.com/bengtmartensson/IrpTransmogrifier",
                         "Public Domain", True)
-    rev_id = cache.ensure_revision(source_id, "HEAD")
+    cache.ensure_revision(source_id, "HEAD")
 
     try:
         tree = ET.parse(xml_path)

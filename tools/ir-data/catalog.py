@@ -83,7 +83,7 @@ def compute_license_manifest_sha() -> str:
         )
         for s in lock.get("sources", [])
     )
-    canonical = "\n".join(f"{i}\t{f}\t{l}\t{p}" for i, f, l, p in entries) + "\n"
+    canonical = "\n".join(f"{i}\t{f}\t{lic}\t{p}" for i, f, lic, p in entries) + "\n"
     return sha256_text(canonical)
 
 
@@ -321,7 +321,7 @@ def step_verify_manifest():
             log(f"STALE BUILD TRUTH: stats.catalogBuildId={stats.get('catalogBuildId')} != manifest={build_id}")
             return False
         if stats.get("databaseSha256") != expected_hash:
-            log(f"STALE BUILD TRUTH: stats.databaseSha256 differs from manifest")
+            log("STALE BUILD TRUTH: stats.databaseSha256 differs from manifest")
             return False
         if stats.get("counts") != manifest.get("counts"):
             log("STALE BUILD TRUTH: counts differ between stats and manifest")

@@ -39,6 +39,19 @@ jobs:
           # pointer files that fail Gate 1).
           lfs: true
 
+      # V06.2 P0-1: force LFS pull even if checkout's lfs flag is ignored.
+      - name: Force LFS pull
+        run: |
+          git lfs install
+          git lfs pull
+          magic=$(xxd -l 16 -p apps/android/app/src/main/assets/ir/ir_catalog.db)
+          if [ "$magic" = "53514c69746520666f726d6174203300" ]; then
+            echo "LFS pull: PASS (real SQLite blob)"
+          else
+            echo "FATAL: ir_catalog.db is still an LFS pointer after git lfs pull" >&2
+            exit 1
+          fi
+
       - name: Git LFS sanity (fsck)
         run: |
           git lfs fsck

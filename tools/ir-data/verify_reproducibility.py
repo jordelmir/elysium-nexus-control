@@ -145,7 +145,7 @@ def compare_against_shipped(b: dict) -> bool:
             print(f"    FAIL: shipped DB integrity: quick_check={qc!r} fk={len(fk)}")
             ok = False
         else:
-            print(f"    OK [shipped_db_integrity]: quick_check=ok fk=0")
+            print("    OK [shipped_db_integrity]: quick_check=ok fk=0")
     return ok
 
 
@@ -174,11 +174,11 @@ def mutation_test(ws_b: Path) -> bool:
         canonical_mut, _ = export_canonical_catalog.compute_canonical_hash(db_mut)
         ok = (canonical_b != canonical_mut)
         if ok:
-            print(f"  mutation test: PASS")
+            print("  mutation test: PASS")
             print(f"    original : {canonical_b[:20]}...")
             print(f"    mutated  : {canonical_mut[:20]}...")
         else:
-            print(f"  mutation test: FAIL (canonical unchanged after carrier_hz+1)",
+            print("  mutation test: FAIL (canonical unchanged after carrier_hz+1)",
                   file=sys.stderr)
         return ok
 
@@ -216,7 +216,7 @@ def run_fast() -> bool:
         ok = False
         print(f"  integrity: FAIL (quick_check={qc!r}, fk={len(fk)})")
     else:
-        print(f"  integrity: PASS")
+        print("  integrity: PASS")
     print(f"=== {'PASS' if ok else 'FAIL'} ===")
     return ok
 
@@ -253,7 +253,7 @@ def run_full(args: argparse.Namespace) -> bool:
             mut_ok = mutation_test(ws_b)
 
         if args.keep:
-            print(f"\n  Workspaces preserved (pass --keep again to keep):")
+            print("\n  Workspaces preserved (pass --keep again to keep):")
             print(f"    A: {ws_a}")
             print(f"    B: {ws_b}")
 
