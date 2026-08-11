@@ -62,6 +62,12 @@ sealed interface CodecResolution {
         val candidates: List<ProtocolVariant>,
         val reason: String
     ) : CodecResolution
+    /** V06.2 Phase 4: Caller requested a specific variant that does not exist in the codec spec. */
+    data class VariantUnsupported(
+        val codec: CodecSpec,
+        val requestedVariant: String,
+        val availableVariants: List<String>
+    ) : CodecResolution
     data class Unsupported(val codecId: String, val reason: String) : CodecResolution
     data class Blocked(val codec: CodecSpec, val reason: String) : CodecResolution
 }
@@ -199,7 +205,8 @@ object ProtocolCodecRegistry {
 
     /**
      * Resolve a codec with variant detection. Returns [CodecResolution] sealed type.
-     * Zero silent NEC fallback.
+     * Zero silent NEC fallback. V06.2 Phase 4: returns VariantUnsupported instead of
+     * silently falling through to firstOrNull().
      */
     fun resolve(codecId: String, variantHint: String? = null): CodecResolution {
         val spec = getCodec(codecId)
@@ -227,6 +234,17 @@ object ProtocolCodecRegistry {
             )
         }
 
+        // V06.2 Phase 4: If a variantHint was provided but no match was found,
+        // return VariantUnsupported instead of silently passing null.
+        if (variant == null && variantHint != null) {
+            return CodecResolution.VariantUnsupported(
+                codec = spec,
+                requestedVariant = variantHint,
+                availableVariants = spec.variants.map { it.variantId }
+            )
+        }
+
+        // Single-variant codec with no hint: auto-select the only variant.
         return CodecResolution.Resolved(spec, variant ?: spec.variants.firstOrNull())
     }
 

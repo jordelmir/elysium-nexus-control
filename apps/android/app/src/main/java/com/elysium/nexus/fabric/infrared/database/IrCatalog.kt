@@ -37,6 +37,44 @@ data class SignalMetadata(
 )
 
 /**
+ * V06.2 Phase 2: ONE RUNTIME PROTOCOL AUTHORITY.
+ *
+ * Resolved from catalog V5 FKs (protocol_definitions + protocol_variants),
+ * NOT from legacy strings (codec_id, protocol_name_original, protocol_variant).
+ *
+ * Legacy fields are kept as SOURCE PROVENANCE ONLY — they document where
+ * the signal came from, but do NOT drive runtime codec selection.
+ */
+data class RuntimeProtocolBinding(
+    /** protocol_definitions.id — the authoritative protocol family FK. */
+    val definitionId: String?,
+    /** protocol_definitions.family_name — e.g. "NEC", "SIRC", "Samsung". */
+    val familyName: String?,
+    /** protocol_variants.id — the authoritative variant FK. */
+    val variantId: String?,
+    /** protocol_variants.variant_name — e.g. "SIRC_12", "NEC_32". */
+    val variantName: String?,
+    /** Carrier from protocol_definitions (canonical), or signal carrier_hz as fallback. */
+    val carrierHz: Int,
+    /** Address from signal. */
+    val address: Int?,
+    /** Sub-device from signal. */
+    val subDevice: Int?,
+    /** Command from signal. */
+    val command: Int?,
+    /** Evidence level from signal (SOURCE_IMPORTED, SESSION_VERIFIED, etc.). */
+    val evidenceLevel: String,
+    /** Eligibility status from signal (PROBE_ELIGIBLE, CLAIM_ELIGIBLE, etc.). */
+    val eligibilityStatus: String,
+    /** PROVENANCE ONLY: original codec_id from ingestion (not for runtime dispatch). */
+    val legacyCodecId: String?,
+    /** PROVENANCE ONLY: original protocol name from source file. */
+    val legacyProtocolName: String?,
+    /** PROVENANCE ONLY: original variant string from source file. */
+    val legacyVariant: String?
+)
+
+/**
  * P1-PROVENANCE: Multi-source provenance for a single signal.
  * A signal may originate from Flipper, SmartIR, local capture, etc.
  */

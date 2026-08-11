@@ -1,6 +1,9 @@
 package com.elysium.nexus.fabric.infrared
 
+import android.util.Log
 import com.elysium.nexus.core.device.IrSignal
+
+private const val TAG = "ElysiumNexus.IrProtocol"
 
 /**
  * Result of attempting to encode an [IrSignal] into an [IrWaveform].
@@ -107,11 +110,20 @@ enum class IrProtocol(
                                 IrWaveform.encodeSamsung(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             SonySirc -> {
-                                // P0-8: Use variant addressBits for SIRC12/15/20
+                                // V06.2 Phase 4: Explicit variant dispatch for SIRC12/15/20.
+                                // SIRC_12 = 5-bit address (default), SIRC_15 = 8-bit, SIRC_20 = 13-bit.
                                 val addressBits = when (signal.variantId) {
+                                    "SIRC_12" -> 5
                                     "SIRC_15" -> 8
                                     "SIRC_20" -> 13
-                                    else -> 5
+                                    null -> {
+                                        Log.w(TAG, "SIRC encoder: variantId is null, defaulting to SIRC_12 (5-bit address)")
+                                        5
+                                    }
+                                    else -> {
+                                        Log.w(TAG, "SIRC encoder: unknown variantId '${signal.variantId}', defaulting to SIRC_12 (5-bit address)")
+                                        5
+                                    }
                                 }
                                 EncodeResult.Success(
                                     IrWaveform.encodeSonySirc(signal.address, signal.command, addressBits = addressBits, carrierHz = signal.carrierHz)
