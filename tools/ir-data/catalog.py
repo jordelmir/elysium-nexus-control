@@ -28,6 +28,7 @@ Pipeline:
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -35,7 +36,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 TOOLS_DIR = ROOT / "tools" / "ir-data"
-OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+# V0.6.2 Phase 1: clean-room builds redirect the artifact output via
+# IR_CATALOG_OUTPUT_DIR (verify_reproducibility.py builds A/B into temp
+# workspaces). Constantes por defecto siguen apuntando a los assets empaquetados.
+_DEFAULT_OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+OUTPUT_DIR = Path(os.environ.get("IR_CATALOG_OUTPUT_DIR") or _DEFAULT_OUTPUT_DIR)
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 MANIFEST_PATH = OUTPUT_DIR / "ir_catalog.manifest.json"
 REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"

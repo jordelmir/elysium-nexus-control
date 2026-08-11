@@ -9,13 +9,18 @@ Post-processes ir_catalog.db to:
 4. Remove orphaned records and optimize database layout via VACUUM & ANALYZE
 """
 
+import os
 import sqlite3
 import struct
 import zlib
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / \
-    "apps" / "android" / "app" / "src" / "main" / "assets" / "ir" / "ir_catalog.db"
+# V0.6.2 Phase 1: clean-room builds (verify_reproducibility.py) redirect output.
+_DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / \
+    "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+_OUTPUT_OVERRIDE = os.environ.get("IR_CATALOG_OUTPUT_DIR")
+OUTPUT_DIR = Path(_OUTPUT_OVERRIDE) if _OUTPUT_OVERRIDE else _DEFAULT_OUTPUT_DIR
+DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 
 MAX_PATTERN_SLICES = 4096
 

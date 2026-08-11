@@ -25,6 +25,7 @@ import base64
 import csv
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import struct
@@ -38,7 +39,9 @@ from typing import Optional
 # ─── Paths ────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent.parent
 CACHE = ROOT / ".cache" / "ir-sources"
-OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+# V0.6.2 Phase 1: clean-room builds redirect artifact output.
+_DEFAULT_OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+OUTPUT_DIR = Path(os.environ.get("IR_CATALOG_OUTPUT_DIR") or _DEFAULT_OUTPUT_DIR)
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 STATS_PATH = OUTPUT_DIR / "ir_catalog_stats.json"
 REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
