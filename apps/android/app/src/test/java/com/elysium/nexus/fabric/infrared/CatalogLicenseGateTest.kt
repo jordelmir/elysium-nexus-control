@@ -29,13 +29,21 @@ class CatalogLicenseGateTest {
 
         for (i in 0 until sources.length()) {
             val source = sources.getJSONObject(i)
+            val kind = source.optString("kind", "git")
             val commit = source.getString("resolvedCommit")
-            val tree = source.getString("resolvedTree")
             val licenseSha = source.getString("licenseFileSha256")
 
-            assertEquals("resolvedCommit must be 40 hex characters for ${source.getString("id")}", 40, commit.length)
-            assertEquals("resolvedTree must be 40 hex characters for ${source.getString("id")}", 40, tree.length)
             assertTrue("licenseFileSha256 must not be empty for ${source.getString("id")}", licenseSha.isNotBlank())
+
+            if (kind == "git") {
+                // Git sources must have 40-char hex commit and tree hashes
+                val tree = source.getString("resolvedTree")
+                assertEquals("resolvedCommit must be 40 hex characters for ${source.getString("id")}", 40, commit.length)
+                assertEquals("resolvedTree must be 40 hex characters for ${source.getString("id")}", 40, tree.length)
+            } else {
+                // Artifact sources have shorter content-hash IDs
+                assertTrue("resolvedCommit must be non-empty for ${source.getString("id")}", commit.isNotEmpty())
+            }
         }
     }
 

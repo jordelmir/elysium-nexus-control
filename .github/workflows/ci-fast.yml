@@ -34,6 +34,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # V06.2 P0-1: ir_catalog.db is tracked via Git LFS. checkout must
+          # materialize real blobs (default lfs: false leaves 132-byte
+          # pointer files that fail Gate 1).
+          lfs: true
+
+      # V06.2 P0-1: force LFS pull even if checkout's lfs flag is ignored.
+      - name: Force LFS pull
+        run: |
+          git lfs install
+          git lfs pull
+          magic=$(xxd -l 16 -p apps/android/app/src/main/assets/ir/ir_catalog.db)
+          if [ "$magic" = "53514c69746520666f726d6174203300" ]; then
+            echo "LFS pull: PASS (real SQLite blob)"
+          else
+            echo "FATAL: ir_catalog.db is still an LFS pointer after git lfs pull" >&2
+            exit 1
+          fi
+
+      - name: Git LFS sanity (fsck)
+        run: |
+          git lfs fsck
+          # Both LFS-tracked assets must be present as real files.
+          test -s apps/android/app/src/main/assets/ir/ir_catalog.db
+          echo "lfs fsck: PASS"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -53,23 +77,32 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x apps/android/gradlew
 
-      # ── Gate 1: Catalog integrity (hash + quick_check + FK) ──
+      # ── Gate 1: Catalog integrity (LFS blob + hash + size + quick_check + FK) ──
       - name: Verify IR catalog integrity
         run: |
           cd apps/android/app/src/main/assets/ir
           python3 - <<'PYEOF'
-          import hashlib, json, sqlite3, sys
+          import hashlib, json, os, sqlite3, sys
           db = "ir_catalog.db"
-          sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
           manifest = json.load(open("ir_catalog.manifest.json"))
+          # V06.2 P0-1: reject LFS pointer files — a real SQLite DB starts
+          # with the 16-byte magic header "SQLite format 3\0".
+          with open(db, "rb") as f:
+              magic = f.read(16)
+          pointer_ok = (magic == b"SQLite format 3\x00")
+          size_ok = (os.path.getsize(db) == manifest.get("databaseSizeBytes"))
+          sha = hashlib.sha256(open(db, "rb").read()).hexdigest()
           expected = manifest.get("databaseSha256")
-          status = "PASS" if (expected is not None and sha == expected) else "FAIL"
+          sha_ok = (expected is not None and sha == expected)
           con = sqlite3.connect(db)
           quick = con.execute("PRAGMA quick_check").fetchone()[0]
           fk = con.execute("PRAGMA foreign_key_check").fetchall()
           con.close()
-          ok = (quick == "ok") and (len(fk) == 0) and (status == "PASS")
-          print(f"hash check: {status}; quick_check: {quick}; fk: {len(fk)} violations")
+          ok = pointer_ok and size_ok and sha_ok and (quick == "ok") and (len(fk) == 0)
+          print(f"lfs-pointer check: {'PASS' if pointer_ok else 'FAIL'} (SQLite magic)")
+          print(f"size check: {'PASS' if size_ok else 'FAIL'} ({os.path.getsize(db)} vs {manifest.get('databaseSizeBytes')})")
+          print(f"hash check: {'PASS' if sha_ok else 'FAIL'}")
+          print(f"quick_check: {quick}; fk: {len(fk)} violations")
           if not ok:
               print("FATAL: catalog integrity failed", file=sys.stderr)
               sys.exit(1)
@@ -94,19 +127,12 @@ jobs:
           print("canonical hash: PASS")
           PYEOF
 
-      # ── Gate 3: Source lock integrity ──
-      - name: Verify source lock integrity
+      # ── Gate 3: Source lock schema (V06.2 P0-2 — single authority) ──
+      # validate_source_lock_schema.py is THE one implementation of the
+      # lock policy (kind=git vs kind=artifact). No inline YAML validators.
+      - name: Validate source lock schema
         run: |
-          python3 -c "
-          import json, sys
-          lock = json.load(open('ir-data/sources.lock.json'))
-          assert 'schemaVersion' in lock
-          sources = lock.get('sources', [])
-          assert len(sources) >= 3
-          for s in sources:
-              assert len(s.get('resolvedCommit','')) == 40, f'[{s[\"id\"]}] bad SHA'
-          print(f'lockfile integrity: PASS ({len(sources)} sources)')
-          "
+          python3 tools/ir-data/validate_source_lock_schema.py
 
       # ── Gate 3b: Catalog eligibility (V06-PTG-02 §3) ──
       - name: Enforce production catalog eligibility gate

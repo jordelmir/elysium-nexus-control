@@ -3,6 +3,7 @@ package com.elysium.nexus.fabric.dispatch
 import android.content.Context
 import android.util.Log
 import com.elysium.nexus.fabric.adapter.DeviceAdapter
+import com.elysium.nexus.fabric.adapter.ErrorCode
 import com.elysium.nexus.fabric.adapter.WriteResult
 import com.elysium.nexus.fabric.canonical.DeviceId
 import com.elysium.nexus.fabric.canonical.DeviceState
@@ -29,6 +30,8 @@ import com.elysium.nexus.fabric.session.SessionState
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
+import com.elysium.nexus.fabric.hedging.HedgedExecutor
+import com.elysium.nexus.fabric.hedging.HedgedResult
 import com.elysium.nexus.fabric.profile.InstalledIrProfileRepository
 import java.util.UUID
 
@@ -78,7 +81,12 @@ class ActionDispatcher(
     private val injectedIrResolver: IrCommandResolver? = null,
     private val routeScorer: ActionRouteScorer? = null,
     private val circuitBreaker: CircuitBreaker? = null,
-    private val flightRecorder: FlightRecorder? = null
+    private val flightRecorder: FlightRecorder? = null,
+    // V0.6.2 PR4 Phase 16: zero-trust gate (optional — null disables the check)
+    private val trustResolver: ((DeviceId) -> com.elysium.nexus.fabric.identity.DeviceTrustRecord?)? = null,
+    private val trustAuditor: ((com.elysium.nexus.fabric.identity.ZeroTrustPolicy.TrustAuditEntry) -> Unit)? = null,
+    // V0.6.2 PR4 Phase 18: hedged execution for idempotent actions (§61)
+    private val hedgedExecutor: HedgedExecutor? = null
 ) {
     private val deviceCommandResolver: IrCommandResolver? by lazy {
         injectedIrResolver ?: context?.let { DeviceCommandResolver(it) }
@@ -106,6 +114,25 @@ class ActionDispatcher(
         val twin = twinResolver(action.targetDeviceId)
             ?: return recordAndReturn(action, Protocol.Unknown, EventResult.NoRoute,
                 DispatchResult.NoTarget(action.targetDeviceId), startNs)
+
+        // V0.6.2 PR4 Phase 16: zero-trust authorization gate (§72)
+        val trustRecord = trustResolver?.invoke(action.targetDeviceId)
+        if (trustResolver != null) {
+            val auditEntry = com.elysium.nexus.fabric.identity.ZeroTrustPolicy.TrustAuditEntry(
+                deviceId = action.targetDeviceId,
+                action = action::class.simpleName ?: "Unknown",
+                requiredTrust = com.elysium.nexus.fabric.identity.ZeroTrustPolicy.requiredTrustState(action),
+                actualTrust = trustRecord?.currentState ?: com.elysium.nexus.fabric.identity.TrustState.UNPAIRED,
+                authorized = com.elysium.nexus.fabric.identity.ZeroTrustPolicy.isAuthorized(trustRecord, action)
+            )
+            trustAuditor?.invoke(auditEntry)
+            if (!auditEntry.authorized) {
+                Log.w(TAG, "ZeroTrust DENIED: ${action::class.simpleName} on ${action.targetDeviceId.value} " +
+                    "requires ${auditEntry.requiredTrust}, has ${auditEntry.actualTrust}")
+                return recordAndReturn(action, Protocol.Unknown, EventResult.PermissionDenied,
+                    DispatchResult.PermissionDenied(action, listOf("Trust ${auditEntry.actualTrust} < required ${auditEntry.requiredTrust}")), startNs)
+            }
+        }
 
         val routes = routeNegotiator.negotiate(action, twin)
         if (routes.isEmpty()) {
@@ -230,7 +257,33 @@ class ActionDispatcher(
             }
 
             val sendStartNs = System.nanoTime()
-            val writeResult = route.adapter.write(action.targetDeviceId, deviceState)
+
+            // V0.6.2 PR4 Phase 18: §61 hedged execution for idempotent actions
+            val hedge = hedgedExecutor
+            val writeResult: WriteResult = if (hedge != null && routesToTry.size > 1) {
+                val backupRoute = routesToTry.firstOrNull { it != route }
+                val hedgedResult = hedge.executeWithHedge(
+                    action = action,
+                    primary = route,
+                    backup = backupRoute,
+                    executor = { r -> r.adapter.write(action.targetDeviceId, deviceState) }
+                )
+                when (hedgedResult) {
+                    is HedgedResult.PrimarySuccess -> hedgedResult.value ?: WriteResult.Error(ErrorCode.Unknown, "Hedge primary returned null")
+                    is HedgedResult.BackupSuccess -> {
+                        Log.d(TAG, "Hedge: backup route succeeded for ${action::class.simpleName}")
+                        hedgedResult.value ?: WriteResult.Error(ErrorCode.Unknown, "Hedge backup returned null")
+                    }
+                    is HedgedResult.PrimaryFailed -> {
+                        WriteResult.Error(ErrorCode.NetworkError, hedgedResult.reason)
+                    }
+                    is HedgedResult.BothFailed -> {
+                        WriteResult.Error(ErrorCode.NetworkError, hedgedResult.reason)
+                    }
+                }
+            } else {
+                route.adapter.write(action.targetDeviceId, deviceState)
+            }
 
             when (writeResult) {
                 is WriteResult.Ok -> {

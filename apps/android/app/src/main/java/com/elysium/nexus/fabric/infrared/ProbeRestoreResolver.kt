@@ -33,8 +33,8 @@ sealed interface ProbeRestoreDecision {
  */
 object ProbeRestoreResolver {
 
-    fun resolve(
-        engine: IrProbeEngine,
+    suspend fun resolve(
+        engine: ProbeCursor,
         restoreCandidateIndex: Int,
         restoreCandidateId: String?
     ): ProbeRestoreDecision {

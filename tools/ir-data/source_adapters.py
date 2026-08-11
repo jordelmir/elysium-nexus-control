@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 import ingest_v5
-from ingest_v5 import (EntityCache, PROTOCOL_MAP, short, sha256_text)
+from ingest_v5 import (EntityCache, PROTOCOL_MAP)
 
 ROOT = ingest_v5.ROOT
 CURATED_DIR = ROOT / "ir-data" / "data" / "curated-tv" / "v1"
@@ -177,8 +177,8 @@ def import_kintech(cache: EntityCache, profile: str = "production") -> dict:
         raise RuntimeError(
             "Phase 2 fail-closed: 'elysium-nexus-curated' must exist in "
             "sources.lock.json for production imports")
-    files = _ensure_locked_artifacts(cache, "elysium-nexus-curated",
-                                     CURATED_ARTIFACTS)
+    _ensure_locked_artifacts(cache, "elysium-nexus-curated",
+                             CURATED_ARTIFACTS)
     return import_curated(cache, profile=profile, brand_filter="KINTECH",
                           source_id="elysium-nexus-curated")
 

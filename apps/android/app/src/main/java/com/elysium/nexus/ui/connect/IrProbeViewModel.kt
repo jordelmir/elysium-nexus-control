@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
+import com.elysium.nexus.fabric.infrared.ProbeCursor
 import com.elysium.nexus.fabric.infrared.ProbeRestoreDecision
 import com.elysium.nexus.fabric.infrared.ProbeRestoreResolver
 import com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase
@@ -69,7 +70,7 @@ class IrProbeViewModel(
     private val _currentAttempt = MutableStateFlow<ProbeAttempt?>(null)
     val currentAttempt: StateFlow<ProbeAttempt?> = _currentAttempt.asStateFlow()
 
-    private var probeEngine: IrProbeEngine? = null
+    private var probeEngine: ProbeCursor? = null
     private var sessionId: String? = null
     private var lastPersistedIndex: Int = 0
     private var lastPersistedCandidateId: String? = null
@@ -262,25 +263,16 @@ class IrProbeViewModel(
     }
 
     /**
-     * Initialize the probe engine with candidates, optionally restoring to a saved position.
+     * V0.6.2 PR3 Phase 14: Initialize the probe engine — accepts any [ProbeCursor]
+     * implementation (eager [IrProbeEngine] for brand search, [PagedIrProbeEngine]
+     * for universal sweep). Process-death restore verifies identity via
+     * [ProbeRestoreResolver] and never silently picks candidate 0.
      */
-    fun initializeEngine(
-        candidates: List<IrCodeSet>,
-        targetModel: String?,
-        penaltyMap: Map<String, Int>,
-        successMap: Map<String, Int>,
-        failMap: Map<String, Int>,
+    suspend fun initializeEngine(
+        engine: ProbeCursor,
         restoreCandidateIndex: Int = 0,
         restoreCandidateId: String? = null
     ): Boolean {
-        val engine = IrProbeEngine(
-            rawCandidates = candidates,
-            targetModel = targetModel,
-            penaltyMap = penaltyMap,
-            successMap = successMap,
-            failMap = failMap
-        )
-
         if (engine.totalCandidates == 0) {
             _probeUiState.value = ProbeUiState.NoCompatibleCandidates
             return false
@@ -310,7 +302,7 @@ class IrProbeViewModel(
     }
 
     fun currentCandidate(): IrCodeSet? = probeEngine?.currentCandidate()
-    fun nextCandidate(): IrCodeSet? = probeEngine?.nextCandidate()
+    suspend fun nextCandidate(): IrCodeSet? = probeEngine?.nextCandidate()
     fun selectById(id: String): Boolean = probeEngine?.selectById(id) ?: false
 
     fun recordSuccess(action: IrAction) {
@@ -333,7 +325,12 @@ class IrProbeViewModel(
      * every transmission is recorded against the session, CASCADE-deleted
      * with the session). No-op if no session exists yet.
      */
-    fun persistAttempt(attempt: ProbeAttempt) {
+    fun persistAttempt(
+        attempt: ProbeAttempt,
+        physicalSha256: String?,
+        carrierHz: Int?,
+        catalogBuildId: String?
+    ) {
         val sid = getSessionId() ?: return
         viewModelScope.launch {
             db.profileDao().insertProbeAttempt(
@@ -345,10 +342,51 @@ class IrProbeViewModel(
                     signalId = attempt.signalId,
                     actionKey = attempt.action.name,
                     transmittedAtEpochMs = attempt.transmittedAtMs,
-                    result = "SENT",
-                    transmitDurationMs = 0L
+                    result = "CREATED",
+                    transmitDurationMs = 0L,
+                    physicalSha256 = physicalSha256,
+                    carrierHz = carrierHz,
+                    catalogBuildId = catalogBuildId,
+                    confirmedAtEpochMs = null,
+                    confirmedBy = null
                 )
             )
+        }
+    }
+
+    // V0.6.2 PR3 Phase 13 — Attempt evidence lifecycle
+
+    fun updateAttemptStatus(attemptId: String, result: String, durationMs: Long) {
+        viewModelScope.launch {
+            db.profileDao().updateAttemptResult(attemptId, result, durationMs)
+        }
+    }
+
+    fun confirmAttempt(attemptId: String, confirmedBy: String) {
+        viewModelScope.launch {
+            db.profileDao().updateAttemptConfirmation(
+                attemptId = attemptId,
+                result = "CONFIRMED",
+                confirmedAtMs = System.currentTimeMillis(),
+                confirmedBy = confirmedBy
+            )
+        }
+    }
+
+    // V0.6.2 PR3 Phase 12 — real process-death recovery: find latest active session
+
+    /**
+     * Find the latest active (non-completed) probe session for this brand/device
+     * in Room. Returns the session entity if found and its catalog hash matches
+     * the current catalog, null otherwise. Callers must verify catalogHashAtStart
+     * matches the current catalog hash — restoring against a different catalog
+     * is forbidden.
+     */
+    suspend fun findLatestActiveSession(brand: String, deviceType: String): ProbeSessionEntity? {
+        return try {
+            db.profileDao().getLatestActiveProbeSession(brand, deviceType)
+        } catch (e: Exception) {
+            null
         }
     }
 

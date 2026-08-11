@@ -34,6 +34,17 @@ sealed interface BindingRevalidationResult {
     /** SignalId changed but physical fingerprint has a unique match in current catalog. */
     data class Migrate(val updatedBinding: IrCommandBinding) : BindingRevalidationResult
 
+    /**
+     * Signal fingerprint changed and multiple candidates share the same
+     * fingerprint in the code set — cannot determine the correct migration
+     * without user input. Caller must present options or re-probe.
+     */
+    data class Ambiguous(
+        val action: IrAction,
+        val reason: String,
+        val candidateSignalIds: List<String> = emptyList()
+    ) : BindingRevalidationResult
+
     /** Signal no longer valid or fingerprint changed without equivalent. */
     data class NeedsRevalidation(val action: IrAction, val reason: String) : BindingRevalidationResult
 
@@ -53,7 +64,9 @@ data class ProfileRevalidationResult(
 ) {
     val needsUserAction: Boolean
         get() = bindingResults.values.any {
-            it is BindingRevalidationResult.NeedsRevalidation || it is BindingRevalidationResult.UnsupportedCodec
+            it is BindingRevalidationResult.NeedsRevalidation ||
+                it is BindingRevalidationResult.UnsupportedCodec ||
+                it is BindingRevalidationResult.Ambiguous
         }
 }
 
@@ -178,6 +191,46 @@ class ProfileRevalidationService(
         return updatedProfile
     }
 
+    /**
+     * V0.6.2 PR3 Phase 11: Apply a single binding's revalidation result.
+     * Returns the updated profile (saved to store) or the original if unchanged.
+     */
+    suspend fun applyBindingRevalidation(
+        profile: InstalledIrProfile,
+        action: IrAction,
+        bindingResult: BindingRevalidationResult
+    ): InstalledIrProfile {
+        when (bindingResult) {
+            is BindingRevalidationResult.Keep -> {
+                Log.d(TAG, "Binding $action kept unchanged")
+                return profile
+            }
+            is BindingRevalidationResult.Migrate -> {
+                val updatedCommands = profile.commands.toMutableMap()
+                updatedCommands[action] = bindingResult.updatedBinding
+                val updatedProfile = profile.copy(
+                    commands = updatedCommands,
+                    catalogCanonicalHashAtInstall = currentCatalogHash.invoke()
+                )
+                profileStore.saveProfile(updatedProfile, profile.verifiedActions)
+                Log.d(TAG, "Migrated binding $action: ${bindingResult.updatedBinding.signalId}")
+                return updatedProfile
+            }
+            is BindingRevalidationResult.Ambiguous -> {
+                Log.w(TAG, "Cannot auto-apply ambiguous binding $action: ${bindingResult.reason}")
+                return profile
+            }
+            is BindingRevalidationResult.NeedsRevalidation -> {
+                Log.w(TAG, "Cannot auto-apply binding $action: ${bindingResult.reason}")
+                return profile
+            }
+            is BindingRevalidationResult.UnsupportedCodec -> {
+                Log.w(TAG, "Cannot apply unsupported codec for $action: ${bindingResult.reason}")
+                return profile
+            }
+        }
+    }
+
     private suspend fun revalidateBinding(
         codeSetId: String,
         action: IrAction,
@@ -193,10 +246,10 @@ class ProfileRevalidationService(
                 return BindingRevalidationResult.Keep(binding)
             }
 
-            // 3. Fingerprint changed — check if there's a unique equivalent
+            // 3. Fingerprint changed — look for unique equivalent via selectedCommands (single authority)
             val codeSet = catalog.getCodeSet(codeSetId)
             if (codeSet != null) {
-                // P0.2: Use selectedCommands as single authority
+                // P0.2: selectedCommands is the single authority — no commandBindings fallback
                 val equivalent = codeSet.selectedCommands[action]?.takeIf {
                     it.physicalSha256 == binding.physicalFingerprint
                 }
@@ -205,14 +258,16 @@ class ProfileRevalidationService(
                     return BindingRevalidationResult.Migrate(newBinding)
                 }
 
-                // Fallback: check legacy commandBindings (deprecated)
-                val equivalentSignalId = codeSet.commandBindings
-                    .firstOrNull { it.action == action && it.physicalSha256 == binding.physicalFingerprint }
-                    ?.signalId
-
-                if (equivalentSignalId != null) {
-                    val newBinding = binding.copy(signalId = equivalentSignalId)
-                    return BindingRevalidationResult.Migrate(newBinding)
+                // Check if multiple bindings share the same fingerprint → Ambiguous
+                val matchingBindings = codeSet.selectedCommands.values.filter {
+                    it.physicalSha256 == binding.physicalFingerprint
+                }
+                if (matchingBindings.size > 1) {
+                    return BindingRevalidationResult.Ambiguous(
+                        action = action,
+                        reason = "Multiple signals share fingerprint ${binding.physicalFingerprint.take(12)}…",
+                        candidateSignalIds = matchingBindings.map { it.signalId }
+                    )
                 }
             }
 
@@ -231,12 +286,8 @@ class ProfileRevalidationService(
             )
         }
 
-        // 5. CodeSet exists but signal doesn't — try to find by action
-        // P0.2: Use selectedCommands as single authority
+        // 5. CodeSet exists but signal doesn't — try selectedCommands as single authority
         val alternativeSignalId = codeSet.selectedCommands[action]?.signalId
-            ?: codeSet.commandSignalIds[action]
-            ?: codeSet.commandBindings.firstOrNull { it.action == action }?.signalId
-
         if (alternativeSignalId != null) {
             val alternativeSignal = catalog.getSignal(alternativeSignalId)
             if (alternativeSignal != null) {

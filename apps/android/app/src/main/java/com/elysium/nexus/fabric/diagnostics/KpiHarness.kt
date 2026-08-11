@@ -67,14 +67,14 @@ class KpiHarness(private val recorder: FlightRecorder) {
                 ),
                 KpiMeasure(
                     key = "lan_command_p50_ms",
-                    value = if (latencySnapshot.count > 0) latencySnapshot.p50?.toDouble() else null,
+                    value = if (latencySnapshot.count > 0) latencySnapshot.p50?.toDouble()?.div(1_000_000.0) else null,
                     unit = "ms",
                     threshold = "< 50",
                     source = "FlightRecorder (successful flights, total latency)"
                 ),
                 KpiMeasure(
                     key = "lan_command_p95_ms",
-                    value = if (latencySnapshot.count > 0) latencySnapshot.p95?.toDouble() else null,
+                    value = if (latencySnapshot.count > 0) latencySnapshot.p95?.toDouble()?.div(1_000_000.0) else null,
                     unit = "ms",
                     threshold = "< 150",
                     source = "FlightRecorder (successful flights, total latency)"

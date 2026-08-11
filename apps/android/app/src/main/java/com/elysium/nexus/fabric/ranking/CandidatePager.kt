@@ -21,7 +21,7 @@ class CandidatePager<T>(
     /** Total candidate count from the source. */
     val totalCount: Int,
     /** Loads one ranked page: items [fromIndex, fromIndex + count). */
-    private val pageLoader: (fromIndex: Int, count: Int) -> List<T>
+    private val pageLoader: suspend (fromIndex: Int, count: Int) -> List<T>
 ) {
     init {
         require(pageSize > 0) { "pageSize must be positive (got $pageSize)." }
@@ -43,11 +43,14 @@ class CandidatePager<T>(
     /** Candidates currently materialized (the memory budget). */
     val loadedItems: Int get() = cache.values.sumOf { it.size }
 
+    /** Non-suspend page accessor — returns null if the page isn't in cache. */
+    fun getCachedPage(index: Int): List<T>? = cache[index]
+
     /**
      * Loads (or serves from cache) page [index].
      * Pages are immutable once loaded.
      */
-    fun page(index: Int): List<T> {
+    suspend fun page(index: Int): List<T> {
         require(index in 0 until pageCount) {
             "page index $index out of bounds (0..${pageCount - 1})"
         }
@@ -71,7 +74,7 @@ class CandidatePager<T>(
      * so misses are possible past the search window — callers must not
      * assume global completeness (honest bound).
      */
-    fun findWithin(
+    suspend fun findWithin(
         startPage: Int,
         searchPageLimit: Int,
         predicate: (T) -> Boolean

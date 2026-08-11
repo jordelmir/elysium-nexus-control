@@ -100,14 +100,14 @@ class HedgedExecutor(
         return coroutineScope {
             activeHedges++
             try {
-                var primaryCompleted = false
+                var primaryResult: T? = null
                 var backupTriggered = false
 
                 // Launch primary
                 val primaryJob = launch {
                     val result = executor(primary)
                     if (result != null) {
-                        primaryCompleted = true
+                        primaryResult = result
                     }
                 }
 
@@ -115,7 +115,7 @@ class HedgedExecutor(
                 delay(hedgeDelayMs)
 
                 // If primary hasn't completed, try backup
-                if (!primaryCompleted) {
+                if (primaryResult == null) {
                     backupTriggered = true
                     val backupResult = executor(backup)
                     if (backupResult != null) {
@@ -126,8 +126,9 @@ class HedgedExecutor(
 
                 // Wait for primary to finish
                 primaryJob.join()
-                if (primaryCompleted) {
-                    HedgedResult.PrimarySuccess(Unit as T)
+                val result = primaryResult
+                if (result != null) {
+                    HedgedResult.PrimarySuccess(result)
                 } else {
                     HedgedResult.BothFailed("Both routes failed")
                 }
@@ -137,7 +138,7 @@ class HedgedExecutor(
         }
     }
 
-    }
+}
 
 /**
  * Hedged execution result.

@@ -27,44 +27,33 @@ import java.util.zip.Inflater
 private const val TAG = "ElysiumNexus.IrCatalogV4"
 private const val MAX_PATTERN_SLICES = 4096
 
+/**
+ * V06.2 Phase 2: Map catalog protocol_definitions.family_name → IrProtocol enum.
+ * This is the SINGLE mapping from catalog truth to runtime truth.
+ * Legacy codec_id resolution via ProtocolCodecRegistry is provenance-only.
+ */
+private fun resolveProtocolFromFamily(familyName: String?): IrProtocol? = when {
+    familyName == null -> null
+    familyName.equals("NEC", ignoreCase = true) -> IrProtocol.Nec
+    familyName.equals("NECx", ignoreCase = true) || familyName.equals("NEC Extended", ignoreCase = true) -> IrProtocol.NecExtended
+    familyName.equals("Samsung", ignoreCase = true) -> IrProtocol.Samsung
+    familyName.equals("SIRC", ignoreCase = true) || familyName.equals("Sony SIRC", ignoreCase = true) -> IrProtocol.SonySirc
+    familyName.equals("RC5", ignoreCase = true) -> IrProtocol.Rc5
+    familyName.equals("RC6", ignoreCase = true) -> IrProtocol.Rc6
+    familyName.equals("Kaseikyo", ignoreCase = true) || familyName.equals("Panasonic", ignoreCase = true) -> IrProtocol.Kaseikyo
+    else -> null
+}
+
 private data class CodeSetCommandsResult(
     val commands: Map<IrAction, IrSignal>,
     val commandSignalIds: Map<IrAction, String>,
-    val commandBindings: List<CatalogCommandBinding>
+    val commandBindings: List<CatalogCommandBinding>,
+    /** V06.2 PR3 Phase 9: single authority built from the SELECTED binding (no firstOrNull re-lookup). */
+    val selectedCommands: Map<IrAction, SelectedCommandBinding>
 )
 
-/** P0.2: Build the single-authority selectedCommands map from parallel representations. */
-private fun buildSelectedCommands(
-    codeSetId: String,
-    commands: Map<IrAction, IrSignal>,
-    commandSignalIds: Map<IrAction, String>,
-    commandBindings: List<CatalogCommandBinding>,
-    verification: VerificationStatus
-): Map<IrAction, SelectedCommandBinding> {
-    val result = mutableMapOf<IrAction, SelectedCommandBinding>()
-    for ((action, signal) in commands) {
-        val binding = commandBindings.firstOrNull { it.action == action }
-        val signalId = commandSignalIds[action] ?: binding?.signalId ?: continue
-        result[action] = SelectedCommandBinding(
-            bindingId = binding?.bindingId ?: "binding-${codeSetId}-${action.name}",
-            action = action,
-            signalId = signalId,
-            signal = signal,
-            physicalSha256 = binding?.physicalSha256 ?: "",
-            sourceId = binding?.sourceRevisionId ?: "",
-            sourceRevisionId = binding?.sourceRevisionId ?: "",
-            verificationStatus = verification,
-            evidenceLevel = when (verification) {
-                VerificationStatus.VERIFIED_LAB -> EvidenceLevel.LAB_MATRIX_VERIFIED
-                VerificationStatus.VERIFIED_COMMUNITY -> EvidenceLevel.EXTERNAL_HIL_VERIFIED
-                VerificationStatus.SESSION_VERIFIED -> EvidenceLevel.SESSION_VERIFIED
-                VerificationStatus.PARTIALLY_VERIFIED -> EvidenceLevel.MODEL_INFERRED
-                else -> EvidenceLevel.INTERNAL_UNVERIFIED
-            }
-        )
-    }
-    return result
-}
+// V06.2 PR3 Phase 9: The parallel map projections are built FROM the selected
+// bindings, never the other way around. selectedCommands is the source of truth.
 
 /**
  * §2 Canonical Schema v4 SQLite IR Catalog Repository.
@@ -182,10 +171,7 @@ class IrCatalogRepository private constructor(
                             commands = codeSetResult.commands,
                             commandSignalIds = codeSetResult.commandSignalIds,
                             commandBindings = codeSetResult.commandBindings,
-                            selectedCommands = buildSelectedCommands(
-                                csId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                                codeSetResult.commandBindings, verification
-                            ),
+                            selectedCommands = codeSetResult.selectedCommands,
                             provenance = CodeProvenance(
                                 sourceName = sourceName,
                                 sourceUrl = "",
@@ -288,10 +274,7 @@ class IrCatalogRepository private constructor(
                                 commands = codeSetResult.commands,
                                 commandSignalIds = codeSetResult.commandSignalIds,
                                 commandBindings = codeSetResult.commandBindings,
-                                selectedCommands = buildSelectedCommands(
-                                    csId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                                    codeSetResult.commandBindings, verification
-                                ),
+                                selectedCommands = codeSetResult.selectedCommands,
                                 provenance = CodeProvenance(
                                     sourceName = sourceName,
                                     sourceUrl = "",
@@ -306,6 +289,94 @@ class IrCatalogRepository private constructor(
         }
 
         Log.d(TAG, "getAllCandidates(deviceType=$deviceType, action=$actionKey): ${results.size} Code Sets (progressive brand-first)")
+        results
+    }
+
+    // V0.6.2 PR3 Phase 14 — Paged probe: bounded-memory candidate access.
+    // Deterministic stable ordering (brand, id) — no duplicates across pages.
+
+    private fun pagedBaseWhere(deviceType: String, actionKey: String) = """
+        FROM code_sets cs
+        JOIN remotes r ON cs.remote_id = r.id
+        JOIN brands b ON r.brand_id = b.id
+        JOIN device_types dt ON r.device_type_id = dt.id
+        JOIN source_revisions sr ON cs.source_revision_id = sr.id
+        JOIN sources s ON sr.source_id = s.id
+        JOIN command_bindings cb ON cb.code_set_id = cs.id
+        JOIN actions a ON cb.action_id = a.id
+        WHERE a.canonical_key = ?
+          AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
+          AND s.production_approved = 1
+          AND cs.verification_status != 'BLOCKED'
+    """.trimIndent()
+
+    override suspend fun getCandidateCount(
+        deviceType: String,
+        action: IrAction
+    ): Int = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val actionKey = action.name
+        val devTypeArg = deviceType.trim()
+        val query = "SELECT COUNT(DISTINCT cs.id) ${pagedBaseWhere(devTypeArg, actionKey)}"
+        val params = arrayOf(actionKey, "$devTypeArg%", devTypeArg)
+        database.rawQuery(query, params).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    override suspend fun getCandidatePage(
+        deviceType: String,
+        action: IrAction,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = withContext(Dispatchers.IO) {
+        val database = getDatabase()
+        val actionKey = action.name
+        val devTypeArg = deviceType.trim()
+        val results = mutableListOf<IrCodeSet>()
+
+        val selectCols = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
+        """.trimIndent()
+        val query = "$selectCols ${pagedBaseWhere(devTypeArg, actionKey)} GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ? OFFSET ?"
+        val params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, count.toString(), fromIndex.toString())
+
+        database.rawQuery(query, params).use { cursor ->
+            while (cursor.moveToNext()) {
+                val csId = cursor.getString(0)
+                val brandName = cursor.getString(1) ?: "Desconocido"
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+                val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
+
+                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                if (action in codeSetResult.commands && codeSetResult.commandBindings.isNotEmpty()) {
+                    val verification = parseVerificationStatus(verificationStr)
+                    results.add(
+                        IrCodeSet(
+                            id = csId,
+                            brand = brandName,
+                            modelPatterns = setOf(remoteModel),
+                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                            commands = codeSetResult.commands,
+                            commandSignalIds = codeSetResult.commandSignalIds,
+                            commandBindings = codeSetResult.commandBindings,
+                            selectedCommands = codeSetResult.selectedCommands,
+                            provenance = CodeProvenance(
+                                sourceName = sourceName,
+                                sourceUrl = "",
+                                licenseSpdx = licenseSpdx
+                            ),
+                            verification = verification
+                        )
+                    )
+                }
+            }
+        }
+        Log.d(TAG, "getCandidatePage(deviceType=$deviceType, from=$fromIndex, count=$count): ${results.size} candidates")
         results
     }
 
@@ -360,17 +431,26 @@ class IrCatalogRepository private constructor(
         val allBindingsPerAction = mutableMapOf<IrAction, MutableList<PendingBinding>>()
         val allBindings = mutableListOf<CatalogCommandBinding>()
 
+        // V06.2 Phase 2: JOIN protocol_definitions/protocol_variants via V5 FKs.
+        // Legacy columns (codec_id, protocol_name_original, protocol_variant) are
+        // selected as PROVENANCE ONLY — they document source identity, not runtime dispatch.
         val query = """
-            SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
+            SELECT a.canonical_key, sig.encoding_type, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
                    sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
                    sig.physical_sha256, cb.source_priority, sr.content_sha256 AS revision_sha,
-                   cs.verification_status, sig.protocol_name_original, sig.protocol_variant
+                   cs.verification_status,
+                   pd.id AS pd_id, pd.family_name, pd.carrier_hz AS pd_carrier_hz,
+                   pv.id AS pv_id, pv.variant_name,
+                   sig.evidence_level, sig.eligibility_status,
+                   sig.codec_id, sig.protocol_name_original, sig.protocol_variant
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
             JOIN code_sets cs ON cb.code_set_id = cs.id
             JOIN source_revisions sr ON cs.source_revision_id = sr.id
+            LEFT JOIN protocol_definitions pd ON sig.protocol_definition_id = pd.id
+            LEFT JOIN protocol_variants pv ON sig.protocol_variant_id = pv.id
             WHERE cb.code_set_id = ?
         """.trimIndent()
 
@@ -378,55 +458,72 @@ class IrCatalogRepository private constructor(
             while (cursor.moveToNext()) {
                 val actionStr = cursor.getString(0)
                 val encodingType = cursor.getString(1)
-                val codecId = cursor.getString(2)
-                val carrierHz = cursor.getInt(3)
-                val address = cursor.getInt(4)
-                val subDevice = cursor.getInt(5)
-                val command = cursor.getInt(6)
-                val blob = cursor.getBlob(7)
-                val signalId = cursor.getString(8)
-                val bindingId = cursor.getString(9)
-                val physicalSha256 = cursor.getString(10) ?: signalId
-                val sourcePriority = cursor.getInt(11)
-                val revisionSha = cursor.getString(12) ?: "catalog-legacy"
-                val codeSetStatus = cursor.getString(13) ?: "UNVERIFIED"
-                val protocolNameOriginal = cursor.getString(14)
-                val protocolVariant = cursor.getString(15)
+                val carrierHz = cursor.getInt(2)
+                val address = cursor.getInt(3)
+                val subDevice = cursor.getInt(4)
+                val command = cursor.getInt(5)
+                val blob = cursor.getBlob(6)
+                val signalId = cursor.getString(7)
+                val bindingId = cursor.getString(8)
+                val physicalSha256 = cursor.getString(9) ?: signalId
+                val sourcePriority = cursor.getInt(10)
+                val revisionSha = cursor.getString(11) ?: "catalog-legacy"
+                val codeSetStatus = cursor.getString(12) ?: "UNVERIFIED"
+                // V06.2 Phase 2: V5 FK columns (runtime authority)
+                val pdId = cursor.getString(13)
+                val pdFamilyName = cursor.getString(14)
+                val pdCarrierHz = cursor.getInt(15)
+                val pvId = cursor.getString(16)
+                val pvVariantName = cursor.getString(17)
+                // Evidence/eligibility from signal
+                val evidenceLevel = cursor.getString(18) ?: "SOURCE_IMPORTED"
+                val eligibilityStatus = cursor.getString(19) ?: "RESEARCH_ONLY"
+                // Legacy provenance (source identity, NOT runtime authority)
+                val legacyCodecId = cursor.getString(20)
+                val legacyProtocolName = cursor.getString(21)
+                val legacyVariant = cursor.getString(22)
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
                 val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
-                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
-                    if (codecSpec == null) {
-                        Log.w(TAG, "Unsupported codec '$codecId' for signalId=$signalId in codeSetId=$codeSetId. Skipping without NEC fallback.")
+                    // V06.2 Phase 2: Resolve protocol from catalog V5 FKs first.
+                    // Fall back to legacy codec_id only if FK is null (backward compat).
+                    val protocol = resolveProtocolFromFamily(pdFamilyName)
+                        ?: legacyCodecId?.let { ProtocolCodecRegistry.getCodec(it)?.protocol }
+                    if (protocol == null) {
+                        Log.w(TAG, "No protocol resolution for signalId=$signalId " +
+                            "(pdFamilyName=$pdFamilyName, legacyCodecId=$legacyCodecId). Skipping.")
                         null
-                    } else if (codecSpec.status == CodecVerificationStatus.EXPERIMENTAL) {
-                        // P0-14: EXPERIMENTAL codecs are blocked from production signals.
-                        Log.d(TAG, "EXPERIMENTAL codec '${codecSpec.codecId}' blocked for signalId=$signalId")
+                    } else if (protocol == IrProtocol.Raw) {
                         null
                     } else {
-                        // P0-8: Match variant from protocol_name_original or codec_id
-                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                        // V06.2 Phase 2: Use pv.variant_name directly (e.g. "SIRC_12").
+                        // Fall back to legacy string only if pv is null.
+                        val variantHint = pvVariantName ?: legacyProtocolName ?: legacyVariant
                         val resolved = ProtocolCodecRegistry.resolve(
-                            codecSpec.codecId,
-                            protocolNameOriginal ?: protocolVariant
+                            legacyCodecId ?: pdFamilyName ?: "",
+                            variantHint
                         )
                         when (resolved) {
                             is CodecResolution.Resolved -> {
                                 IrSignal.Encoded(
-                                    carrierHz = carrierHz,
-                                    protocol = codecSpec.protocol,
+                                    carrierHz = if (pdCarrierHz > 0) pdCarrierHz else carrierHz,
+                                    protocol = protocol,
                                     address = address,
                                     subDevice = if (subDevice >= 0) subDevice else null,
                                     command = command,
-                                    codecId = codecSpec.codecId,
-                                    variantId = resolved.variant?.variantId
+                                    codecId = legacyCodecId ?: pdFamilyName ?: "",
+                                    variantId = pvVariantName ?: resolved.variant?.variantId
                                 )
                             }
                             is CodecResolution.VariantAmbiguous -> {
-                                // P0.5: Log ambiguity — signal will be skipped rather than silently picking first
-                                Log.w(TAG, "Variant ambiguous for codec '${codecSpec.codecId}' signalId=$signalId: " +
-                                    "${resolved.candidates.size} candidates. Skipping.")
+                                Log.w(TAG, "Variant ambiguous for signalId=$signalId " +
+                                    "(${resolved.candidates.size} candidates). Skipping.")
+                                null
+                            }
+                            is CodecResolution.VariantUnsupported -> {
+                                Log.w(TAG, "Variant '${variantHint}' unsupported for " +
+                                    "codec '${legacyCodecId}'. Skipping.")
                                 null
                             }
                             else -> null
@@ -462,8 +559,17 @@ class IrCatalogRepository private constructor(
         //   2. RAW signals preferred over PARAMETRIC
         //   3. Higher source_priority wins
         //   4. Stable tie-break by bindingId (alphabetical)
+        // V06.2 PR3 Phase 9: selectedCommands built from the WINNING binding —
+        // all parallel projections derive from it, never the reverse.
         val commands = mutableMapOf<IrAction, IrSignal>()
         val commandSignalIds = mutableMapOf<IrAction, String>()
+        val selectedCommands = mutableMapOf<IrAction, SelectedCommandBinding>()
+        val codeSetStatus = allBindingsPerAction.values
+            .flatten()
+            .maxByOrNull { verificationRank(it.verificationStatus) }
+            ?.verificationStatus
+            ?: "UNVERIFIED"
+        val verification = parseVerificationStatus(codeSetStatus)
         for ((action, bindings) in allBindingsPerAction) {
             val selected = bindings.sortedWith(
                 compareByDescending<PendingBinding> { verificationRank(it.verificationStatus) }
@@ -473,55 +579,84 @@ class IrCatalogRepository private constructor(
             ).firstOrNull() ?: continue
             commands[action] = selected.signal
             commandSignalIds[action] = selected.signalId
+            selectedCommands[action] = SelectedCommandBinding(
+                bindingId = selected.bindingId,
+                codeSetId = codeSetId,
+                action = action,
+                signalId = selected.signalId,
+                signal = selected.signal,
+                physicalSha256 = selected.physicalSha256,
+                sourceId = selected.sourceRevisionSha,
+                sourceRevisionId = selected.sourceRevisionSha,
+                verificationStatus = verification,
+                evidenceLevel = when (verification) {
+                    VerificationStatus.VERIFIED_LAB -> EvidenceLevel.LAB_MATRIX_VERIFIED
+                    VerificationStatus.VERIFIED_COMMUNITY -> EvidenceLevel.EXTERNAL_HIL_VERIFIED
+                    VerificationStatus.SESSION_VERIFIED -> EvidenceLevel.SESSION_VERIFIED
+                    VerificationStatus.PARTIALLY_VERIFIED -> EvidenceLevel.MODEL_INFERRED
+                    else -> EvidenceLevel.INTERNAL_UNVERIFIED
+                }
+            )
         }
 
-        return CodeSetCommandsResult(commands, commandSignalIds, allBindings)
+        return CodeSetCommandsResult(commands, commandSignalIds, allBindings, selectedCommands)
     }
 
     override suspend fun getSignal(signalId: String): IrSignal? = withContext(Dispatchers.IO) {
         val database = getDatabase()
         var resultSignal: IrSignal? = null
 
+        // V06.2 Phase 2: JOIN protocol_definitions/protocol_variants via V5 FKs.
         val query = """
-            SELECT encoding_type, codec_id, carrier_hz, address_value,
-                   sub_device_value, command_value, pattern_blob,
-                   protocol_name_original, protocol_variant
-            FROM signals
-            WHERE id = ?
+            SELECT sig.encoding_type, sig.codec_id, sig.carrier_hz, sig.address_value,
+                   sig.sub_device_value, sig.command_value, sig.pattern_blob,
+                   pd.family_name, pd.carrier_hz AS pd_carrier_hz,
+                   pv.variant_name,
+                   sig.protocol_name_original, sig.protocol_variant
+            FROM signals sig
+            LEFT JOIN protocol_definitions pd ON sig.protocol_definition_id = pd.id
+            LEFT JOIN protocol_variants pv ON sig.protocol_variant_id = pv.id
+            WHERE sig.id = ?
         """.trimIndent()
 
         database.rawQuery(query, arrayOf(signalId)).use { cursor ->
             if (cursor.moveToFirst()) {
                 val encodingType = cursor.getString(0)
-                val codecId = cursor.getString(1)
+                val legacyCodecId = cursor.getString(1)
                 val carrierHz = cursor.getInt(2)
                 val address = cursor.getInt(3)
                 val subDevice = cursor.getInt(4)
                 val command = cursor.getInt(5)
                 val blob = cursor.getBlob(6)
-                val protocolNameOriginal = cursor.getString(7)
-                val protocolVariant = cursor.getString(8)
+                val pdFamilyName = cursor.getString(7)
+                val pdCarrierHz = cursor.getInt(8)
+                val pvVariantName = cursor.getString(9)
+                val legacyProtocolName = cursor.getString(10)
+                val legacyVariant = cursor.getString(11)
 
                 if (encodingType == "PARAMETRIC") {
-                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
-                    if (codecSpec != null) {
-                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                    val protocol = resolveProtocolFromFamily(pdFamilyName)
+                        ?: legacyCodecId?.let { ProtocolCodecRegistry.getCodec(it)?.protocol }
+                    if (protocol != null && protocol != IrProtocol.Raw) {
+                        val variantHint = pvVariantName ?: legacyProtocolName ?: legacyVariant
                         val resolved = ProtocolCodecRegistry.resolve(
-                            codecSpec.codecId,
-                            protocolNameOriginal ?: protocolVariant
+                            legacyCodecId ?: pdFamilyName ?: "",
+                            variantHint
                         )
                         if (resolved is CodecResolution.Resolved) {
                             resultSignal = IrSignal.Encoded(
-                                carrierHz = carrierHz,
-                                protocol = codecSpec.protocol,
+                                carrierHz = if (pdCarrierHz > 0) pdCarrierHz else carrierHz,
+                                protocol = protocol,
                                 address = address,
                                 subDevice = if (subDevice >= 0) subDevice else null,
                                 command = command,
-                                codecId = codecSpec.codecId,
-                                variantId = resolved.variant?.variantId
+                                codecId = legacyCodecId ?: pdFamilyName ?: "",
+                                variantId = pvVariantName ?: resolved.variant?.variantId
                             )
                         } else if (resolved is CodecResolution.VariantAmbiguous) {
-                            Log.w(TAG, "Variant ambiguous in single-signal lookup for codec '${codecSpec.codecId}': ${resolved.candidates.size} candidates")
+                            Log.w(TAG, "Variant ambiguous in single-signal lookup: ${resolved.candidates.size} candidates")
+                        } else if (resolved is CodecResolution.VariantUnsupported) {
+                            Log.w(TAG, "Variant '${variantHint}' unsupported in single-signal lookup")
                         }
                     }
                 } else if (encodingType == "RAW" && blob != null) {
@@ -609,14 +744,20 @@ class IrCatalogRepository private constructor(
         val database = getDatabase()
         val result = mutableMapOf<IrAction, MutableList<CatalogCommandBinding>>()
 
+        // V06.2 Phase 2: JOIN protocol_definitions/protocol_variants via V5 FKs.
         val query = """
-            SELECT a.canonical_key, sig.encoding_type, sig.codec_id, sig.carrier_hz,
+            SELECT a.canonical_key, sig.encoding_type, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
                    sig.pattern_blob, sig.id AS signal_id, cb.id AS binding_id,
-                   sig.physical_sha256, sig.protocol_name_original, sig.protocol_variant
+                   sig.physical_sha256,
+                   pd.family_name, pd.carrier_hz AS pd_carrier_hz,
+                   pv.variant_name,
+                   sig.codec_id, sig.protocol_name_original, sig.protocol_variant
             FROM command_bindings cb
             JOIN actions a ON cb.action_id = a.id
             JOIN signals sig ON cb.signal_id = sig.id
+            LEFT JOIN protocol_definitions pd ON sig.protocol_definition_id = pd.id
+            LEFT JOIN protocol_variants pv ON sig.protocol_variant_id = pv.id
             WHERE cb.code_set_id = ?
         """.trimIndent()
 
@@ -624,41 +765,48 @@ class IrCatalogRepository private constructor(
             while (cursor.moveToNext()) {
                 val actionStr = cursor.getString(0) ?: continue
                 val encodingType = cursor.getString(1)
-                val codecId = cursor.getString(2)
-                val carrierHz = cursor.getInt(3)
-                val address = cursor.getInt(4)
-                val subDevice = cursor.getInt(5)
-                val command = cursor.getInt(6)
-                val blob = cursor.getBlob(7)
-                val signalId = cursor.getString(8)
-                val bindingId = cursor.getString(9)
-                val physicalSha256 = cursor.getString(10) ?: signalId
-                val protocolNameOriginal = cursor.getString(11)
-                val protocolVariant = cursor.getString(12)
+                val carrierHz = cursor.getInt(2)
+                val address = cursor.getInt(3)
+                val subDevice = cursor.getInt(4)
+                val command = cursor.getInt(5)
+                val blob = cursor.getBlob(6)
+                val signalId = cursor.getString(7)
+                val bindingId = cursor.getString(8)
+                val physicalSha256 = cursor.getString(9) ?: signalId
+                val pdFamilyName = cursor.getString(10)
+                val pdCarrierHz = cursor.getInt(11)
+                val pvVariantName = cursor.getString(12)
+                val legacyCodecId = cursor.getString(13)
+                val legacyProtocolName = cursor.getString(14)
+                val legacyVariant = cursor.getString(15)
 
                 val irAction = mapActionKeyToIrAction(actionStr) ?: continue
 
                 val signal: IrSignal? = if (encodingType == "PARAMETRIC") {
-                    val codecSpec = codecId?.let { ProtocolCodecRegistry.getCodec(it) }
-                    codecSpec?.let {
-                        // P0.5: Use ProtocolCodecRegistry.resolve() for explicit variant handling
+                    val protocol = resolveProtocolFromFamily(pdFamilyName)
+                        ?: legacyCodecId?.let { ProtocolCodecRegistry.getCodec(it)?.protocol }
+                    protocol?.let {
+                        if (it == IrProtocol.Raw) return@let null
+                        val variantHint = pvVariantName ?: legacyProtocolName ?: legacyVariant
                         val resolved = ProtocolCodecRegistry.resolve(
-                            it.codecId,
-                            protocolNameOriginal ?: protocolVariant
+                            legacyCodecId ?: pdFamilyName ?: "",
+                            variantHint
                         )
                         if (resolved is CodecResolution.Resolved) {
                             IrSignal.Encoded(
-                                carrierHz = carrierHz,
-                                protocol = it.protocol,
+                                carrierHz = if (pdCarrierHz > 0) pdCarrierHz else carrierHz,
+                                protocol = it,
                                 address = address,
                                 subDevice = if (subDevice >= 0) subDevice else null,
                                 command = command,
-                                codecId = it.codecId,
-                                variantId = resolved.variant?.variantId
+                                codecId = legacyCodecId ?: pdFamilyName ?: "",
+                                variantId = pvVariantName ?: resolved.variant?.variantId
                             )
                         } else {
                             if (resolved is CodecResolution.VariantAmbiguous) {
-                                Log.w(TAG, "Variant ambiguous in candidates query for codec '${it.codecId}': ${resolved.candidates.size} candidates")
+                                Log.w(TAG, "Variant ambiguous in candidates query: ${resolved.candidates.size} candidates")
+                            } else if (resolved is CodecResolution.VariantUnsupported) {
+                                Log.w(TAG, "Variant '${variantHint}' unsupported in candidates query")
                             }
                             null
                         }
@@ -692,10 +840,11 @@ class IrCatalogRepository private constructor(
         val database = getDatabase()
         var metadata: SignalMetadata? = null
 
+        // V06.2 Phase 6: Fix sr.version → sr.commit_sha (V5 schema has commit_sha, not version).
         val query = """
             SELECT sig.encoding_type, sig.codec_id, sig.carrier_hz,
                    sig.address_value, sig.sub_device_value, sig.command_value,
-                   sig.physical_sha256, sr.version AS source_revision_sha
+                   sig.physical_sha256, sr.commit_sha AS source_revision_sha
             FROM signals sig
             LEFT JOIN command_bindings cb ON cb.signal_id = sig.id
             LEFT JOIN code_sets cs ON cb.code_set_id = cs.id
@@ -759,10 +908,7 @@ class IrCatalogRepository private constructor(
                         commands = codeSetResult.commands,
                         commandSignalIds = codeSetResult.commandSignalIds,
                         commandBindings = codeSetResult.commandBindings,
-                        selectedCommands = buildSelectedCommands(
-                            codeSetId, codeSetResult.commands, codeSetResult.commandSignalIds,
-                            codeSetResult.commandBindings, verification
-                        ),
+                        selectedCommands = codeSetResult.selectedCommands,
                         provenance = CodeProvenance(
                             sourceName = sourceName,
                             sourceUrl = "",
@@ -863,7 +1009,39 @@ class IrCatalogRepository private constructor(
     override suspend fun getSignalProvenance(signalId: String): List<SignalProvenance> = withContext(Dispatchers.IO) {
         val results = mutableListOf<SignalProvenance>()
 
-        // P1-20: Query signal_sources from the USER Room DB (not the immutable catalog DB)
+        // V06.2 Phase 6: Query catalog signal_sources table (immutable catalog DB).
+        // signal_sources is the canonical source of truth for per-signal source attribution.
+        // User Room DB signal_sources is SECONDARY — used only for session-verified extras.
+        try {
+            val database = getDatabase()
+            val query = """
+                SELECT ss.source_id, sr.commit_sha, ss.evidence_level,
+                       ss.device_model, ss.notes, s.license_id
+                FROM signal_sources ss
+                JOIN source_revisions sr ON ss.source_revision_id = sr.id
+                JOIN sources s ON ss.source_id = s.id
+                WHERE ss.signal_id = ?
+                ORDER BY ss.created_at DESC
+            """.trimIndent()
+            database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+                while (cursor.moveToNext()) {
+                    results.add(SignalProvenance(
+                        signalId = signalId,
+                        sourceId = cursor.getString(0) ?: "",
+                        sourceRevisionId = cursor.getString(1) ?: "",
+                        evidenceLevel = cursor.getString(2) ?: "SOURCE_IMPORTED",
+                        verificationSource = cursor.getString(4),
+                        verifiedAtEpochMs = null,
+                        deviceModel = cursor.getString(3),
+                        notes = cursor.getString(4)
+                    ))
+                }
+            }
+        } catch (_: Exception) {
+            // signal_sources table may not exist in older catalog versions
+        }
+
+        // Secondary: user Room DB signal_sources (session-verified extras from profile)
         try {
             if (context != null) {
                 val userDb = com.elysium.nexus.fabric.profile.db.ElysiumUserDatabase.getInstance(context)
@@ -888,15 +1066,16 @@ class IrCatalogRepository private constructor(
         // Fallback: derive provenance from command_bindings → source_revisions
         if (results.isEmpty()) {
             val database = getDatabase()
-            val query = """
-                SELECT DISTINCT sr.version, s.id, s.license_id
+            // V06.2 Phase 6: Fix sr.version → sr.commit_sha (V5 schema).
+            val fallbackQuery = """
+                SELECT DISTINCT sr.commit_sha, s.id, s.license_id
                 FROM command_bindings cb
                 JOIN code_sets cs ON cb.code_set_id = cs.id
                 JOIN source_revisions sr ON cs.source_revision_id = sr.id
                 JOIN sources s ON sr.source_id = s.id
                 WHERE cb.signal_id = ?
             """.trimIndent()
-            database.rawQuery(query, arrayOf(signalId)).use { cursor ->
+            database.rawQuery(fallbackQuery, arrayOf(signalId)).use { cursor ->
                 while (cursor.moveToNext()) {
                     results.add(SignalProvenance(
                         signalId = signalId,

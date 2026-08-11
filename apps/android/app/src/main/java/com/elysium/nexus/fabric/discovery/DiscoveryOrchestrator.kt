@@ -52,7 +52,9 @@ import kotlinx.coroutines.flow.callbackFlow
  */
 class DiscoveryOrchestrator(
     private val providers: List<DiscoveryProvider>,
-    private val merger: DiscoveryMerger = DefaultDiscoveryMerger()
+    private val merger: DiscoveryMerger = DefaultDiscoveryMerger(),
+    // V0.6.2 PR4 Phase 17: identity merge bridge (optional — null disables identity persistence)
+    private val identityBridge: DiscoveryIdentityBridge? = null
 ) {
 
     /**
@@ -79,6 +81,18 @@ class DiscoveryOrchestrator(
         // Merge records per device
         val merged = allRecords.map { (key, records) ->
             merger.merge(key, records)
+        }
+
+        // V0.6.2 PR4 Phase 17: feed observations through identity engine
+        // §9: never produce different identities per protocol for the same device
+        if (identityBridge != null) {
+            for ((key, records) in allRecords) {
+                try {
+                    identityBridge.processBatch(key, records)
+                } catch (e: Exception) {
+                    // Identity merge failure must not block discovery
+                }
+            }
         }
 
         for (device in merged) {

@@ -160,8 +160,10 @@ class SelfHealingRouteManagerBindingTest {
             manager.recordFailure(deviceId, Protocol.DirectIr, "boom", isAuthFailure = true)
         }
         assertFalse(manager.isHealthy(deviceId, Protocol.DirectIr))
+        // V06-P31: even without a binding tracker, the route axis is
+        // unhealthy → revalidation candidate is ROUTE_RECHECK (not NONE).
         assertEquals(
-            RevalidationPlan.NONE,
+            RevalidationPlan.ROUTE_RECHECK,
             manager.revalidationCandidates("ir-1", deviceId, Protocol.DirectIr)
         )
     }

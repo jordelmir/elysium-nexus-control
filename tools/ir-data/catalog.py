@@ -28,6 +28,7 @@ Pipeline:
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -35,7 +36,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 TOOLS_DIR = ROOT / "tools" / "ir-data"
-OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+# V0.6.2 Phase 1: clean-room builds redirect the artifact output via
+# IR_CATALOG_OUTPUT_DIR (verify_reproducibility.py builds A/B into temp
+# workspaces). Constantes por defecto siguen apuntando a los assets empaquetados.
+_DEFAULT_OUTPUT_DIR = ROOT / "apps" / "android" / "app" / "src" / "main" / "assets" / "ir"
+OUTPUT_DIR = Path(os.environ.get("IR_CATALOG_OUTPUT_DIR") or _DEFAULT_OUTPUT_DIR)
 DB_PATH = OUTPUT_DIR / "ir_catalog.db"
 MANIFEST_PATH = OUTPUT_DIR / "ir_catalog.manifest.json"
 REJECTIONS_PATH = OUTPUT_DIR / "ir_catalog_rejections.json"
@@ -78,7 +83,7 @@ def compute_license_manifest_sha() -> str:
         )
         for s in lock.get("sources", [])
     )
-    canonical = "\n".join(f"{i}\t{f}\t{l}\t{p}" for i, f, l, p in entries) + "\n"
+    canonical = "\n".join(f"{i}\t{f}\t{lic}\t{p}" for i, f, lic, p in entries) + "\n"
     return sha256_text(canonical)
 
 
@@ -316,7 +321,7 @@ def step_verify_manifest():
             log(f"STALE BUILD TRUTH: stats.catalogBuildId={stats.get('catalogBuildId')} != manifest={build_id}")
             return False
         if stats.get("databaseSha256") != expected_hash:
-            log(f"STALE BUILD TRUTH: stats.databaseSha256 differs from manifest")
+            log("STALE BUILD TRUTH: stats.databaseSha256 differs from manifest")
             return False
         if stats.get("counts") != manifest.get("counts"):
             log("STALE BUILD TRUTH: counts differ between stats and manifest")

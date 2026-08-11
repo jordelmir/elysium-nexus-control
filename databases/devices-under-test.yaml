@@ -23,28 +23,28 @@
 # `state: available` = the hardware exists in the lab environment.
 
 strata:
-  - id: phone_foldable_flagship
+  - id: phone-foldable-flagship
     label: Foldable flagship phone (lab posture device)
     required: true
-  - id: phone_cheap_android
+  - id: phone-cheap-android
     label: Cheap Android — the degradation path is a FEATURE, not a gate
     required: true
-  - id: phone_mid
+  - id: phone-mid
     label: Mid-tier Android (typical market phone)
     required: false
-  - id: tv_lg
+  - id: tv-lg
     label: LG TV vertical (WebOS SSAP + LAN discovery + WiFi Oracle)
     required: true
-  - id: tv_other
+  - id: tv-other
     label: Other TV brands (Samsung/Sony/regional — one adapter at a time §27)
     required: false
-  - id: receiver_nexus
+  - id: receiver-nexus
     label: Nexus Receiver (Phase 4 hardware)
     required: true
-  - id: host_desktop
+  - id: host-desktop
     label: Desktop hosts (macOS / Windows / Linux agents)
     required: false
-  - id: runner_emulator
+  - id: runner-emulator
     label: Android emulator (CI-only, instrumented tests)
     required: true
 
@@ -62,7 +62,7 @@ devices:
   - id: honormagic-v2
     brand: Honor
     model: Magic V2
-    stratum: phone_foldable_flagship
+    stratum: phone-foldable-flagship
     transports: [bluetooth_le, wifi_lan, ir_direct]
     firmware: unknown
     priority: 1
@@ -74,7 +74,7 @@ devices:
   - id: aosp-cheap-android
     brand: Generic
     model: Cheap Android (Android 10–12, 2GB RAM)
-    stratum: phone_cheap_android
+    stratum: phone-cheap-android
     transports: [bluetooth_le, wifi_lan, ir_direct]
     firmware: unknown
     priority: 1
@@ -86,7 +86,7 @@ devices:
   - id: samsung-galaxy-a-mid
     brand: Samsung
     model: Galaxy A series (mid)
-    stratum: phone_mid
+    stratum: phone-mid
     transports: [bluetooth_le, wifi_lan, ir_direct]
     firmware: unknown
     priority: 3
@@ -97,7 +97,7 @@ devices:
   - id: lg-c2-tv
     brand: LG
     model: C2 OLED
-    stratum: tv_lg
+    stratum: tv-lg
     transports: [wifi_lan, hdmi_cec, ir_direct]
     firmware: webOS 22+
     priority: 1
@@ -109,7 +109,7 @@ devices:
   - id: lg-sn-unplanned-tv
     brand: LG
     model: older webOS / NetCast
-    stratum: tv_lg
+    stratum: tv-lg
     transports: [ir_direct]
     firmware: unknown
     priority: 4
@@ -120,7 +120,7 @@ devices:
   - id: samsung-tv-contract
     brand: Samsung
     model: contract-representative model
-    stratum: tv_other
+    stratum: tv-other
     transports: [ir_direct, wifi_lan]
     firmware: Tizen (version TBD)
     priority: 3
@@ -132,7 +132,7 @@ devices:
   - id: hisense-tcl-tv
     brand: Hisense/TCL
     model: regional-market TV
-    stratum: tv_other
+    stratum: tv-other
     transports: [ir_direct]
     firmware: unknown
     priority: 3
@@ -143,7 +143,7 @@ devices:
   - id: nexus-receiver-dev
     brand: Elysium
     model: Nexus Receiver dev board
-    stratum: receiver_nexus
+    stratum: receiver-nexus
     transports: [receiver_link, usb_serial]
     firmware: TBD (Phase 4 signed OTA chain)
     priority: 1
@@ -155,7 +155,7 @@ devices:
   - id: macbook-agent-host
     brand: Apple
     model: MacBook (dev)
-    stratum: host_desktop
+    stratum: host-desktop
     transports: [wifi_lan, receiver_link]
     firmware: macOS (current)
     priority: 4
@@ -167,7 +167,7 @@ devices:
   - id: android-emulator-34
     brand: Google
     model: Emulator API 34
-    stratum: runner_emulator
+    stratum: runner-emulator
     transports: [bluetooth_le]
     firmware: API 34
     priority: 2

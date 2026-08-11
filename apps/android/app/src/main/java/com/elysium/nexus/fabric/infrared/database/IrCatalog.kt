@@ -37,6 +37,44 @@ data class SignalMetadata(
 )
 
 /**
+ * V06.2 Phase 2: ONE RUNTIME PROTOCOL AUTHORITY.
+ *
+ * Resolved from catalog V5 FKs (protocol_definitions + protocol_variants),
+ * NOT from legacy strings (codec_id, protocol_name_original, protocol_variant).
+ *
+ * Legacy fields are kept as SOURCE PROVENANCE ONLY — they document where
+ * the signal came from, but do NOT drive runtime codec selection.
+ */
+data class RuntimeProtocolBinding(
+    /** protocol_definitions.id — the authoritative protocol family FK. */
+    val definitionId: String?,
+    /** protocol_definitions.family_name — e.g. "NEC", "SIRC", "Samsung". */
+    val familyName: String?,
+    /** protocol_variants.id — the authoritative variant FK. */
+    val variantId: String?,
+    /** protocol_variants.variant_name — e.g. "SIRC_12", "NEC_32". */
+    val variantName: String?,
+    /** Carrier from protocol_definitions (canonical), or signal carrier_hz as fallback. */
+    val carrierHz: Int,
+    /** Address from signal. */
+    val address: Int?,
+    /** Sub-device from signal. */
+    val subDevice: Int?,
+    /** Command from signal. */
+    val command: Int?,
+    /** Evidence level from signal (SOURCE_IMPORTED, SESSION_VERIFIED, etc.). */
+    val evidenceLevel: String,
+    /** Eligibility status from signal (PROBE_ELIGIBLE, CLAIM_ELIGIBLE, etc.). */
+    val eligibilityStatus: String,
+    /** PROVENANCE ONLY: original codec_id from ingestion (not for runtime dispatch). */
+    val legacyCodecId: String?,
+    /** PROVENANCE ONLY: original protocol name from source file. */
+    val legacyProtocolName: String?,
+    /** PROVENANCE ONLY: original variant string from source file. */
+    val legacyVariant: String?
+)
+
+/**
  * P1-PROVENANCE: Multi-source provenance for a single signal.
  * A signal may originate from Flipper, SmartIR, local capture, etc.
  */
@@ -84,12 +122,35 @@ interface IrCatalog {
      *   1. Popular global brands (Samsung, LG, Sony, Panasonic, Philips)
      *   2. Regional brands (Sankey, Kintech, Kalley, Hisense, TCL)
      *   3. All remaining brands
-     * No LIMIT 400 — caller drains via IrProbeEngine.nextCandidate().
+     * No LIMIT 400 — caller drains via [ProbeCursor.nextCandidate].
      */
     suspend fun getAllCandidates(
         deviceType: String = "TV",
         action: IrAction = IrAction.VOLUME_UP,
         limit: Int = 400
+    ): List<IrCodeSet>
+
+    // V0.6.2 PR3 Phase 14 — Paged probe: bounded-memory candidate access
+
+    /**
+     * Count of production-approved code sets containing [action] for [deviceType].
+     * Used to initialise the [CandidatePager] total count.
+     */
+    suspend fun getCandidateCount(
+        deviceType: String = "TV",
+        action: IrAction = IrAction.VOLUME_UP
+    ): Int
+
+    /**
+     * A single page of candidates, deterministically ordered by
+     * (brand display_name, code_set id).  No duplicates across pages.
+     * [fromIndex] is 0-based inclusive; [count] is the page size.
+     */
+    suspend fun getCandidatePage(
+        deviceType: String = "TV",
+        action: IrAction = IrAction.VOLUME_UP,
+        fromIndex: Int,
+        count: Int
     ): List<IrCodeSet>
 
     /**
@@ -163,6 +224,22 @@ class InMemoryIrCatalog(
             .filter { action in it.commands }
             .take(limit)
     }
+
+    override suspend fun getCandidateCount(
+        deviceType: String,
+        action: IrAction
+    ): Int = candidateMap.values.flatten().count { action in it.commands }
+
+    override suspend fun getCandidatePage(
+        deviceType: String,
+        action: IrAction,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = candidateMap.values.flatten()
+        .filter { action in it.commands }
+        .sortedBy { it.brand }
+        .drop(fromIndex)
+        .take(count)
 
     override suspend fun getSignal(signalId: String): IrSignal? {
         return signalMap[signalId]

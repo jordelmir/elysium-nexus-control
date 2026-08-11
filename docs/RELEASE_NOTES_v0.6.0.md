@@ -12,7 +12,7 @@ One chain of truth: INTENT → IDENTITY → RESOLUTION → ROUTING → EXECUTION
 ## Shipped in this branch
 
 ### PTG-01 — Reality Ledger + Catalog Installer Stop-the-Line (§1, §2, §10) — `9c6d031`
-- **`docs/audits/V06_REALITY_LEDGER.md`** — every relevant module classified ONCE on a 9-rung ladder (DESIGNED → PRODUCTION_APPROVED), P0 stop-the-line table (installer, eligibility, signing, plaintext credentials, LG skeleton), phase map PTG-01→PTG-16. Zero claims above INTEGRATION_VERIFIED; zero physical-device claims.
+- **`docs/audits/V06_REALITY_LEDGER.md`** — every relevant module classified ONCE on a 9-rung ladder (DESIGNED through the highest achieved level), P0 stop-the-line table (installer, eligibility, signing, plaintext credentials, LG skeleton), phase map PTG-01→PTG-16. Zero claims above INTEGRATION_VERIFIED; zero physical-device claims.
 - **Catalog installer rebuild** — `EXPECTED_MANIFEST_HASH` hardcode deleted; manifest is the single authority; strict JSON-lite parser (`CatalogManifest.kt`, 7 identity fields, null schema → REJECTED, fail-closed); `builds/<catalogBuildId>/` layout with atomic pointer swap, rollback-keep (previous build retained), legacy-root adoption; temp → fsync → SHA → integrity check → promote.
 - **Build identity (§9/§10)** — `catalogBuildId = SHA256(ptg-v1|schema|canonical|lock|rejections|licenses|policy)`; stats artifact rewritten in the same step with the same buildId (stale-artifact divergence is now a hard failure).
 

@@ -6,6 +6,7 @@ import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.profile.db.ProbeSessionEntity
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -121,7 +122,7 @@ class ProbeSessionPersistenceTest {
     }
 
     @Test
-    fun `Engine repositioning fallback to index when ID not found`() {
+    fun `Engine repositioning fallback to index when ID not found`() = runTest {
         val cs1 = mockCodeSet("cs1", 0x00, 0x07)
         val cs2 = mockCodeSet("cs2", 0x04, 0x07)
         val cs3 = mockCodeSet("cs3", 0x08, 0x07)
@@ -144,7 +145,7 @@ class ProbeSessionPersistenceTest {
     }
 
     @Test
-    fun `Candidate identity verification after restore catches mismatch`() {
+    fun `Candidate identity verification after restore catches mismatch`() = runTest {
         val cs1 = mockCodeSet("cs1", 0x00, 0x07)
         val cs2 = mockCodeSet("cs2", 0x04, 0x07)
         val cs3 = mockCodeSet("cs3", 0x08, 0x07)
@@ -176,7 +177,7 @@ class ProbeSessionPersistenceTest {
     }
 
     @Test
-    fun `Engine preserves position after multiple advances`() {
+    fun `Engine preserves position after multiple advances`() = runTest {
         val candidates = (0 until 10).map { mockCodeSet("cs_$it", it, 0x07) }
         val engine = IrProbeEngine(candidates)
 
@@ -226,7 +227,7 @@ class ProbeSessionPersistenceTest {
     }
 
     @Test
-    fun `Engine exhaustion detection after restore near end`() {
+    fun `Engine exhaustion detection after restore near end`() = runTest {
         val cs1 = mockCodeSet("cs1", 0x00, 0x07)
         val cs2 = mockCodeSet("cs2", 0x04, 0x07)
 
