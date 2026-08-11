@@ -479,8 +479,8 @@ class EntityCache:
         return self.actions[canonical_key]
 
     def insert_signal_parametric(self, proto: str, carrier_hz: int,
-                                  addr: int, cmd: int,
-                                  sub_device: int = -1, *,
+                                  addr: int, sub_device: int = -1,
+                                  cmd: int = -1, *,
                                   carrier_evidence: str = "UNKNOWN",
                                   source_file_id: str | None = None,
                                   eligibility: str = "PROBE_ELIGIBLE",
