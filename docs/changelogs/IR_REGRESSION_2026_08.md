@@ -56,5 +56,30 @@
 |------|--------|
 | Universal sweep | **ON-DEVICE REGRESSION** |
 | Brand IR probe | **ON-DEVICE REGRESSION** |
-| Catalog→Runtime variant contract | **INTEGRATION REGRESSION** |
+| Catalog→Runtime variant contract | **FIXED** |
 | AndroidIrTransmitter | IMPLEMENTED (not yet culpable) |
+
+---
+
+## RC-8: Catalog variant names don't match runtime (FIXED — 2026-08-11)
+
+### Problem
+Catalog `protocol_variants.variant_name` stored lowercase keys from `PROTOCOL_MAP`:
+`sirc`, `sirc15`, `sirc20`, `nec`, `necext`, `rc5`, `rc5x`, `rc6`, `kaseikyo`, `samsung32`
+
+Runtime `ProtocolCodecRegistry` expects uppercase with underscores:
+`SIRC_12`, `SIRC_15`, `SIRC_20`, `NEC_32`, `NECx_32`, `RC5_14`, `RC5X_16`, `RC6_16`, `KASEIKYO_48`, `SAMSUNG_32`
+
+Result: `ProtocolCodecRegistry.resolve()` failed to match variants → `VariantUnsupported` → signals silently skipped. Only 1 ENCODE_FAILED in log (SIRC `sirc` → no match for `SIRC_12/SIRC_15/SIRC_20`).
+
+### Fix
+1. **In-place DB update:** Renamed all 22 surviving `protocol_variants.variant_name` entries to normalized names matching runtime variant IDs.
+2. **Merged duplicates:** Consolidated `sirc/sony12` → `SIRC_12`, `sirc15/sony15` → `SIRC_15`, `sirc20/sony20` → `SIRC_20`, `samsung/samsung32` → `SAMSUNG_32`, `nec/lg/nec1` → `NEC_32`, `kaseikyo/panasonic/panasonic_old` → `KASEIKYO_48`, `necx/necx2` → `NECx_32`.
+3. **DB integrity verified:** Zero orphan signals, 85,209 total signals, 7,860 valid parametric, 366 VOLUME_UP candidates.
+4. **VACUUM** applied to reclaim space from deleted rows.
+
+### Verification
+- `CatalogSignalIntegrityTest.protocolVariantNamesAreNormalized()` — **PASSES**
+- All 1,190 unit tests — **GREEN**
+- `lintDebug` — **CLEAN**
+- `assembleDebug` — **BUILD SUCCESSFUL**

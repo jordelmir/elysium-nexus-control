@@ -19,12 +19,22 @@ android {
     namespace = "com.elysium.nexus"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
+    // V0.6.3 Phase 25: release signing config
+    signingConfigs {
+        create("release") {
+            storeFile = file("../release.jks")
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: "Elysium2026!"
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "elysium-nexus"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "Elysium2026!"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.elysium.nexus.controller"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 5
-        versionName = "0.5.0-engineering-preview"
+        versionCode = 6
+        versionName = "0.6.3-ir-recovery"
 
         // No instrumentation runner until we add AndroidX Test. We add
         // it in 0.5 alongside the first Context-dependent test.
@@ -37,13 +47,10 @@ android {
         }
         release {
             // R8 minification + resource shrinking for release builds.
-            // Signing uses the debug keystore until a proper release
-            // identity is provisioned. The proguard-rules.pro file
-            // contains keep rules for Room, Coroutines, Compose, and
-            // enum serialization.
+            // V0.6.3 Phase 25: production signing with dedicated release keystore.
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -168,6 +175,7 @@ dependencies {
     // serialisation. The real reference
     // implementation is API-compatible.
     testImplementation(libs.org.json)
+    testImplementation(libs.sqlite.jdbc)
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
@@ -192,3 +200,20 @@ tasks.register<JavaExec>("runValidator") {
         files(tasks.named("compileDebugJavaWithJavac").get().outputs.files) +
         configurations.getByName("debugRuntimeClasspath")
 }
+
+// V0.6.3 Phase 14: Verify IR catalog asset integrity before build.
+tasks.register<Exec>("verifyIrCatalogAsset") {
+    group = "elysium"
+    description = "Verify ir_catalog.db SQLite magic + size before build"
+    commandLine("sh", "-c",
+        "set -e; " +
+        "DB=src/main/assets/ir/ir_catalog.db; " +
+        "test -f \"\$DB\" || { echo 'ERROR: ir_catalog.db not found'; exit 1; }; " +
+        "MAGIC=\$(xxd -l 16 -p \"\$DB\"); " +
+        "test \"\$MAGIC\" = 53514c69746520666f726d6174203300 || { echo \"ERROR: SQLite magic mismatch: \$MAGIC\"; exit 1; }; " +
+        "SIZE=\$(stat -f%z \"\$DB\" 2>/dev/null || stat -c%s \"\$DB\"); " +
+        "test \"\$SIZE\" -ge 104857600 || { echo \"ERROR: ir_catalog.db too small: \$SIZE bytes\"; exit 1; }; " +
+        "echo \"verifyIrCatalogAsset: PASS size=\$SIZE magic=OK\""
+    )
+}
+tasks.named("preBuild") { dependsOn("verifyIrCatalogAsset") }

@@ -406,6 +406,35 @@ def init_database(conn: sqlite3.Connection):
 
 # ─── V5 §14: Protocol Definitions & Variants ─────────────────────────────────
 # Seeded from PROTOCOL_MAP — the same single authority the codec gate uses.
+#
+# V06.3: Variant name normalization map. Catalog keys (lowercase, no underscores)
+# must match runtime ProtocolCodecRegistry variant IDs (UPPERCASE with underscores).
+VARIANT_NAME_MAP: dict[str, str] = {
+    "sirc": "SIRC_12",
+    "sirc15": "SIRC_15",
+    "sirc20": "SIRC_20",
+    "sony12": "SIRC_12",
+    "sony15": "SIRC_15",
+    "sony20": "SIRC_20",
+    "nec": "NEC_32",
+    "nec1": "NEC_32",
+    "nec42": "NEC_42",
+    "nec48": "NEC_48",
+    "necext": "NECx_32",
+    "necx": "NECx_32",
+    "necx2": "NECx_32",
+    "samsung32": "SAMSUNG_32",
+    "samsung": "SAMSUNG_32",
+    "samsung36": "SAMSUNG_36",
+    "rc5": "RC5_14",
+    "rc5x": "RC5X_16",
+    "rc6": "RC6_16",
+    "kaseikyo": "KASEIKYO_48",
+    "panasonic": "KASEIKYO_48",
+    "panasonic_old": "KASEIKYO_48",
+}
+
+
 def seed_protocol_definitions(conn: sqlite3.Connection):
     seen_variants = set()
     for key, (family_name, carrier_hz) in sorted(PROTOCOL_MAP.items()):
@@ -416,12 +445,14 @@ def seed_protocol_definitions(conn: sqlite3.Connection):
             "VALUES (?, ?, ?, ?, 'PARAMETRIC')",
             (proto_id, family_name, family_name, carrier_hz))
         variant_id = short(f"variant:{family_name}:{key}")
-        if (family_name, key) not in seen_variants:
-            seen_variants.add((family_name, key))
+        # V06.3: Normalize variant name to match runtime ProtocolCodecRegistry IDs
+        normalized_name = VARIANT_NAME_MAP.get(key, key)
+        if (family_name, normalized_name) not in seen_variants:
+            seen_variants.add((family_name, normalized_name))
             conn.execute(
                 "INSERT OR IGNORE INTO protocol_variants "
                 "(id, protocol_id, variant_name) VALUES (?, ?, ?)",
-                (variant_id, proto_id, key))
+                (variant_id, proto_id, normalized_name))
     conn.commit()
 
 
@@ -496,7 +527,10 @@ class EntityCache:
                 next((k for k, (fam, _) in PROTOCOL_MAP.items()
                       if fam == proto), None))
             if family_key:
-                protocol_variant_id = short(f"variant:{proto}:{family_key}")
+                # V06.3: use normalized variant name so variant_id matches
+                # the one created by seed_protocol_definitions()
+                normalized_key = VARIANT_NAME_MAP.get(family_key, family_key)
+                protocol_variant_id = short(f"variant:{proto}:{normalized_key}")
         sig_key = "|".join([
             "pid-v1", proto, protocol_variant_id or "-",
             str(carrier_hz), str(addr), str(sub_device), str(cmd),
