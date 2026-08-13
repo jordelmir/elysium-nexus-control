@@ -83,3 +83,62 @@ Result: `ProtocolCodecRegistry.resolve()` failed to match variants → `VariantU
 - All 1,190 unit tests — **GREEN**
 - `lintDebug` — **CLEAN**
 - `assembleDebug` — **BUILD SUCCESSFUL**
+
+---
+
+## RC-9: Carrier fallback for unsupported frequencies (FIXED — 2026-08-12)
+
+### Problem
+Kaseikyo signals request 37,000 Hz. Honor Magic V2 IR hardware supports only
+[30000, 33000, 36000, 38000, 40000, 56000]. Every Kaseikyo transmission failed:
+`TX_FAILED UnsupportedCarrier(requestedHz=37000, ...)` — hard-blocking a whole
+protocol family.
+
+### Fix (`AndroidIrTransmitter.kt`)
+- Refactored transmission into `transmitLocked(m, waveform, carrierHz)`.
+- Before transmit, if `carrierHz` is not in the hardware-supported ranges, pick
+  the NEAREST supported frequency within ±2000 Hz (`CARRIER_FALLBACK_TOLERANCE_HZ`).
+- Emits `TX_CARRIER_FALLBACK requested=..Hz used=..Hz` diagnostic event.
+
+### Verification (ON DEVICE — Honor Magic V2)
+- Log: `TX_CARRIER_FALLBACK requested=37000Hz used=36000Hz` followed by `TX_OK`
+  — Kaseikyo signal transmitted successfully via fallback.
+- Full universal sweep: 0 TX_FAILED, 0 ENCODE_FAILED (see RC-11).
+
+## RC-10: Start Over after failed session recovery stalls the sweep (FIXED — 2026-08-12)
+
+### Problem
+"Session Recovery Failed — candidate identity mismatch after process death"
+→ user taps Start Over FAB → stuck on "Cargando catálogo SQLite..." forever.
+Root cause: `LaunchedEffect` was keyed only on `template`; Start Over re-selected
+the same template, so the effect never re-ran and the catalog never re-loaded.
+
+### Fix (`IrConnectFlow.kt`)
+- Added `sweepRestartToken: Int` (`mutableIntStateOf(0)`).
+- `LaunchedEffect(template, sweepRestartToken)` re-runs the load.
+- Start Over `onClick` increments the token.
+
+### Verification (ON DEVICE)
+- After identity-mismatch recovery failure, tapping Start Over now re-loads the
+  catalog and the sweep starts ("PROBE 1/366").
+
+## RC-11: Auto-scan stalls at the end of the first page (FIXED — 2026-08-12)
+
+### Problem
+Universal sweep stopped at "Candidato 27 de 366" with the button reverting to
+"▶ BARRIDO AUTOMÁTICO" and no error. `currentCandidate()` returns null at the
+END OF THE CURRENT PAGE (`itemIndex == pageItems.size`) — the loop broke there
+instead of letting `nextCandidate()` load the following page.
+
+### Fix (`IrConnectFlow.kt`)
+- Auto-scan loop now drives from `nextCandidate()` (which returns the candidate
+  it advanced past and transparently loads the next page; null means the sweep
+  is truly exhausted) instead of gating on `currentCandidate()`.
+
+### Verification (ON DEVICE — full sweep)
+- Sweep advanced through all pages: `CANDIDATE_EXHAUSTED tested=101`
+  (101 unique fingerprints across 366 catalog candidates after dedup).
+- Protocol distribution (all TX_OK): NEC=25, NECExtended=29, Raw=31, RC5=6,
+  RC6=1, Samsung=6, SonySIRC=3, Kaseikyo=1 (via carrier fallback).
+- 0 TX_FAILED, 0 ENCODE_FAILED, 0 carrier fallbacks beyond the one Kaseikyo.
+- 101 unique pattern hashes transmitted, carriers 36,000/38,000 Hz.
