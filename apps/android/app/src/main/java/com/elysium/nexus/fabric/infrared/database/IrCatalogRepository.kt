@@ -37,7 +37,11 @@ private fun resolveProtocolFromFamily(familyName: String?): IrProtocol? = when {
     familyName.equals("NEC", ignoreCase = true) -> IrProtocol.Nec
     familyName.equals("NECx", ignoreCase = true) || familyName.equals("NEC Extended", ignoreCase = true) -> IrProtocol.NecExtended
     familyName.equals("Samsung", ignoreCase = true) -> IrProtocol.Samsung
-    familyName.equals("SIRC", ignoreCase = true) || familyName.equals("Sony SIRC", ignoreCase = true) -> IrProtocol.SonySirc
+    familyName.equals("SIRC", ignoreCase = true) ||
+        familyName.equals("Sony SIRC", ignoreCase = true) ||
+        // RC-12: SIRC15/SIRC20 are SIRC variants the encoder supports.
+        familyName.equals("SIRC15", ignoreCase = true) ||
+        familyName.equals("SIRC20", ignoreCase = true) -> IrProtocol.SonySirc
     familyName.equals("RC5", ignoreCase = true) -> IrProtocol.Rc5
     familyName.equals("RC6", ignoreCase = true) -> IrProtocol.Rc6
     familyName.equals("Kaseikyo", ignoreCase = true) || familyName.equals("Panasonic", ignoreCase = true) -> IrProtocol.Kaseikyo
@@ -309,6 +313,93 @@ class IrCatalogRepository private constructor(
           AND s.production_approved = 1
           AND cs.verification_status != 'BLOCKED'
     """.trimIndent()
+
+    /** Phase A — multi-key variant: any of the probe keys (a.canonical_key IN (...)). */
+    private fun pagedBaseWhereIn(deviceType: String, keyCount: Int) = """
+        FROM code_sets cs
+        JOIN remotes r ON cs.remote_id = r.id
+        JOIN brands b ON r.brand_id = b.id
+        JOIN device_types dt ON r.device_type_id = dt.id
+        JOIN source_revisions sr ON cs.source_revision_id = sr.id
+        JOIN sources s ON sr.source_id = s.id
+        JOIN command_bindings cb ON cb.code_set_id = cs.id
+        JOIN actions a ON cb.action_id = a.id
+        WHERE a.canonical_key IN (${(1..keyCount).joinToString(",") { "?" }})
+          AND (dt.canonical_name LIKE ? OR dt.canonical_name = 'Universal_Tv_Remotes' OR ? = '')
+          AND s.production_approved = 1
+          AND cs.verification_status != 'BLOCKED'
+    """.trimIndent()
+
+    override suspend fun getCandidateCountForActions(
+        deviceType: String,
+        actions: List<IrAction>
+    ): Int = withContext(Dispatchers.IO) {
+        if (actions.isEmpty()) return@withContext 0
+        val database = getDatabase()
+        val actionKeys = actions.map { it.name }
+        val devTypeArg = deviceType.trim()
+        val query = "SELECT COUNT(DISTINCT cs.id) ${pagedBaseWhereIn(devTypeArg, actionKeys.size)}"
+        val params = actionKeys + arrayOf("$devTypeArg%", devTypeArg)
+        database.rawQuery(query, params.toTypedArray()).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    override suspend fun getCandidatePageForActions(
+        deviceType: String,
+        actions: List<IrAction>,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = withContext(Dispatchers.IO) {
+        if (actions.isEmpty()) return@withContext emptyList()
+        val database = getDatabase()
+        val actionKeys = actions.map { it.name }
+        val devTypeArg = deviceType.trim()
+        val results = mutableListOf<IrCodeSet>()
+
+        val selectCols = """
+            SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
+                   s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
+                   cs.verification_status
+        """.trimIndent()
+        val query = "$selectCols ${pagedBaseWhereIn(devTypeArg, actionKeys.size)} GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ? OFFSET ?"
+        val params = actionKeys + listOf("$devTypeArg%", devTypeArg, count.toString(), fromIndex.toString())
+
+        database.rawQuery(query, params.toTypedArray()).use { cursor ->
+            while (cursor.moveToNext()) {
+                val csId = cursor.getString(0)
+                val brandName = cursor.getString(1) ?: "Desconocido"
+                val remoteModel = cursor.getString(2) ?: ""
+                val sourceName = cursor.getString(3) ?: "Elysium Nexus Data Fabric"
+                val licenseSpdx = cursor.getString(4) ?: "MIT"
+                val verificationStr = cursor.getString(6) ?: "UNVERIFIED"
+
+                val codeSetResult = getCommandsForCodeSetInternal(database, csId)
+                if (codeSetResult.commands.keys.any { it in actions } && codeSetResult.commandBindings.isNotEmpty()) {
+                    val verification = parseVerificationStatus(verificationStr)
+                    results.add(
+                        IrCodeSet(
+                            id = csId,
+                            brand = brandName,
+                            modelPatterns = setOf(remoteModel),
+                            remoteModels = if (remoteModel.isNotBlank()) setOf(remoteModel) else emptySet(),
+                            commands = codeSetResult.commands,
+                            commandSignalIds = codeSetResult.commandSignalIds,
+                            commandBindings = codeSetResult.commandBindings,
+                            selectedCommands = codeSetResult.selectedCommands,
+                            provenance = CodeProvenance(
+                                sourceName = sourceName,
+                                sourceUrl = "",
+                                licenseSpdx = licenseSpdx
+                            ),
+                            verification = verification
+                        )
+                    )
+                }
+            }
+        }
+        results
+    }
 
     override suspend fun getCandidateCount(
         deviceType: String,

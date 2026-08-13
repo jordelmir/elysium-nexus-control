@@ -129,7 +129,10 @@ object ProtocolCodecRegistry {
             "SIRC" to CodecSpec(
                 codecId = "SIRC",
                 protocol = IrProtocol.SonySirc,
-                aliases = setOf("SONY", "SONYSIRC"),
+                // RC-12: SIRC15/SIRC20 are catalog family names for the
+                // SIRC_15 / SIRC_20 variants — the encoder supports them
+                // (addressBits=8/13), so the codec must resolve them.
+                aliases = setOf("SONY", "SONYSIRC", "SIRC15", "SIRC20"),
                 defaultCarrierHz = 40000,
                 carrierHzRange = 38000..42000,
                 repeatPolicy = RepeatPolicy.FULL_FRAME,

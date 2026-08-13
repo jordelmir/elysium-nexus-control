@@ -154,6 +154,29 @@ interface IrCatalog {
     ): List<IrCodeSet>
 
     /**
+     * Phase A — Multi-key universal sweep: count of production-approved
+     * code sets for [deviceType] containing ANY of [actions]. The sweep
+     * pool is the union of the probe keys (VOLUME_UP ∪ MUTE ∪ POWER_TOGGLE),
+     * so TVs reachable only via POWER or MUTE are not lost.
+     */
+    suspend fun getCandidateCountForActions(
+        deviceType: String = "TV",
+        actions: List<IrAction>
+    ): Int
+
+    /**
+     * Phase A — Multi-key universal sweep: a single page of candidates
+     * containing ANY of [actions], deterministically ordered by
+     * (brand display_name, code_set id).
+     */
+    suspend fun getCandidatePageForActions(
+        deviceType: String = "TV",
+        actions: List<IrAction>,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet>
+
+    /**
      * Retrieve single physical [IrSignal] by exact signal ID.
      */
     suspend fun getSignal(signalId: String): IrSignal?
@@ -237,6 +260,22 @@ class InMemoryIrCatalog(
         count: Int
     ): List<IrCodeSet> = candidateMap.values.flatten()
         .filter { action in it.commands }
+        .sortedBy { it.brand }
+        .drop(fromIndex)
+        .take(count)
+
+    override suspend fun getCandidateCountForActions(
+        deviceType: String,
+        actions: List<IrAction>
+    ): Int = candidateMap.values.flatten().count { cs -> actions.any { it in cs.commands } }
+
+    override suspend fun getCandidatePageForActions(
+        deviceType: String,
+        actions: List<IrAction>,
+        fromIndex: Int,
+        count: Int
+    ): List<IrCodeSet> = candidateMap.values.flatten()
+        .filter { cs -> actions.any { it in cs.commands } }
         .sortedBy { it.brand }
         .drop(fromIndex)
         .take(count)

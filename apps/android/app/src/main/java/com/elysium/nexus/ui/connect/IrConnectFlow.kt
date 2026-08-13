@@ -154,6 +154,23 @@ private val VERIFICATION_ACTIONS = listOf(
     IrAction.MUTE
 )
 
+/**
+ * Phase A — multi-key universal sweep. The candidate pool is the UNION of
+ * these probe keys and the auto-scan transmits every key a candidate
+ * exposes, in this order (POWER last: it toggles the TV state, the most
+ * visible response). A TV reachable only via MUTE or POWER_TOGGLE is not
+ * lost from the sweep.
+ */
+private val SWEEP_PROBE_KEYS = listOf(
+    IrAction.VOLUME_UP,
+    IrAction.MUTE,
+    IrAction.POWER_TOGGLE
+)
+
+/** Phase A — pauses inside the auto-scan slot: between keys and after the last key. */
+private const val SWEEP_KEY_GAP_MS = 900L
+private const val SWEEP_SLOT_TAIL_MS = 1_500L
+
 @Composable
 fun IrConnectFlow(
     template: DeviceTemplate,
@@ -184,6 +201,8 @@ fun IrConnectFlow(
     var autoScanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var isAutoScanning by remember { mutableStateOf(viewModel.isAutoScanning) }
     var lastProbedCandidate by remember { mutableStateOf<IrCodeSet?>(null) }
+    // Phase A: the sweep key that actually worked / is being transmitted.
+    var lastProbedAction by remember { mutableStateOf<IrAction?>(null) }
 
     // P0.3: Sync local state → ViewModel on every change
     LaunchedEffect(step) { viewModel.step = step }
@@ -231,9 +250,10 @@ fun IrConnectFlow(
         // V0.6.2 PR3 Phase 14: build the correct ProbeCursor for the sweep mode
         val engine: ProbeCursor = if (isUniversalSweep) {
             // Phase 14: bounded-memory paged probe — no limit=400
-            val totalCount = repo.getCandidateCount("TV", IrAction.VOLUME_UP)
+            // Phase A: multi-key pool — UNION of VOLUME_UP/MUTE/POWER_TOGGLE
+            val totalCount = repo.getCandidateCountForActions("TV", SWEEP_PROBE_KEYS)
             if (totalCount == 0) {
-                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError("zero_candidates_for_TV_VOLUME_UP"))
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError("zero_candidates_for_TV_sweep_keys"))
                 probeUiState = ProbeUiState.NoCompatibleCandidates
                 return@LaunchedEffect
             }
@@ -242,10 +262,17 @@ fun IrConnectFlow(
                 maxCachedPages = 4,
                 totalCount = totalCount,
                 pageLoader = { from, count ->
-                    repo.getCandidatePage("TV", IrAction.VOLUME_UP, from, count)
+                    repo.getCandidatePageForActions("TV", SWEEP_PROBE_KEYS, from, count)
                 }
             )
-            PagedIrProbeEngine(pager, targetModel, penaltyMap, successMap, failMap)
+            PagedIrProbeEngine(
+                pager,
+                targetModel,
+                penaltyMap,
+                successMap,
+                failMap,
+                probeKeys = SWEEP_PROBE_KEYS
+            )
         } else {
             // Brand search: bounded 200, eager load — still correct
             val candidates = repo.getCandidatesForBrand(
@@ -434,9 +461,10 @@ fun IrConnectFlow(
         }
     }
 
-    // §38 Auto-sweep: transmit candidate N, pause, advance, repeat until the
-    // user confirms or candidates are exhausted. Every stop leaves the engine
-    // positioned on the LAST transmitted candidate (never a stuck state).
+    // §38 Auto-sweep: for each candidate, transmit every probe key it exposes
+    // (Phase A multi-key: VOLUME_UP → MUTE → POWER_TOGGLE), pause, advance.
+    // Every stop leaves the engine positioned on the LAST transmitted
+    // candidate (never a stuck state).
     fun startAutoScan(engine: ProbeCursor) {
         if (isAutoScanning) return
         isAutoScanning = true
@@ -452,9 +480,16 @@ fun IrConnectFlow(
             while (isActive) {
                 val candidate = engine.nextCandidate() ?: break
                 lastProbedCandidate = candidate
-                sendTestAction(candidate, IrAction.VOLUME_UP)
-                // Give the TV OSD time to react before the next candidate.
-                delay(3_500)
+                // Phase A: transmit the probe keys the candidate exposes, in
+                // sweep order, with a gap so the TV OSD can react per key.
+                val keysToSend = SWEEP_PROBE_KEYS.filter { it in candidate.commands }
+                if (keysToSend.isEmpty()) continue
+                for (key in keysToSend) {
+                    if (!isActive) break
+                    lastProbedAction = key
+                    sendTestAction(candidate, key)
+                    delay(if (key == keysToSend.last()) SWEEP_SLOT_TAIL_MS else SWEEP_KEY_GAP_MS)
+                }
             }
             isAutoScanning = false
             autoScanJob = null
@@ -476,19 +511,19 @@ fun IrConnectFlow(
     }
 
     // P1-EVIDENCE: Record when a candidate is rejected by the user
-    fun recordCandidateRejection(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+    fun recordCandidateRejection(candidate: com.elysium.nexus.core.device.IrCodeSet, actionKey: String) {
         scope.launch {
             try {
                 val profileRepo = InstalledIrProfileRepository(context)
                 profileRepo.penalizeCandidate(
                     codeSetId = candidate.id,
-                    reason = "user_rejected_vup"
+                    reason = "user_rejected_$actionKey"
                 )
                 profileRepo.recordCompatibilityEvidence(
                     codeSetId = candidate.id,
                     brand = candidate.brand,
                     deviceType = "TV",
-                    actionKey = "VOLUME_UP",
+                    actionKey = actionKey,
                     success = false,
                     source = "local_probe_rejection"
                 )
@@ -499,7 +534,7 @@ fun IrConnectFlow(
     }
 
     // P1-EVIDENCE: Record when a candidate is confirmed by the user
-    fun recordCandidateConfirmation(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+    fun recordCandidateConfirmation(candidate: com.elysium.nexus.core.device.IrCodeSet, actionKey: String) {
         scope.launch {
             try {
                 val profileRepo = InstalledIrProfileRepository(context)
@@ -507,7 +542,7 @@ fun IrConnectFlow(
                     codeSetId = candidate.id,
                     brand = candidate.brand,
                     deviceType = "TV",
-                    actionKey = "VOLUME_UP",
+                    actionKey = actionKey,
                     success = true,
                     source = "local_probe_confirmation"
                 )
@@ -710,6 +745,7 @@ fun IrConnectFlow(
                                     probeEngine = engine,
                                     lastResult = currentResult,
                                     isAutoScanning = isAutoScanning,
+                                    currentAction = lastProbedAction ?: IrAction.VOLUME_UP,
                                     onSendTest = {
                                         if (isAutoScanning) {
                                             // During sweep the user only stops; taps are confirmations.
@@ -725,16 +761,18 @@ fun IrConnectFlow(
                                         if (winner != null) {
                                             stopAutoScan()
                                             engine.selectById(winner.id)
-                                            // Re-transmit VOLUME_UP as challenge before accepting
+                                            // Phase A: re-transmit the SAME key that worked
+                                            // (VOLUME_UP, MUTE or POWER_TOGGLE), not a hardcoded one.
+                                            val confirmKey = lastProbedAction ?: IrAction.VOLUME_UP
                                             step = IrStep.CHALLENGE
-                                            sendTestAction(winner, IrAction.VOLUME_UP)
+                                            sendTestAction(winner, confirmKey)
                                         }
                                     },
                                     onNextCandidate = {
                                         if (isAutoScanning) return@TestStep
                                         // P1-EVIDENCE: Record rejection before advancing
                                         val rejected = engine.currentCandidate()
-                                        if (rejected != null) recordCandidateRejection(rejected)
+                                        if (rejected != null) recordCandidateRejection(rejected, lastProbedAction?.name ?: "VOLUME_UP")
                                         // V0.6.3 Phase 4: Atomic advance — nextCandidate() must complete
                                         // before currentCandidate() is read. Single coroutine, no race.
                                         scope.launch {
@@ -751,13 +789,15 @@ fun IrConnectFlow(
                                 )
                                 IrStep.CHALLENGE -> ChallengeStep(
                                     lastResult = currentResult,
+                                    action = lastProbedAction ?: IrAction.VOLUME_UP,
                                     onDidWork = {
-                                        // P0-1: Challenge confirmed — VOLUME_UP verified twice.
+                                        // P0-1: Challenge confirmed — the sweep key verified twice.
                                         // Phase 13: record evidence with confirmed timestamp
                                         val winner = engine.currentCandidate()
                                         if (winner != null) {
-                                            verifiedActions = setOf(IrAction.VOLUME_UP)
-                                            recordCandidateConfirmation(winner)
+                                            val confirmKey = lastProbedAction ?: IrAction.VOLUME_UP
+                                            verifiedActions = setOf(confirmKey)
+                                            recordCandidateConfirmation(winner, confirmKey.name)
                                             // Phase 13: confirm the attempt as proven
                                             currentAttempt?.let { att ->
                                                 viewModel.confirmAttempt(att.attemptId, "USER_CHALLENGE")
@@ -773,7 +813,7 @@ fun IrConnectFlow(
                                     onNo = {
                                         // P1-EVIDENCE: Record rejection on challenge failure
                                         val rejected = engine.currentCandidate()
-                                        if (rejected != null) recordCandidateRejection(rejected)
+                                        if (rejected != null) recordCandidateRejection(rejected, lastProbedAction?.name ?: "VOLUME_UP")
                                         // V0.6.3 Phase 4: Atomic advance — nextCandidate() must complete
                                         // before currentCandidate() is read. Single coroutine, no race.
                                         scope.launch {
@@ -781,6 +821,7 @@ fun IrConnectFlow(
                                             currentResult = null
                                             currentAttempt = null
                                             verifiedActions = emptySet()
+                                            lastProbedAction = null
                                             step = IrStep.TEST
                                             val candidate = engine.currentCandidate() ?: return@launch
                                             sendTestAction(candidate, IrAction.VOLUME_UP)
@@ -935,13 +976,13 @@ fun IrConnectFlow(
     if (showHelp) {
         HelpCard(
             title = "Ayuda — Probar ${template.brand}",
-            whatIsThis = "Esta pantalla busca un perfil de control IR probando VolumeUp.",
+            whatIsThis = "Esta pantalla busca un perfil de control IR probando señales del catálogo.",
             howToUse = listOf(
                 "Paso 1: Asegúrate de que la TV esté encendida.",
                 "Paso 2: Apunta el teléfono al sensor IR. La señal se envía automáticamente.",
-                "Paso 3: Si aparece el indicador de volumen, toca 'Sí'. Si no, toca 'Probar siguiente'."
+                "Paso 3: Si la TV reacciona (sube el volumen, silencia o se apaga/enciende), toca 'Sí'. Si no, toca 'Probar siguiente'."
             ),
-            tip = "El sistema probará candidatos distintos sin repetir señales fallidas. Se verificarán VOLUME_UP, VOLUME_DOWN y MUTE del mismo codeSet.",
+            tip = "El barrido universal prueba cada candidato con Volumen, Mute y Encendido/Apagado — si la TV responde a cualquiera, el candidato se verifica y se confirman VOLUME_UP, VOLUME_DOWN y MUTE del mismo codeSet.",
             onDismiss = { showHelp = false }
         )
     }
@@ -1025,6 +1066,7 @@ private fun TestStep(
     probeEngine: ProbeCursor,
     lastResult: IrTransmitResult?,
     isAutoScanning: Boolean,
+    currentAction: IrAction,
     onSendTest: () -> Unit,
     onDidWork: () -> Unit,
     onNextCandidate: () -> Unit,
@@ -1039,12 +1081,12 @@ private fun TestStep(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 if (isAutoScanning) "Barrido Automático Activo — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}"
-                else "Prueba de Volumen — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}",
+                else "Prueba de ${currentAction.name} — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}",
                 style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface
             )
             Text(
                 "Perfil: ${currentCand?.brand ?: template.brand} (${currentCand?.id?.take(12) ?: "?"})\n" +
-                "Acción: VOLUME_UP\n" +
+                "Acción: ${currentAction.name}\n" +
                 "Verificación: ${currentCand?.verification ?: VerificationStatus.UNVERIFIED}",
                 style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp), color = ElysiumColors.OnSurfaceVariant
             )
@@ -1073,7 +1115,7 @@ private fun TestStep(
             } else {
                 NeonChip(label = "▶ Barrido automático (probar todas las marcas)", onClick = onStartAutoScan, accent = ElysiumColors.NeonCyan, icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NeonChip(label = "Sí, subió el volumen", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                    NeonChip(label = "Sí, funcionó", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
                     if (probeEngine.hasMore) {
                         NeonChip(label = "No / Siguiente", onClick = onNextCandidate, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
                     }
@@ -1086,6 +1128,7 @@ private fun TestStep(
 @Composable
 private fun ChallengeStep(
     lastResult: IrTransmitResult?,
+    action: IrAction,
     onDidWork: () -> Unit,
     onNo: () -> Unit
 ) {
@@ -1095,7 +1138,7 @@ private fun ChallengeStep(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Re-verificación de señal", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
             Text(
-                "Se reenvió VOLUME_UP para confirmar que este candidato funciona. ¿La TV reaccionó?",
+                "Se reenvió ${action.name} para confirmar que este candidato funciona. ¿La TV reaccionó?",
                 style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))

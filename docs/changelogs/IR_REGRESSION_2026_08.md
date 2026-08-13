@@ -142,3 +142,42 @@ instead of letting `nextCandidate()` load the following page.
   RC6=1, Samsung=6, SonySIRC=3, Kaseikyo=1 (via carrier fallback).
 - 0 TX_FAILED, 0 ENCODE_FAILED, 0 carrier fallbacks beyond the one Kaseikyo.
 - 101 unique pattern hashes transmitted, carriers 36,000/38,000 Hz.
+
+## RC-12: Multi-key universal sweep — VOLUME_UP ∪ MUTE ∪ POWER_TOGGLE (2026-08-12)
+
+### Problem
+The sweep probed each candidate with VOLUME_UP only and the pool was filtered
+by VOLUME_UP too: TVs reachable ONLY via MUTE or POWER_TOGGLE never appeared
+(18 TV code_sets have POWER but no VOLUME_UP/MUTE), and candidates sharing the
+VOLUME_UP emission but differing in MUTE/POWER were wrongly collapsed by dedup
+(101 unique fingerprints vs 396 real TV candidates).
+
+### Fix
+- `IrCatalog`: added `getCandidateCountForActions` / `getCandidatePageForActions`
+  (SQL `a.canonical_key IN (?,?,?)`) — pool = UNION of VOLUME_UP, MUTE, POWER_TOGGLE.
+- `PagedIrProbeEngine`: new `probeKeys` parameter (default `[VOLUME_UP]` keeps
+  single-key behavior); dedup now uses the multi-key fingerprint — a candidate
+  collapses ONLY when every probe key it exposes is physically identical.
+- `IrConnectFlow`: universal sweep uses the 3-key pool; auto-scan transmits
+  every key a candidate exposes (VOLUME_UP → MUTE → POWER_TOGGLE, 900ms gaps,
+  1.5s slot tail); the challenge re-transmits the SAME key that worked;
+  rejection/confirmation evidence records the actual action key.
+- UI: TestStep shows the active action; ChallengeStep names the confirmed key;
+  "Sí, funcionó" replaces the volume-only wording.
+
+### Catalog numbers (TV, production-approved)
+- Old pool (VOLUME_UP only): 366 — dedup collapsed to 101 real emissions.
+- New pool (3 keys): 396 code_sets, 396 unique multi-key tuples (no collapse).
+- 18 code_sets have POWER only — reachable only with the multi-key sweep.
+
+### Tests
+- Multi-key keeps candidates sharing VOLUME_UP but differing in MUTE (2 kept).
+- Multi-key collapses only fully identical key tuples (1 kept).
+- MUTE-only and POWER-only candidates stay in the sweep.
+- RC-12 honest totals: dedup-adjusted `totalCandidates` (101-of-366 case),
+  raw count with dedup off, honest even when the first page holds no uniques.
+
+### Pending verification (hardware)
+- Rebuild + reinstall; run the universal sweep on the lab TV: expect a 396
+  candidate sweep (not 101), crossing every page boundary, ending with
+  CANDIDATE_EXHAUSTED tested=396.
