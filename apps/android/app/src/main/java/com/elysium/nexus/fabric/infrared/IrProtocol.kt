@@ -41,6 +41,7 @@ enum class IrProtocol(
     SonySirc("SIRC", 40_000, IrEncoding.PulseWidth),
     Samsung("Samsung", 38_000, IrEncoding.PulseDistance),
     Kaseikyo("Kaseikyo", 38_000, IrEncoding.PulseDistance),
+    Aiwa("Aiwa", 38_123, IrEncoding.PulseDistance),
     Raw("Raw waveform", 38_000, IrEncoding.Raw);
 
     companion object {
@@ -71,6 +72,8 @@ enum class IrProtocol(
                     ProtocolResolution.Supported(Rc6)
                 clean.startsWith("Kaseikyo", ignoreCase = true) || clean.startsWith("Panasonic", ignoreCase = true) ->
                     ProtocolResolution.Supported(Kaseikyo)
+                clean.startsWith("Aiwa", ignoreCase = true) ->
+                    ProtocolResolution.Supported(Aiwa)
                 else ->
                     ProtocolResolution.Unsupported(clean, "Protocol '$clean' is not registered in ProtocolCodecRegistry.")
             }
@@ -110,19 +113,22 @@ enum class IrProtocol(
                                 IrWaveform.encodeSamsung(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             SonySirc -> {
-                                // V06.2 Phase 4: Explicit variant dispatch for SIRC12/15/20.
-                                // SIRC_12 = 5-bit address (default), SIRC_15 = 8-bit, SIRC_20 = 13-bit.
+                                // V0.6.3 Phase 12: SIRC fail-closed.
+                                // Explicit variant dispatch only — null or unknown → InvalidParameters.
                                 val addressBits = when (signal.variantId) {
                                     "SIRC_12" -> 5
                                     "SIRC_15" -> 8
                                     "SIRC_20" -> 13
                                     null -> {
-                                        Log.w(TAG, "SIRC encoder: variantId is null, defaulting to SIRC_12 (5-bit address)")
-                                        5
+                                        return EncodeResult.InvalidParameters(
+                                            "SIRC encoder: variantId is null. Caller must specify SIRC_12, SIRC_15, or SIRC_20."
+                                        )
                                     }
                                     else -> {
-                                        Log.w(TAG, "SIRC encoder: unknown variantId '${signal.variantId}', defaulting to SIRC_12 (5-bit address)")
-                                        5
+                                        return EncodeResult.InvalidParameters(
+                                            "SIRC encoder: unsupported variantId '${signal.variantId}'. " +
+                                                "Available: SIRC_12, SIRC_15, SIRC_20"
+                                        )
                                     }
                                 }
                                 EncodeResult.Success(
@@ -137,6 +143,14 @@ enum class IrProtocol(
                             )
                             Kaseikyo -> EncodeResult.Success(
                                 IrWaveform.encodeKaseikyo(signal.address, signal.command, carrierHz = signal.carrierHz)
+                            )
+                            Aiwa -> EncodeResult.Success(
+                                IrWaveform.encodeAiwa(
+                                    signal.address,
+                                    signal.subDevice ?: 0,
+                                    signal.command,
+                                    carrierHz = signal.carrierHz
+                                )
                             )
                             Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
                         }

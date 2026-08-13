@@ -9,7 +9,8 @@ sources:
     policy: "ACCEPT_ALL"
   probonopd-irdb:
     license: "LicenseRef-IRDB-CUSTOM"
-    policy: "REQUIRE_APPROVAL_GATE"
+    policy: "APPROVED"
+    approvalNote: "Registered product at https://github.com/probonopd/irdb/issues/217 (2026-08-12); attribution notice shipped in app THIRD_PARTY_IR_DATA_NOTICES.md; up to 3 free units on request."
   radioxoma-infrared:
     license: "MIT"
     policy: "ACCEPT_ALL"

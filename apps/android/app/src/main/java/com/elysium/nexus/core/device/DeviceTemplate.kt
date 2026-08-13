@@ -685,6 +685,30 @@ object DeviceCatalog {
             blurbEs = "Funciona con la mayoría de Konka."
         ))
         add(DeviceTemplate(
+            id = "tv-aiwa-generic",
+            category = DeviceCategory.TV,
+            brand = "AIWA",
+            model = "Generic",
+            protocol = IrProtocol.Aiwa,
+            deviceAddress = 25,
+            commandAddress = 0x12,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with most AIWA TVs and Aiwa-protocol rebadges.",
+            blurbEs = "Funciona con la mayoría de AIWA y rebadges con protocolo Aiwa."
+        ))
+        add(DeviceTemplate(
+            id = "tv-telstar-generic",
+            category = DeviceCategory.TV,
+            brand = "Telstar",
+            model = "Generic",
+            protocol = IrProtocol.Nec,
+            deviceAddress = 0x04,
+            commandAddress = 0x12,
+            buttons = TV_BUTTONS,
+            blurbEn = "Works with most Telstar TVs (Costa Rica house brand).",
+            blurbEs = "Funciona con la mayoría de Telstar (marca propia de Costa Rica)."
+        ))
+        add(DeviceTemplate(
             id = "tv-aoc-generic",
             category = DeviceCategory.TV,
             brand = "AOC",

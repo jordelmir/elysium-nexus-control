@@ -132,6 +132,41 @@ data class IrWaveform(
             return IrWaveform(carrierHz, pattern.toIntArray())
         }
 
+        /**
+         * Aiwa RC501-family encoder (Konka/Telstar rebadges use it — see
+         * IrpProtocols.xml: {38.123k,550}<1,-1|1,-3>
+         * (16,-8,D:8,S:5,~D:8,~S:5,F:8,~F:8,1,-42,(16,-8,1,-165)*)
+         * Device (8 bits LSB) + sub-device (5 bits LSB), each with inverse.
+         */
+        fun encodeAiwa(address: Int, subDevice: Int, command: Int, carrierHz: Int = IrProtocol.Aiwa.carrierHz): IrWaveform {
+            require(address in 0..0xFF) { "Aiwa address must be in [0, 255] (got $address)." }
+            require(subDevice in 0..0x1F) { "Aiwa sub-device must be in [0, 31] (got $subDevice)." }
+            require(command in 0..0xFF) { "Aiwa command must be in [0, 255] (got $command)." }
+
+            val pattern = ArrayList<Int>(67)
+            pattern.add(8800)
+            pattern.add(4400)
+
+            fun emitBitsLsb(value: Int, bitCount: Int) {
+                for (bitIndex in 0 until bitCount) {
+                    val bit = (value ushr bitIndex) and 1
+                    pattern.add(550)
+                    pattern.add(if (bit == 0) 550 else 1650)
+                }
+            }
+
+            emitBitsLsb(address, 8)
+            emitBitsLsb(subDevice, 5)
+            emitBitsLsb(address.inv() and 0xFF, 8)
+            emitBitsLsb(subDevice.inv() and 0x1F, 5)
+            emitBitsLsb(command, 8)
+            emitBitsLsb(command.inv() and 0xFF, 8)
+
+            pattern.add(550)
+
+            return IrWaveform(carrierHz, pattern.toIntArray())
+        }
+
         fun encodeSamsung(address: Int, command: Int, carrierHz: Int = IrProtocol.Samsung.carrierHz): IrWaveform {
             require(address in 0..0xFF) { "Samsung address must be in [0, 255] (got $address)." }
             require(command in 0..0xFF) { "Samsung command must be in [0, 255] (got $command)." }

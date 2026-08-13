@@ -58,8 +58,8 @@
       "licenseFilePath": "README.md",
       "licenseFileSha256": "7fcbca24529b34689d36fcae3f9ce180318d9d3b78870c9cf687ac615048f3c9",
       "sourceContentSha256": "fcdd7bc3ddefcdb1479e6c9dddcbdc0fdb9907afe9f376b7291370060e3fe54a",
-      "productionEnabled": false,
-      "approvalReference": "PENDING-ISSUE-REGISTRATION"
+      "productionEnabled": true,
+      "approvalReference": "IRDB-CUSTOM-REGISTERED-ISSUE-217"
     },
     {
       "id": "radioxoma-infrared",
