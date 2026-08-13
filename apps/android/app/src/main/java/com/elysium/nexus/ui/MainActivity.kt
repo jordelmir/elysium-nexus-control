@@ -3,11 +3,14 @@ package com.elysium.nexus.ui
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.elysium.nexus.R
 import com.elysium.nexus.core.device.DeviceTemplate
@@ -364,12 +367,16 @@ class MainActivity : ComponentActivity() {
                 val settings by settingsFlow.collectAsState()
                 val posture by postureFlow.collectAsState()
                 val lastDevice by lastDeviceFlow.collectAsState()
-                val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
+                val navStack = rememberSaveable(
+                    stateSaver = Saver<List<HubDestination>, List<String>>(
+                        save = { stack -> com.elysium.nexus.ui.hub.HubStackCodec.encodeStack(stack) },
+                        restore = { codes -> com.elysium.nexus.ui.hub.HubStackCodec.decodeStack(codes) }
+                    )
+                ) { mutableStateOf(listOf(HubDestination.Hub)) }
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
                 val manualAddVisible = remember { mutableStateOf(false) }
-                var splashVisible by remember { mutableStateOf(true) }
-                val current = navStack.value.last()
+                var splashVisible by rememberSaveable { mutableStateOf(true) }
                 // §5 Learning — the live capture result arrives
                 // asynchronously from IrCaptureBridge (Nexus Receiver
                 // over Wi-Fi / USB-C). Survives recomposition while
@@ -382,6 +389,32 @@ class MainActivity : ComponentActivity() {
                 // pairing flow and lives until they
                 // leave the control surface.
                 val macTransport = remember { MacTransport() }
+                val current = navStack.value.last()
+
+                // §38 / back-behavior: the system back button must never
+                // kill the app. On the root it backgrounds the task
+                // (moveTaskToBack) so the process and the whole session
+                // survive; anywhere else it pops the navigation stack
+                // with the same cleanup as the on-screen back button.
+                BackHandler {
+                    when (val top = current) {
+                        is HubDestination.IrLearner -> {
+                            com.elysium.nexus.fabric.infrared.IrCaptureBridge.stop()
+                            learnerResultState.value = null
+                        }
+                        is HubDestination.MacPairing,
+                        is HubDestination.MacControl -> {
+                            runCatching { macTransport.disconnect() }
+                        }
+                        else -> Unit
+                    }
+                    if (navStack.value.size > 1) {
+                        navStack.value = navStack.value.dropLast(1)
+                    } else {
+                        android.util.Log.i(tag, "System back at root: backgrounding task, session preserved")
+                        moveTaskToBack(true)
+                    }
+                }
 
                 // Phase ULT.9 — Startup animation.
                 // The splash plays on every cold start
