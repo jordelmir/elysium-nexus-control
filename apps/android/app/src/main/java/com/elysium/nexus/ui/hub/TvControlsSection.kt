@@ -92,6 +92,7 @@ import androidx.compose.ui.graphics.SolidColor
 fun TvControlsSection(
     onBack: () -> Unit,
     onDeviceSelected: (DeviceTemplate) -> Unit,
+    onLearnRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
@@ -221,6 +222,35 @@ fun TvControlsSection(
                     cardSpacing = info.cardSpacing,
                     onDeviceSelected = onDeviceSelected
                 )
+            }
+            // === LEARN NEW SIGNAL ===
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = info.sidePadding, vertical = 4.dp)
+                    .clickable { onLearnRequested() },
+                accent = ElysiumColors.NeonGreen,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Aprender señal IR",
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = ElysiumColors.NeonGreen
+                    )
+                    Text(
+                        text = "Tu TV no está en la lista o el control universal no la " +
+                            "apaga. Conecta el receptor y captura la señal de tu control " +
+                            "remoto original: se guarda y la usas desde la app.",
+                        style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+                        color = ElysiumColors.OnSurface
+                    )
+                }
             }
             // === TIER 2 — Other brands ===
             if (tier2Actual.isNotEmpty()) {

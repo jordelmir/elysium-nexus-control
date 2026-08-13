@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material.icons.filled.VideoLabel
 import androidx.compose.material.icons.filled.Wifi
@@ -96,6 +97,7 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 fun HubScreen(
     onCategorySelected: (DeviceCategory) -> Unit,
     onTvControlsSelected: () -> Unit,
+    onLearnSelected: () -> Unit = {},
     onInstalledProfilesSelected: () -> Unit = {},
     onMacSelected: () -> Unit,
     onUsbCSelected: () -> Unit = {},
@@ -469,6 +471,70 @@ fun HubScreen(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "TODAS las marcas · búsqueda · filtros",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === APRENDER SEÑAL IR =================================
+            // §5 / §46 real learning: capture any remote's
+            // signal via the Nexus Receiver (Wi-Fi/USB-C) and
+            // keep it in the local IR database. This is the
+            // fallback for TVs that are not in the catalog.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onLearnSelected() },
+                accent = ElysiumColors.NeonOrange,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonOrange.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.TouchApp,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonOrange,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "APRENDER SEÑAL IR",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonOrange
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Captura la señal de cualquier control remoto",
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium

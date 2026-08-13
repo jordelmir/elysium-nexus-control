@@ -85,6 +85,12 @@ class IrCatalogRepository private constructor(
     }
 
     /**
+     * Probabilistic brand-first ordering for universal probes (§35).
+     * Full brand list and SQL live in [BrandRanking].
+     */
+    private val BRAND_RANK_ORDER: String by lazy { BrandRanking.ORDER_BY_SQL }
+
+    /**
      * §7 The catalog is installed exactly once per process and a single read-only
      * connection is cached for its lifetime. Never open a fresh connection per
      * query: the manager replaces the on-disk file (delete + re-copy) when the
@@ -244,16 +250,16 @@ class IrCatalogRepository private constructor(
                 // Remaining brands: exclude already-seen brand names
                 val seenBrands = results.map { it.brand }.distinct()
                 if (seenBrands.isEmpty()) {
-                    query = "$selectCols $baseWhere GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                    query = "$selectCols $baseWhere GROUP BY cs.id ${BRAND_RANK_ORDER} LIMIT ?"
                     params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, remaining.toString())
                 } else {
                     val placeholders = seenBrands.joinToString(",") { "?" }
-                    query = "$selectCols $baseWhere AND b.display_name NOT IN ($placeholders) GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                    query = "$selectCols $baseWhere AND b.display_name NOT IN ($placeholders) GROUP BY cs.id ${BRAND_RANK_ORDER} LIMIT ?"
                     params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, *seenBrands.toTypedArray(), remaining.toString())
                 }
             } else {
                 val placeholders = tierBrands.joinToString(",") { "?" }
-                query = "$selectCols $baseWhere AND b.display_name IN ($placeholders) GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ?"
+                query = "$selectCols $baseWhere AND b.display_name IN ($placeholders) GROUP BY cs.id ${BRAND_RANK_ORDER} LIMIT ?"
                 params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, *tierBrands.toTypedArray(), remaining.toString())
             }
 
@@ -362,7 +368,7 @@ class IrCatalogRepository private constructor(
                    s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
                    cs.verification_status
         """.trimIndent()
-        val query = "$selectCols ${pagedBaseWhereIn(devTypeArg, actionKeys.size)} GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ? OFFSET ?"
+        val query = "$selectCols ${pagedBaseWhereIn(devTypeArg, actionKeys.size)} GROUP BY cs.id ${BRAND_RANK_ORDER} LIMIT ? OFFSET ?"
         val params = actionKeys + listOf("$devTypeArg%", devTypeArg, count.toString(), fromIndex.toString())
 
         database.rawQuery(query, params.toTypedArray()).use { cursor ->
@@ -431,7 +437,7 @@ class IrCatalogRepository private constructor(
                    s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
                    cs.verification_status
         """.trimIndent()
-        val query = "$selectCols ${pagedBaseWhere(devTypeArg, actionKey)} GROUP BY cs.id ORDER BY b.display_name, cs.id LIMIT ? OFFSET ?"
+        val query = "$selectCols ${pagedBaseWhere(devTypeArg, actionKey)} GROUP BY cs.id ${BRAND_RANK_ORDER} LIMIT ? OFFSET ?"
         val params = arrayOf(actionKey, "$devTypeArg%", devTypeArg, count.toString(), fromIndex.toString())
 
         database.rawQuery(query, params).use { cursor ->
