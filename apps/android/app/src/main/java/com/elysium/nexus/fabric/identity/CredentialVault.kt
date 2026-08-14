@@ -219,6 +219,51 @@ data class CredentialReference(
 )
 
 /**
+ * V0.7 Phase 33 — AEAD AAD builder for credential
+ * ciphertexts.
+ *
+ * Every encrypted credential is bound (via AEAD
+ * associated data) to its canonical identity:
+ * key alias, protocol, device, storage purpose and
+ * schema version. Swapping a ciphertext row between
+ * two credentials — even under the same master key —
+ * fails authentication, because the decrypt side
+ * rebuilds the AAD from the row's own identity.
+ *
+ * Pure JVM function: the Android Keystore vault and
+ * any future Hub/Receiver secure-element vault share
+ * this same binding contract.
+ */
+object CredentialAad {
+
+    /** Purpose label used by the Android Keystore vault. */
+    const val PURPOSE_STORAGE = "credential-storage"
+
+    /** Current schema version of the encrypted envelope. */
+    const val SCHEMA_VERSION = 1
+
+    /** AAD envelope version prefix; bump only on a wire/format break. */
+    private const val ENVELOPE_VERSION = "nexus-credential-v1"
+
+    /**
+     * Builds the AAD binding a credential row to its
+     * identity. Deterministic: the same inputs always
+     * produce the same bytes, so the decrypt side can
+     * rebuild it from the persisted [CredentialReference].
+     */
+    fun build(
+        keyAlias: String,
+        protocol: Protocol,
+        deviceId: DeviceId,
+        purpose: String = PURPOSE_STORAGE,
+        schemaVersion: Int = SCHEMA_VERSION
+    ): ByteArray =
+        "$ENVELOPE_VERSION|alias=$keyAlias|protocol=${protocol.name}|" +
+            "device=${deviceId.value}|purpose=$purpose|schema=$schemaVersion"
+            .toByteArray(Charsets.UTF_8)
+}
+
+/**
  * The Credential Vault interface. The Android
  * implementation uses the Android Keystore;
  * the Hub/Receiver use the secure element;
@@ -393,8 +438,6 @@ class AndroidKeystoreCredentialVault(
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey)
         val iv = cipher.iv
         val plaintext = serializeCredential(credential)
-        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-
         val ref = CredentialReference(
             keyAlias = "${getKeyAlias()}_${credential.protocol}_${credential.deviceId.value}",
             protocol = credential.protocol,
@@ -404,6 +447,16 @@ class AndroidKeystoreCredentialVault(
             expiresAtMs = credential.expiresAtMs,
             isExpired = credential.isValid.not()
         )
+        // Phase 33: bind the ciphertext to the credential's
+        // canonical identity before sealing (AAD).
+        cipher.updateAAD(
+            CredentialAad.build(
+                keyAlias = ref.keyAlias,
+                protocol = ref.protocol,
+                deviceId = ref.deviceId
+            )
+        )
+        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
 
         store.save(ref, iv, ciphertext)
         return ref
@@ -421,6 +474,15 @@ class AndroidKeystoreCredentialVault(
             val cipher = javax.crypto.Cipher.getInstance(AES_GCM)
             val spec = javax.crypto.spec.GCMParameterSpec(TAG_SIZE, entry.iv)
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, spec)
+            // Phase 33: rebuild the AAD from the row's own identity.
+            // A ciphertext moved under another credential's alias fails here.
+            cipher.updateAAD(
+                CredentialAad.build(
+                    keyAlias = reference.keyAlias,
+                    protocol = reference.protocol,
+                    deviceId = reference.deviceId
+                )
+            )
             val plaintext = String(cipher.doFinal(entry.ciphertext), Charsets.UTF_8)
             deserializeCredential(plaintext, reference.protocol, reference.deviceId)
         } catch (e: Exception) {
