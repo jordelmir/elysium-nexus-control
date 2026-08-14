@@ -210,19 +210,30 @@ tasks.register<JavaExec>("runValidator") {
         configurations.getByName("debugRuntimeClasspath")
 }
 
-// V0.6.3 Phase 14: Verify IR catalog asset integrity before build.
+// V0.6.3 Phase 14 / V0.7 XXVI: Verify IR catalog asset integrity before build.
+// The LOCAL gate now enforces the SAME contract CI enforces:
+// exact SHA-256 and exact byte size against ir_catalog.manifest.json.
+// A wrong database of any size must fail locally, not just in CI.
 tasks.register<Exec>("verifyIrCatalogAsset") {
     group = "elysium"
-    description = "Verify ir_catalog.db SQLite magic + size before build"
+    description = "Verify ir_catalog.db SHA-256 + size exactly match ir_catalog.manifest.json before build"
     commandLine("sh", "-c",
         "set -e; " +
         "DB=src/main/assets/ir/ir_catalog.db; " +
+        "MANIFEST=src/main/assets/ir/ir_catalog.manifest.json; " +
         "test -f \"\$DB\" || { echo 'ERROR: ir_catalog.db not found'; exit 1; }; " +
+        "test -f \"\$MANIFEST\" || { echo 'ERROR: ir_catalog.manifest.json not found'; exit 1; }; " +
         "MAGIC=\$(xxd -l 16 -p \"\$DB\"); " +
         "test \"\$MAGIC\" = 53514c69746520666f726d6174203300 || { echo \"ERROR: SQLite magic mismatch: \$MAGIC\"; exit 1; }; " +
-        "SIZE=\$(stat -f%z \"\$DB\" 2>/dev/null || stat -c%s \"\$DB\"); " +
-        "test \"\$SIZE\" -ge 104857600 || { echo \"ERROR: ir_catalog.db too small: \$SIZE bytes\"; exit 1; }; " +
-        "echo \"verifyIrCatalogAsset: PASS size=\$SIZE magic=OK\""
+        "EXPECTED_SHA=\$(sed -n 's/.*\"databaseSha256\"[[:space:]]*:[[:space:]]*\"\\([a-f0-9]\\{64\\}\\)\".*/\\1/p' \"\$MANIFEST\" | head -1); " +
+        "test -n \"\$EXPECTED_SHA\" || { echo 'ERROR: databaseSha256 not found in manifest'; exit 1; }; " +
+        "if command -v sha256sum >/dev/null 2>&1; then ACTUAL_SHA=\$(sha256sum \"\$DB\" | awk '{print \$1}'); else ACTUAL_SHA=\$(shasum -a 256 \"\$DB\" | awk '{print \$1}'); fi; " +
+        "test \"\$ACTUAL_SHA\" = \"\$EXPECTED_SHA\" || { echo \"ERROR: SHA-256 mismatch: manifest=\$EXPECTED_SHA actual=\$ACTUAL_SHA\"; exit 1; }; " +
+        "EXPECTED_SIZE=\$(sed -n 's/.*\"databaseSizeBytes\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' \"\$MANIFEST\" | head -1); " +
+        "test -n \"\$EXPECTED_SIZE\" || { echo 'ERROR: databaseSizeBytes not found in manifest'; exit 1; }; " +
+        "ACTUAL_SIZE=\$(stat -f%z \"\$DB\" 2>/dev/null || stat -c%s \"\$DB\"); " +
+        "test \"\$ACTUAL_SIZE\" = \"\$EXPECTED_SIZE\" || { echo \"ERROR: size mismatch: manifest=\$EXPECTED_SIZE actual=\$ACTUAL_SIZE\"; exit 1; }; " +
+        "echo \"verifyIrCatalogAsset: PASS sha=\$ACTUAL_SHA size=\$ACTUAL_SIZE magic=OK\""
     )
 }
 tasks.named("preBuild") { dependsOn("verifyIrCatalogAsset") }
