@@ -81,7 +81,7 @@ enum ChannelCipher {
         // side (Kotlin omits updateAAD when ad == null).
         let box: ChaChaPoly.SealedBox
         if let ad {
-            box = try! ChaChaPoly.seal(plaintext, using: key, nonce: n, authenticatedData: ad)
+            box = try! ChaChaPoly.seal(plaintext, using: key, nonce: n, authenticating: ad)
         } else {
             box = try! ChaChaPoly.seal(plaintext, using: key, nonce: n)
         }
@@ -102,7 +102,7 @@ enum ChannelCipher {
         let nonce = try ChaChaPoly.Nonce(data: nonceData)
         let box = try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: body, tag: tagData)
         if let ad {
-            return try ChaChaPoly.open(box, using: key, authenticatedData: ad)
+            return try ChaChaPoly.open(box, using: key, authenticating: ad)
         }
         return try ChaChaPoly.open(box, using: key)
     }
