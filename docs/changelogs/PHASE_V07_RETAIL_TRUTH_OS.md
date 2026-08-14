@@ -87,17 +87,26 @@ La auditoría externa de dictamen (baseline `d89e705`, 2026-08-14) encontró los
      claim_* = 0 (CLAIM_EMPTY) — la verdad comercial: sin evidencia física no hay claims.
      ```
 
+## Qué se construyó en el lote de seguridad (delivery actual 3)
+
+1. **Phase 32 — MacCrypto direccional completo** — sin cambiar el wire legacy (el agente Swift actual sigue usando `elysium-channel`; cero cambios silenciosos):
+   - **`deriveChannelKeys(myKeyPair, theirPublic, side)`**: dos claves por sesión (`elysium-channel-tx` / `elysium-channel-rx`) — la TX de Alice es la RX de Bob; un frame capturado no puede reinyectarse a su emisor.
+   - **Nonce domains**: byte 0 del nonce = dirección (`PHONE_TO_MAC=0x01`, `MAC_TO_PHONE=0x02`); contador big-endian de 64 bits en bytes 4..11 (el legacy conserva byte 0x00 idéntico).
+   - **Anti-replay**: `ReplayGuard` sliding window (default 65.536) en el RX — acepta solo secuencias nuevas, rechaza duplicados y frames fuera de ventana; el guard avanza SOLO tras autenticación exitosa (updateAAD primero, guard después).
+   - **AAD**: `channelAd(domain, version)` = `elysium-link-v1|domain=<DIR>`, vincula versión de protocolo + dirección.
+   - API: `ChannelKeys.encryptToPeer/decryptFromPeer(ad?)`, `MacCrypto.aeadSeal/aeadOpen` compartidos. Tests: `MacCryptoPhase32DirectionalTest` (10, JVM puro).
+2. **Phase 33 — CredentialVault AAD por credential** — `CredentialAad.build(keyAlias, protocol, deviceId, purpose, schemaVersion)` (función pura determinista, testeada) y enganchada en `AndroidKeystoreCredentialVault.store()`/`retrieve()` vía `cipher.updateAAD(...)` con el propósito `credential-storage` y schema 1. Un ciphertext intercambiado entre dos credentials bajo la misma master key falla autenticación. Tests: `CredentialAadTest` (7).
+
 ## Pruebas
 
-- Nuevas: `RuntimeSignalPolicyTest` (7) + `CarrierPolicyTest` (7). Verdes por diseño JVM puro (sin Android).
+- Nuevas: `RuntimeSignalPolicyTest` (7) + `CarrierPolicyTest` (7) + `MacCryptoPhase32DirectionalTest` (10) + `CredentialAadTest` (7). Verdes por diseño: JVM puro, sin Android.
 - Gate Python verificado en vivo contra `ir_catalog.db` (salida arriba).
 - Compilación/lint/suite completa: **pendiente — regla de Jor (verificación batch solo cuando se ordene)**.
 
 ## Pendiente (P0s del dictamen aún abiertos)
 
 - **Toolchain**: AGP 8.7.3 + compileSdk 36 (combinación no soportada oficialmente; AGP ≥ 8.10 + Gradle ≥ 8.11.1 según matriz Google) — cambio config-only, requiere verificación de build (se hará en la batch).
-- `MacCrypto`: claves direccionales, nonce domains, secuencia/anti-replay, AAD (Phase 32 completo).
-- `CredentialVault`: AAD por credential (credentialId/deviceId/protocol/purpose/schemaVersion) — docs ya alineadas a master key en 2999abf.
+- Adopción del canal direccional Phase 32 en el agente Swift (Crypto.swift → tx/rx + domain nonces + replay guard) — requiere re-verificación cruzada Mac↔Android de la mezcla (no se cambió legacy en silencio).
 - `IrCaptureBridge`: auth mutua + AEAD + rate limit (Phase 11 completo) — depende del Bridge firmware.
 - ADB Wi-Fi: keyevent contra Android TV real de producción pendiente de verificación (clasificación honesta PARTIALLY_VERIFIED).
 - Evidencia física: `physical_test_evidence=0` → claim gate honestamente 0 — HIL/Bridge (fase hardware).
