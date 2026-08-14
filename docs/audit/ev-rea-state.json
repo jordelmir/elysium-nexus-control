@@ -1,0 +1,21 @@
+{
+  "auditId": "EVREA-20260813-001",
+  "timestamp": "2026-08-13T22:47:00Z",
+  "commit": "193a4c305958baef8230862447af25a672d2b1d8",
+  "cycle": 1,
+  "maxCycles": 3,
+  "status": "CONVERGED",
+  "findings": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 2,
+    "P3": 4
+  },
+  "verification": {
+    "build": "PASS",
+    "unitTests": "PASS",
+    "jvmTestsCount": 1021,
+    "hardwareValidation": "HARDWARE_BLOCKED"
+  },
+  "decision": "STOP_CONVERGED"
+}
