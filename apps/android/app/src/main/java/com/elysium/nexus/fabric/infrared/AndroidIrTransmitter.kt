@@ -62,37 +62,42 @@ class AndroidIrTransmitter(context: Context) {
      * Transmit an IR waveform.
      * Executed asynchronously off the main thread on [Dispatchers.IO].
      *
+     * V0.7 Phase 9: carrier selection is governed by [CarrierPolicy].
+     * The commercial default is [CarrierPolicyMode.STRICT] — an unsupported
+     * carrier fails closed with [IrTransmitResult.UnsupportedCarrier] and is
+     * NEVER silently shifted. Lab tooling may explicitly pass
+     * [CarrierPolicyMode.LAB_TOLERANCE].
+     *
      * @return [IrTransmitResult] detailing the typed result of the transmission attempt.
      */
-    suspend fun transmit(waveform: IrWaveform): IrTransmitResult = withContext(Dispatchers.IO) {
+    suspend fun transmit(
+        waveform: IrWaveform,
+        policy: CarrierPolicyMode = CarrierPolicyMode.STRICT
+    ): IrTransmitResult = withContext(Dispatchers.IO) {
         val m = manager ?: return@withContext IrTransmitResult.NoEmitter
         if (!hasEmitter) return@withContext IrTransmitResult.NoEmitter
 
-        // Carrier frequency range validation.
-        // V0.6.3 RC-9: instead of hard-failing on an unsupported carrier
-        // (e.g. Kaseikyo 37kHz on Honor Magic V2), fall back to the nearest
-        // supported carrier within tolerance (±2000 Hz). The IR pattern
-        // timings are carrier-independent, so only the modulation frequency
-        // shifts. Outside tolerance, fail closed with UnsupportedCarrier.
+        // Carrier frequency range validation (V0.7 Phase 9 — CarrierPolicy).
+        // No blanket global fallback: only LAB_TOLERANCE may shift the carrier,
+        // and only within ±2000 Hz. Production (STRICT) always fails closed.
         val supportedRanges = carrierRanges()
         if (supportedRanges.isNotEmpty()) {
             val requestedHz = waveform.carrierHz
-            val isSupported = supportedRanges.any { range -> requestedHz in range }
-            if (!isSupported) {
-                val nearestHz = supportedRanges
-                    .flatMap { range -> listOf(range.first, range.last) }
-                    .minBy { range -> kotlin.math.abs(range - requestedHz) }
-                if (kotlin.math.abs(nearestHz - requestedHz) <= CARRIER_FALLBACK_TOLERANCE_HZ) {
-                    FileLog.d("TX_CARRIER_FALLBACK requested=${requestedHz}Hz used=${nearestHz}Hz")
-                    Log.w(tag, "Carrier $requestedHz Hz unsupported; falling back to $nearestHz Hz " +
-                        "(supported $supportedRanges).")
-                    return@withContext transmitLocked(m, waveform, nearestHz)
+            when (val selection = CarrierPolicy.selectCarrier(requestedHz, supportedRanges, policy)) {
+                is CarrierSelection.Use -> {
+                    if (selection.carrierHz != requestedHz) {
+                        FileLog.d("TX_CARRIER_FALLBACK policy=$policy requested=${requestedHz}Hz used=${selection.carrierHz}Hz")
+                        Log.w(tag, "Carrier $requestedHz Hz unsupported; LAB_TOLERANCE fallback to ${selection.carrierHz} Hz.")
+                    }
+                    return@withContext transmitLocked(m, waveform, selection.carrierHz)
                 }
-                Log.w(tag, "Carrier $requestedHz Hz out of supported ranges $supportedRanges.")
-                return@withContext IrTransmitResult.UnsupportedCarrier(
-                    requestedHz = requestedHz,
-                    supportedRanges = supportedRanges
-                )
+                is CarrierSelection.Unsupported -> {
+                    Log.w(tag, "Carrier $requestedHz Hz out of supported ranges $supportedRanges (policy=$policy).")
+                    return@withContext IrTransmitResult.UnsupportedCarrier(
+                        requestedHz = requestedHz,
+                        supportedRanges = supportedRanges
+                    )
+                }
             }
         }
 
@@ -144,12 +149,6 @@ class AndroidIrTransmitter(context: Context) {
     }
 
     companion object {
-        /**
-         * Maximum carrier deviation tolerated before failing closed.
-         * IR receivers accept a ±2 kHz modulation drift (standard practice).
-         */
-        private const val CARRIER_FALLBACK_TOLERANCE_HZ = 2_000
-
         /**
          * @return `true` when device announces system feature `FEATURE_CONSUMER_IR`.
          */
