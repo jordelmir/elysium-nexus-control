@@ -604,15 +604,22 @@ class IrCatalogRepository private constructor(
                         )
                         when (resolved) {
                             is CodecResolution.Resolved -> {
-                                IrSignal.Encoded(
-                                    carrierHz = if (pdCarrierHz > 0) pdCarrierHz else carrierHz,
-                                    protocol = protocol,
-                                    address = address,
-                                    subDevice = if (subDevice >= 0) subDevice else null,
-                                    command = command,
-                                    codecId = legacyCodecId ?: pdFamilyName ?: "",
-                                    variantId = pvVariantName ?: resolved.variant?.variantId
-                                )
+                                // V0.7 Phase 5 & 8: Commercial codec policy enforcement.
+                                // EXPERIMENTAL codecs (RC5, RC6, Kaseikyo) are LAB ONLY and blocked from candidate pools.
+                                if (!ProtocolCodecRegistry.isCodecTransmittable(resolved.codec.codecId)) {
+                                    Log.d(TAG, "Codec '${resolved.codec.codecId}' is EXPERIMENTAL/LAB_ONLY. Skipping from candidate query.")
+                                    null
+                                } else {
+                                    IrSignal.Encoded(
+                                        carrierHz = if (pdCarrierHz > 0) pdCarrierHz else carrierHz,
+                                        protocol = protocol,
+                                        address = address,
+                                        subDevice = if (subDevice >= 0) subDevice else null,
+                                        command = command,
+                                        codecId = legacyCodecId ?: pdFamilyName ?: "",
+                                        variantId = pvVariantName ?: resolved.variant?.variantId
+                                    )
+                                }
                             }
                             is CodecResolution.VariantAmbiguous -> {
                                 Log.w(TAG, "Variant ambiguous for signalId=$signalId " +

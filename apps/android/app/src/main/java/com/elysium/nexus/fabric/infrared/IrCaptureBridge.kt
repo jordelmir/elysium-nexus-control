@@ -60,9 +60,12 @@ object IrCaptureBridge {
         serverJob = scope.launch(Dispatchers.IO) {
             var server: ServerSocket? = null
             try {
-                server = ServerSocket(port)
+                // V0.7 Phase 11: Bind to loopback 127.0.0.1 by default to prevent LAN payload injection.
+                // Enforce frame size limit (max 8192 bytes) and max pattern length (512 slices).
+                val loopback = java.net.InetAddress.getByName("127.0.0.1")
+                server = ServerSocket(port, 50, loopback)
                 serverSocket = server
-                Log.i(TAG, "DIAG LEARN_LISTEN_OK port=$port interface=0.0.0.0")
+                Log.i(TAG, "DIAG LEARN_LISTEN_OK port=$port interface=127.0.0.1 (SECURE)")
                 while (running.get()) {
                     val client: Socket = try {
                         server.accept()
@@ -74,12 +77,17 @@ object IrCaptureBridge {
                         "DIAG LEARN_CLIENT connected=${client.inetAddress?.hostAddress}"
                     )
                     client.use { c ->
+                        c.soTimeout = 5000 // 5-second socket timeout
                         val reader = BufferedReader(InputStreamReader(c.getInputStream()))
                         while (running.get()) {
                             val line = reader.readLine() ?: break
+                            if (line.length > 8192) {
+                                Log.w(TAG, "DIAG LEARN_FRAME_REJECTED line length ${line.length} exceeds max 8192 bytes")
+                                break
+                            }
                             val frame = parseFrame(line)
-                            if (frame == null) {
-                                Log.w(TAG, "DIAG LEARN_FRAME_INVALID len=${line.length}")
+                            if (frame == null || frame.pattern.size > 512) {
+                                Log.w(TAG, "DIAG LEARN_FRAME_INVALID len=${line.length} patternSlices=${frame?.pattern?.size}")
                                 continue
                             }
                             Log.i(
