@@ -157,11 +157,19 @@ fun WifiUniversalScreen(
                 activeIp = ip
                 model = foundModel
                 statusText = if (foundModel != null) "Conectado · $foundModel" else "Conectado"
+                AdbTvMemory(context).setLastTv(ip)
             } catch (e: Exception) {
                 statusText = "Fallo al conectar: ${e.message}"
             } finally {
                 connectingIp = null
             }
+        }
+    }
+
+    LaunchedEffect(identity) {
+        val remembered = identity?.let { AdbTvMemory(context).lastTvIp() }
+        if (remembered != null && activeIp == null && connectingIp == null) {
+            connect(remembered)
         }
     }
 
