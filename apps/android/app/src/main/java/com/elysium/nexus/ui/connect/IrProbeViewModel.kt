@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
+import com.elysium.nexus.fabric.infrared.CursorInitResult
 import com.elysium.nexus.fabric.infrared.ProbeCursor
 import com.elysium.nexus.fabric.infrared.ProbeRestoreDecision
 import com.elysium.nexus.fabric.infrared.ProbeRestoreResolver
@@ -263,9 +264,10 @@ class IrProbeViewModel(
     }
 
     /**
-     * V0.6.2 PR3 Phase 14: Initialize the probe engine — accepts any [ProbeCursor]
+     * V0.6.3 Phase 2+3: Initialize the probe engine — accepts any [ProbeCursor]
      * implementation (eager [IrProbeEngine] for brand search, [PagedIrProbeEngine]
-     * for universal sweep). Process-death restore verifies identity via
+     * for universal sweep). Calls [ProbeCursor.initialize] to load page 0 before
+     * exposing the engine to the UI. Process-death restore verifies identity via
      * [ProbeRestoreResolver] and never silently picks candidate 0.
      */
     suspend fun initializeEngine(
@@ -273,9 +275,17 @@ class IrProbeViewModel(
         restoreCandidateIndex: Int = 0,
         restoreCandidateId: String? = null
     ): Boolean {
-        if (engine.totalCandidates == 0) {
-            _probeUiState.value = ProbeUiState.NoCompatibleCandidates
-            return false
+        // V0.6.3 Phase 3: Initialize engine FIRST — this loads page 0 for PagedIrProbeEngine
+        when (val initResult = engine.initialize()) {
+            is CursorInitResult.Ready -> { /* engine ready, currentCandidate != null */ }
+            is CursorInitResult.NoCandidates -> {
+                _probeUiState.value = ProbeUiState.NoCompatibleCandidates
+                return false
+            }
+            is CursorInitResult.Error -> {
+                _probeUiState.value = ProbeUiState.Error("Engine init failed: ${initResult.reason}")
+                return false
+            }
         }
 
         // Reposition to saved candidate (process-death restore with identity guard)
@@ -403,6 +413,19 @@ class IrProbeViewModel(
                 winnerCodeSetId = winnerCodeSetId
             )
         }
+    }
+
+    /**
+     * RC-13: reset the durable session identity AFTER a session is completed
+     * (e.g. the universal sweep exhausted without a winner). Without this,
+     * the ViewModel keeps the completed session's ID in the field AND in
+     * SavedStateHandle; navigating to another brand reuses it via
+     * [ensureSession]'s idempotent path and the identity guard fails with
+     * "Session Recovery Failed" (Expected=<candidate of the previous sweep>).
+     */
+    fun resetSessionIdentity() {
+        sessionId = null
+        savedStateHandle["probeSessionId"] = null
     }
 
     // ═══════════════════════════════════════════════════════════════════

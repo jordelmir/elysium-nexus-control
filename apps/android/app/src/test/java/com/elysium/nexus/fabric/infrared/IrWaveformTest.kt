@@ -115,6 +115,47 @@ class IrWaveformTest {
     }
 
     @Test
+    fun `Aiwa encode produces 87 entries (header + D8 + S5 + inv D8 + inv S5 + F8 + inv F8 + stop mark)`() {
+        val w = IrWaveform.encodeAiwa(address = 25, subDevice = 1, command = 0x05)
+        assertEquals(IrProtocol.Aiwa.carrierHz, w.carrierHz)
+        assertEquals(38123, w.carrierHz)
+        assertEquals(8800, w.pattern[0])
+        assertEquals(4400, w.pattern[1])
+        // 2 header + (8+5+8+5+8+8)*2 bit slots + 1 stop = 87 entries
+        assertEquals(87, w.pattern.size)
+        assertTrue(w.pattern.all { it > 0 })
+    }
+
+    @Test
+    fun `Aiwa bit order is LSB-first with inverted device and sub-device fields`() {
+        val w = IrWaveform.encodeAiwa(address = 25, subDevice = 1, command = 0x05)
+        // D = 0x19 = 0b00011001, LSB-first: b0=1 -> mark 550, space 1650
+        assertEquals(550, w.pattern[2])
+        assertEquals(1650, w.pattern[3])
+        // b1=0 -> 550, 550
+        assertEquals(550, w.pattern[4])
+        assertEquals(550, w.pattern[5])
+        // S = 1: b0=1 -> 550, 1650 (first sub-device bit after 8 device bits)
+        assertEquals(1650, w.pattern[2 + 16 + 1])
+    }
+
+    @Test
+    fun `Aiwa encoder validates parameter ranges`() {
+        try {
+            IrWaveform.encodeAiwa(address = 256, subDevice = 0, command = 0)
+            fail("Aiwa address 256 must be rejected")
+        } catch (_: IllegalArgumentException) { }
+        try {
+            IrWaveform.encodeAiwa(address = 0, subDevice = 32, command = 0)
+            fail("Aiwa sub-device 32 must be rejected")
+        } catch (_: IllegalArgumentException) { }
+        try {
+            IrWaveform.encodeAiwa(address = 0, subDevice = 0, command = 256)
+            fail("Aiwa command 256 must be rejected")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test
     fun `all TV encoders produce unique waveforms for same address and command`() {
         val nec = IrWaveform.encodeNec(address = 0x04, command = 0x08)
         val samsung = IrWaveform.encodeSamsung(address = 0x04, command = 0x08)

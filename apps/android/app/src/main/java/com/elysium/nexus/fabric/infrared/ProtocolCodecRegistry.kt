@@ -129,7 +129,10 @@ object ProtocolCodecRegistry {
             "SIRC" to CodecSpec(
                 codecId = "SIRC",
                 protocol = IrProtocol.SonySirc,
-                aliases = setOf("SONY", "SONYSIRC"),
+                // RC-12: SIRC15/SIRC20 are catalog family names for the
+                // SIRC_15 / SIRC_20 variants — the encoder supports them
+                // (addressBits=8/13), so the codec must resolve them.
+                aliases = setOf("SONY", "SONYSIRC", "SIRC15", "SIRC20"),
                 defaultCarrierHz = 40000,
                 carrierHzRange = 38000..42000,
                 repeatPolicy = RepeatPolicy.FULL_FRAME,
@@ -180,6 +183,19 @@ object ProtocolCodecRegistry {
                 goldenVectorCount = 4,
                 variants = listOf(
                     ProtocolVariant("KASEIKYO_48", 48, 16, 8, "Kaseikyo/Panasonic 48-bit standard")
+                )
+            ),
+            "AIWA" to CodecSpec(
+                codecId = "AIWA",
+                protocol = IrProtocol.Aiwa,
+                aliases = setOf("AIWA_RC501"),
+                defaultCarrierHz = 38123,
+                carrierHzRange = 36000..40000,
+                repeatPolicy = RepeatPolicy.FULL_FRAME,
+                status = CodecVerificationStatus.UNIT_SHAPE_VALIDATED,
+                goldenVectorCount = 3,
+                variants = listOf(
+                    ProtocolVariant("AIWA_42", 42, 8, 8, "Aiwa RC501 42-bit (D:8, S:5, ~D:8, ~S:5, F:8, ~F:8) — used by Konka/Telstar rebadges")
                 )
             )
         )

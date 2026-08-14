@@ -3,11 +3,14 @@ package com.elysium.nexus.ui
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.elysium.nexus.R
 import com.elysium.nexus.core.device.DeviceTemplate
@@ -271,6 +274,10 @@ class MainActivity : ComponentActivity() {
         // `adb shell run-as com.elysium.nexus.controller cat files/elysium-ir.log`
         // because MagicOS encrypts app-process logcat (`(HKS)`).
         com.elysium.nexus.fabric.infrared.FileLog.initialize(this)
+        // V0.6.3 Phase 1: structured IR diagnostics
+        com.elysium.nexus.fabric.infrared.IrRuntimeDiagnostics.initialize(
+            isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        )
 
         // IR transmitter — the FAB equivalent for
         // the TV connection flow. The transmitter
@@ -360,17 +367,54 @@ class MainActivity : ComponentActivity() {
                 val settings by settingsFlow.collectAsState()
                 val posture by postureFlow.collectAsState()
                 val lastDevice by lastDeviceFlow.collectAsState()
-                val navStack = remember { mutableStateOf<List<HubDestination>>(listOf(HubDestination.Hub)) }
+                val navStack = rememberSaveable(
+                    stateSaver = Saver<List<HubDestination>, List<String>>(
+                        save = { stack -> com.elysium.nexus.ui.hub.HubStackCodec.encodeStack(stack) },
+                        restore = { codes -> com.elysium.nexus.ui.hub.HubStackCodec.decodeStack(codes) }
+                    )
+                ) { mutableStateOf(listOf(HubDestination.Hub)) }
                 val settingsVisible = remember { mutableStateOf(false) }
                 val tourVisible = remember { mutableStateOf(isFirstLaunch()) }
                 val manualAddVisible = remember { mutableStateOf(false) }
-                var splashVisible by remember { mutableStateOf(true) }
-                val current = navStack.value.last()
+                var splashVisible by rememberSaveable { mutableStateOf(true) }
+                // §5 Learning — the live capture result arrives
+                // asynchronously from IrCaptureBridge (Nexus Receiver
+                // over Wi-Fi / USB-C). Survives recomposition while
+                // the IrLearner screen is on the stack.
+                val learnerResultState = remember {
+                    mutableStateOf<com.elysium.nexus.fabric.infrared.IrLearner.LearnResult?>(null)
+                }
                 // Phase ULT.4 — a single Mac transport
                 // is created when the user enters the
                 // pairing flow and lives until they
                 // leave the control surface.
                 val macTransport = remember { MacTransport() }
+                val current = navStack.value.last()
+
+                // §38 / back-behavior: the system back button must never
+                // kill the app. On the root it backgrounds the task
+                // (moveTaskToBack) so the process and the whole session
+                // survive; anywhere else it pops the navigation stack
+                // with the same cleanup as the on-screen back button.
+                BackHandler {
+                    when (val top = current) {
+                        is HubDestination.IrLearner -> {
+                            com.elysium.nexus.fabric.infrared.IrCaptureBridge.stop()
+                            learnerResultState.value = null
+                        }
+                        is HubDestination.MacPairing,
+                        is HubDestination.MacControl -> {
+                            runCatching { macTransport.disconnect() }
+                        }
+                        else -> Unit
+                    }
+                    if (navStack.value.size > 1) {
+                        navStack.value = navStack.value.dropLast(1)
+                    } else {
+                        android.util.Log.i(tag, "System back at root: backgrounding task, session preserved")
+                        moveTaskToBack(true)
+                    }
+                }
 
                 // Phase ULT.9 — Startup animation.
                 // The splash plays on every cold start
@@ -446,11 +490,15 @@ class MainActivity : ComponentActivity() {
                         onTvControlsSelected = {
                             navStack.value = navStack.value + HubDestination.TvControls
                         },
+                        onLearnSelected = {
+                            navStack.value = navStack.value + HubDestination.IrLearner(null)
+                        },
                         onInstalledProfilesSelected = {
                             navStack.value = navStack.value + HubDestination.InstalledProfiles
                         },
                         onMacSelected = {
-                            // USB-C Direct transport is top priority when connecting to Mac/PC
+                            // MAC/PC card is the companion surface
+                            // (screen sharing), not universal control.
                             navStack.value = navStack.value + HubDestination.UsbC
                         },
                         onUsbCSelected = {
@@ -458,6 +506,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onUniversalRemoteSelected = {
                             navStack.value = navStack.value + HubDestination.UniversalRemote
+                        },
+                        onWifiUniversalSelected = {
+                            navStack.value = navStack.value + HubDestination.WifiUniversal
                         },
                         onAutomationSelected = {
                             navStack.value = navStack.value + HubDestination.AutomationList
@@ -512,6 +563,9 @@ class MainActivity : ComponentActivity() {
                     )
                     is HubDestination.TvControls -> TvControlsSection(
                         onBack = { navStack.value = navStack.value.dropLast(1) },
+                        onLearnRequested = {
+                            navStack.value = navStack.value + HubDestination.IrLearner(null)
+                        },
                         onDeviceSelected = { template ->
                             navStack.value = navStack.value.dropLast(1) + HubDestination.Connect(template)
                         }
@@ -679,6 +733,9 @@ class MainActivity : ComponentActivity() {
                         onBack = { navStack.value = navStack.value.dropLast(1) },
                         transport = macTransport
                     )
+                    is HubDestination.WifiUniversal -> com.elysium.nexus.ui.wifi.WifiUniversalScreen(
+                        onBack = { navStack.value = navStack.value.dropLast(1) }
+                    )
                     is HubDestination.AcControl -> {
                         val ir = irTransmitter
                         if (ir != null) {
@@ -691,39 +748,97 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    is HubDestination.IrLearner -> com.elysium.nexus.ui.control.IrLearnerScreen(
-                        learnResult = current.learnResult,
-                        onBack = { navStack.value = navStack.value.dropLast(1) },
-                        onRetry = { navStack.value = navStack.value.dropLast(1) },
-                        onSave = { result ->
-                            // Persist the learned IR command to the Room database.
-                            val repo = irRepository
-                            val cmd = result.command
-                            if (repo != null && cmd != null) {
-                                activityScope?.launch {
-                                    val patternStr = result.rawWaveform.pattern.joinToString(",")
-                                    val extrasStr = cmd.extras.entries.joinToString("|") {
-                                        "${it.key}=${it.value}"
+                    is HubDestination.IrLearner -> {
+                        // §5 Real capture loop: the bridge listens for
+                        // waveforms from the Nexus Receiver / agent
+                        // (Wi-Fi or USB-C) and decodes them live.
+                        androidx.compose.runtime.LaunchedEffect(current) {
+                            val scope = activityScope
+                            if (scope != null && !com.elysium.nexus.fabric.infrared.IrCaptureBridge.isRunning()) {
+                                learnerResultState.value = null
+                                com.elysium.nexus.fabric.infrared.IrCaptureBridge.start(
+                                    port = com.elysium.nexus.fabric.infrared.IrCaptureBridge.DEFAULT_PORT,
+                                    scope = scope,
+                                    onLearned = { result ->
+                                        learnerResultState.value = result
                                     }
-                                    repo.save(
-                                        com.elysium.nexus.databases.ir.LearnedIrCommandEntity(
-                                            label = "${cmd.protocol.name} ${cmd.address}#${cmd.command}",
-                                            templateId = "learned",
-                                            protocolName = cmd.protocol.name,
-                                            address = cmd.address,
-                                            command = cmd.command,
-                                            carrierHz = result.carrierHz,
-                                            rawPattern = patternStr,
-                                            confidence = result.confidence,
-                                            capturedAtMs = System.currentTimeMillis(),
-                                            extras = extrasStr
+                                )
+                            }
+                        }
+                        val shownResult = learnerResultState.value ?: current.learnResult
+                        com.elysium.nexus.ui.control.IrLearnerScreen(
+                            learnResult = shownResult,
+                            onBack = {
+                                com.elysium.nexus.fabric.infrared.IrCaptureBridge.stop()
+                                learnerResultState.value = null
+                                navStack.value = navStack.value.dropLast(1)
+                            },
+                            onRetry = {
+                                // Clear the decoded result; the bridge
+                                // keeps listening for another waveform.
+                                learnerResultState.value = null
+                                android.util.Log.i(tag, "DIAG LEARN_RETRY requested; listening continues")
+                            },
+                            onSave = { result ->
+                                // Persist the learned IR command to the Room database.
+                                com.elysium.nexus.fabric.infrared.IrCaptureBridge.stop()
+                                val repo = irRepository
+                                val cmd = result.command
+                                if (repo != null && cmd != null) {
+                                    activityScope?.launch {
+                                        val patternStr = result.rawWaveform.pattern.joinToString(",")
+                                        val extrasStr = cmd.extras.entries.joinToString("|") {
+                                            "${it.key}=${it.value}"
+                                        }
+                                        repo.save(
+                                            com.elysium.nexus.databases.ir.LearnedIrCommandEntity(
+                                                label = "${cmd.protocol.name} ${cmd.address}#${cmd.command}",
+                                                templateId = "learned",
+                                                protocolName = cmd.protocol.name,
+                                                address = cmd.address,
+                                                command = cmd.command,
+                                                carrierHz = result.carrierHz,
+                                                rawPattern = patternStr,
+                                                confidence = result.confidence,
+                                                capturedAtMs = System.currentTimeMillis(),
+                                                extras = extrasStr
+                                            )
                                         )
+                                        android.util.Log.i(
+                                            tag,
+                                            "DIAG LEARN_SAVED protocol=${cmd.protocol.name} " +
+                                                "addr=${cmd.address} cmd=${cmd.command} " +
+                                                "confidence=${result.confidence} slices=${result.rawWaveform.pattern.size}"
+                                        )
+                                    }
+                                } else {
+                                    android.util.Log.w(
+                                        tag,
+                                        "DIAG LEARN_SAVE_SKIPPED cmd=${cmd != null} repo=${repo != null}"
                                     )
                                 }
+                                learnerResultState.value = null
+                                navStack.value = navStack.value.dropLast(1)
+                            },
+                            onTransmit = { result ->
+                                // §5 Physical verification: fire the just-captured
+                                // waveform through the phone's own IR emitter so
+                                // the learned signal is usable immediately.
+                                val tx = ir
+                                if (tx != null) {
+                                    activityScope?.launch {
+                                        val outcome = tx.transmit(result.rawWaveform)
+                                        android.util.Log.i(
+                                            tag,
+                                            "DIAG LEARN_TX_OUTCOME $outcome"
+                                        )
+                                    }
+                                } else {
+                                    android.util.Log.w(tag, "DIAG LEARN_TX_SKIPPED no transmitter")
+                                }
                             }
-                            navStack.value = navStack.value.dropLast(1)
-                        }
-                    )
+                        )
+                    }
                     is HubDestination.AutomationList -> com.elysium.nexus.ui.automation.AutomationListScreen(
                         automations = automationStore,
                         onBack = { navStack.value = navStack.value.dropLast(1) },

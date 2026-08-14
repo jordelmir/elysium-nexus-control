@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,8 +59,11 @@ import com.elysium.nexus.core.device.IrCommandBinding
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.fabric.infrared.CursorState
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.IrProtocol
+import com.elysium.nexus.fabric.infrared.IrRuntimeDiagnostics
+import com.elysium.nexus.fabric.infrared.IrDiagnosticEvent
 import com.elysium.nexus.fabric.infrared.IrTransmitResult
 import com.elysium.nexus.fabric.infrared.PagedIrProbeEngine
 import com.elysium.nexus.fabric.infrared.ProbeCursor
@@ -151,6 +155,23 @@ private val VERIFICATION_ACTIONS = listOf(
     IrAction.MUTE
 )
 
+/**
+ * Phase A — multi-key universal sweep. The candidate pool is the UNION of
+ * these probe keys and the auto-scan transmits every key a candidate
+ * exposes, in this order (POWER last: it toggles the TV state, the most
+ * visible response). A TV reachable only via MUTE or POWER_TOGGLE is not
+ * lost from the sweep.
+ */
+private val SWEEP_PROBE_KEYS = listOf(
+    IrAction.VOLUME_UP,
+    IrAction.MUTE,
+    IrAction.POWER_TOGGLE
+)
+
+/** Phase A — pauses inside the auto-scan slot: between keys and after the last key. */
+private const val SWEEP_KEY_GAP_MS = 900L
+private const val SWEEP_SLOT_TAIL_MS = 1_500L
+
 @Composable
 fun IrConnectFlow(
     template: DeviceTemplate,
@@ -168,6 +189,11 @@ fun IrConnectFlow(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    // RC-10: restart token. "Start Over" (RecoveryRequired) increments this so
+    // the catalog-loading LaunchedEffect re-runs with a fresh session instead
+    // of hanging forever on LoadingCatalog (template key alone never changes).
+    var sweepRestartToken by remember { mutableIntStateOf(0) }
+
     var probeUiState by remember { mutableStateOf<ProbeUiState>(ProbeUiState.LoadingCatalog) }
     var currentResult by remember { mutableStateOf<IrTransmitResult?>(null) }
     var currentAttempt by remember { mutableStateOf<ProbeAttempt?>(null) }
@@ -176,6 +202,8 @@ fun IrConnectFlow(
     var autoScanJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var isAutoScanning by remember { mutableStateOf(viewModel.isAutoScanning) }
     var lastProbedCandidate by remember { mutableStateOf<IrCodeSet?>(null) }
+    // Phase A: the sweep key that actually worked / is being transmitted.
+    var lastProbedAction by remember { mutableStateOf<IrAction?>(null) }
 
     // P0.3: Sync local state → ViewModel on every change
     LaunchedEffect(step) { viewModel.step = step }
@@ -190,7 +218,7 @@ fun IrConnectFlow(
     val isUniversalSweep = template.id == "tv-universal-generic"
 
     // Async SQLite Candidate Loading + P1-EVIDENCE: penalty/evidence data
-    LaunchedEffect(template) {
+    LaunchedEffect(template, sweepRestartToken) {
         probeUiState = ProbeUiState.LoadingCatalog
         val repo = IrCatalogRepository.getInstance(context)
         val profileRepo = InstalledIrProfileRepository(context)
@@ -223,8 +251,10 @@ fun IrConnectFlow(
         // V0.6.2 PR3 Phase 14: build the correct ProbeCursor for the sweep mode
         val engine: ProbeCursor = if (isUniversalSweep) {
             // Phase 14: bounded-memory paged probe — no limit=400
-            val totalCount = repo.getCandidateCount("TV", IrAction.VOLUME_UP)
+            // Phase A: multi-key pool — UNION of VOLUME_UP/MUTE/POWER_TOGGLE
+            val totalCount = repo.getCandidateCountForActions("TV", SWEEP_PROBE_KEYS)
             if (totalCount == 0) {
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError("zero_candidates_for_TV_sweep_keys"))
                 probeUiState = ProbeUiState.NoCompatibleCandidates
                 return@LaunchedEffect
             }
@@ -233,10 +263,17 @@ fun IrConnectFlow(
                 maxCachedPages = 4,
                 totalCount = totalCount,
                 pageLoader = { from, count ->
-                    repo.getCandidatePage("TV", IrAction.VOLUME_UP, from, count)
+                    repo.getCandidatePageForActions("TV", SWEEP_PROBE_KEYS, from, count)
                 }
             )
-            PagedIrProbeEngine(pager, targetModel, penaltyMap, successMap, failMap)
+            PagedIrProbeEngine(
+                pager,
+                targetModel,
+                penaltyMap,
+                successMap,
+                failMap,
+                probeKeys = SWEEP_PROBE_KEYS
+            )
         } else {
             // Brand search: bounded 200, eager load — still correct
             val candidates = repo.getCandidatesForBrand(
@@ -245,6 +282,7 @@ fun IrConnectFlow(
                 action = IrAction.VOLUME_UP
             )
             if (candidates.isEmpty()) {
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError("zero_candidates_for_brand_${template.brand}"))
                 probeUiState = ProbeUiState.NoCompatibleCandidates
                 return@LaunchedEffect
             }
@@ -268,19 +306,34 @@ fun IrConnectFlow(
         // V0.6.2 PR3 Phase 12: process-death recovery — restore from SavedStateHandle first,
         // then from Room. Guard: catalog hash mismatch → never restore silently.
         val savedSession = viewModel.getSessionId()?.let { sid ->
-            viewModel.restoreSession(sid)
+            val entity = viewModel.restoreSession(sid)
+            if (entity != null && manifestHash != null && entity.catalogHashAtStart != null &&
+                manifestHash != entity.catalogHashAtStart
+            ) {
+                // ULT.21: the SAME hash guard the Room path has. If the
+                // catalog changed since that session started, the saved
+                // candidate identity is stale → discard, start fresh.
+                Log.w(TAG, "ULT.21: Discarding SavedStateHandle session — catalog hash changed (was ${entity.catalogHashAtStart}, now $manifestHash)")
+                viewModel.resetSessionIdentity()
+                null
+            } else {
+                entity
+            }
         }
 
-        // Phase 12: if no SavedStateHandle session, try Room latest active
+        // V0.6.3 Phase 15: if no SavedStateHandle session, try Room latest active.
+        // Use .let to return null on catalog hash mismatch (not .also which always returns the entity).
         val restoredSession = savedSession ?: viewModel.findLatestActiveSession(
             template.brand, "TV"
-        )?.also {
-            // Phase 12: guard — catalog changed since that session was created → discard
-            if (manifestHash != null && it.catalogHashAtStart != null && manifestHash != it.catalogHashAtStart) {
-                Log.w(TAG, "Phase 12: discarding stale session — catalog hash changed (was ${it.catalogHashAtStart}, now $manifestHash)")
-                return@also
+        )?.let { entity ->
+            // Phase 12: guard — catalog changed since that session was created → discard (return null)
+            if (manifestHash != null && entity.catalogHashAtStart != null && manifestHash != entity.catalogHashAtStart) {
+                Log.w(TAG, "Phase 12: discarding stale session — catalog hash changed (was ${entity.catalogHashAtStart}, now $manifestHash)")
+                null
+            } else {
+                viewModel.restoreSession(entity.sessionId)
+                entity
             }
-            viewModel.restoreSession(it.sessionId)
         }
 
         val restoredIndex = restoredSession?.currentCandidateIndex ?: 0
@@ -298,14 +351,43 @@ fun IrConnectFlow(
             }
             if (readyEngine != null) {
                 probeUiState = ProbeUiState.Ready(readyEngine)
+                // V0.6.3 Phase 1: structured diagnostics
+                IrRuntimeDiagnostics.event(IrDiagnosticEvent.CatalogReady(manifestHash, readyEngine.totalCandidates))
+                IrRuntimeDiagnostics.event(IrDiagnosticEvent.CandidateReady(
+                    candidateId = readyEngine.currentCandidate()?.id ?: "none",
+                    index = readyEngine.currentProbeNumber,
+                    total = readyEngine.totalCandidates,
+                    engineType = if (isUniversalSweep) "Paged" else "Eager"
+                ))
                 if (restoredSession != null) {
                     Log.d(TAG, "Phase 12: Restored probe session. candidateIndex=$restoredIndex candidateId=$restoredId step=${restoredSession.status}")
+                    IrRuntimeDiagnostics.event(IrDiagnosticEvent.RestoreSession(
+                        sessionId = restoredSession.sessionId,
+                        candidateIndex = restoredIndex,
+                        catalogHashMatch = true
+                    ))
                 } else {
                     Log.d(TAG, "Loaded ${readyEngine.totalCandidates} candidates for brand=${template.brand} (universal=$isUniversalSweep), targetModel=$targetModel, penalties=${penaltyMap.size}, evidence=${successMap.size}")
                 }
             }
         } else {
-            probeUiState = viewModel.probeUiState.value
+            val failedState = viewModel.probeUiState.value
+            if (failedState is ProbeUiState.RecoveryRequired) {
+                // ULT.21: never show the dead-end technical screen. The
+                // stale session means the catalog changed or the saved
+                // position no longer resolves; the honest behavior is an
+                // automatic start-over with a clear DIAG trail.
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError(
+                    "stale_session_auto_restart: ${failedState.reason}"
+                ))
+                Log.w(TAG, "ULT.21: RecoveryRequired (${failedState.reason}) — auto restarting sweep from scratch")
+                viewModel.completeSession(null)
+                viewModel.resetSessionIdentity()
+                probeUiState = ProbeUiState.LoadingCatalog
+                sweepRestartToken++
+            } else {
+                probeUiState = failedState
+            }
         }
     }
 
@@ -318,80 +400,144 @@ fun IrConnectFlow(
 
         // P0.2: Use selectedCommands as single authority
         val selectedBinding = candidate.selectedCommands[action]
-        val signal = selectedBinding?.signal ?: candidate.commands[action] ?: return
+        val signal = selectedBinding?.signal ?: candidate.commands[action] ?: run {
+            // V0.6.3 Phase 11: Signal missing — report to user, don't silently swallow
+            IrRuntimeDiagnostics.warn(IrDiagnosticEvent.BindingMissing(candidate.id, action))
+            Log.w(TAG, "sendTestAction: no signal for action=$action on candidate=${candidate.id}")
+            probeUiState = ProbeUiState.Error("No signal available for ${action.name} on candidate ${candidate.id.take(8)}")
+            return
+        }
+        IrRuntimeDiagnostics.event(IrDiagnosticEvent.BindingSelected(
+            candidateId = candidate.id,
+            action = action,
+            signalId = selectedBinding?.signalId ?: candidate.commandSignalIds[action] ?: "unknown",
+            fromSelectedCommands = selectedBinding != null
+        ))
         val encodeResult = IrProtocol.encode(signal)
-        if (encodeResult is com.elysium.nexus.fabric.infrared.EncodeResult.Success) {
-            val attempt = ProbeAttempt(
-                candidateId = candidate.id,
-                codeSetId = candidate.id,
-                signalId = selectedBinding?.signalId
-                    ?: candidate.commandSignalIds[action]
-                    ?: "",
-                action = action
-            )
-            currentAttempt = attempt
-
-            // V0.6.2 PR3: physical truth on every attempt
-            val physicalSha = selectedBinding?.physicalSha256 ?: ""
-            val carrierHz = encodeResult.waveform.carrierHz
-            val catalogBuildId = try {
-                IrCatalogDatabaseManager.getInstance(context).currentCatalogMetadata()?.catalogBuildId
-            } catch (_: Exception) { null }
-
-            // P0.3: Persist probe state to Room for process death recovery
-            val engine = activeEngine
-            if (engine != null) {
-                viewModel.updateProbeState(
-                    candidateIndex = engine.currentProbeNumber - 1,
+        when (encodeResult) {
+            is com.elysium.nexus.fabric.infrared.EncodeResult.Success -> {
+                IrRuntimeDiagnostics.event(IrDiagnosticEvent.EncodeSuccess(
+                    protocol = (signal as? com.elysium.nexus.core.device.IrSignal.Encoded)?.protocol
+                        ?: com.elysium.nexus.fabric.infrared.IrProtocol.Raw,
+                    carrierHz = encodeResult.waveform.carrierHz,
+                    patternSize = encodeResult.waveform.pattern.size
+                ))
+                val attempt = ProbeAttempt(
                     candidateId = candidate.id,
-                    actionKey = action.name,
-                    signalId = attempt.signalId,
-                    physicalSha256 = physicalSha,
-                    attemptId = attempt.attemptId
+                    codeSetId = candidate.id,
+                    signalId = selectedBinding?.signalId
+                        ?: candidate.commandSignalIds[action]
+                        ?: "",
+                    action = action
                 )
-            }
-            // Phase 13: durable attempt trail with full evidence metadata
-            viewModel.persistAttempt(attempt, physicalSha, carrierHz, catalogBuildId)
+                currentAttempt = attempt
 
-            currentJob = scope.launch {
-                com.elysium.nexus.fabric.infrared.FileLog.d("PROBE_TX candidate=${candidate.id} action=$action signalId=${attempt.signalId} carrierHz=$carrierHz")
-                val txStart = System.currentTimeMillis()
-                val result = irTransmitter.transmit(encodeResult.waveform)
-                val txDuration = System.currentTimeMillis() - txStart
-                // Phase 13: record outcome with duration
-                viewModel.updateAttemptStatus(
-                    attempt.attemptId,
-                    if (result is IrTransmitResult.Success) "TRANSMIT_ACCEPTED" else "TRANSMIT_FAILED",
-                    txDuration
-                )
-                // §24 Only accept result if attemptId still matches (race guard)
-                if (currentAttempt?.attemptId == attempt.attemptId) {
-                    currentResult = result
+                // V0.6.2 PR3: physical truth on every attempt
+                val physicalSha = selectedBinding?.physicalSha256 ?: ""
+                val carrierHz = encodeResult.waveform.carrierHz
+                val catalogBuildId = try {
+                    IrCatalogDatabaseManager.getInstance(context).currentCatalogMetadata()?.catalogBuildId
+                } catch (_: Exception) { null }
+
+                // P0.3: Persist probe state to Room for process death recovery
+                val engine = activeEngine
+                if (engine != null) {
+                    viewModel.updateProbeState(
+                        candidateIndex = engine.currentProbeNumber - 1,
+                        candidateId = candidate.id,
+                        actionKey = action.name,
+                        signalId = attempt.signalId,
+                        physicalSha256 = physicalSha,
+                        attemptId = attempt.attemptId
+                    )
                 }
+                // Phase 13: durable attempt trail with full evidence metadata
+                viewModel.persistAttempt(attempt, physicalSha, carrierHz, catalogBuildId)
+
+                currentJob = scope.launch {
+                    IrRuntimeDiagnostics.event(IrDiagnosticEvent.TxStart(candidate.id, action, carrierHz))
+                    val txStart = System.currentTimeMillis()
+                    val result = irTransmitter.transmit(encodeResult.waveform)
+                    val txDuration = System.currentTimeMillis() - txStart
+                    // Phase 13: record outcome with duration
+                    viewModel.updateAttemptStatus(
+                        attempt.attemptId,
+                        if (result is IrTransmitResult.Success) "TRANSMIT_ACCEPTED" else "TRANSMIT_FAILED",
+                        txDuration
+                    )
+                    if (result is IrTransmitResult.Success) {
+                        IrRuntimeDiagnostics.event(IrDiagnosticEvent.TxAccepted(txDuration))
+                    } else {
+                        IrRuntimeDiagnostics.warn(IrDiagnosticEvent.TxFailed(result.toString()))
+                    }
+                    // §24 Only accept result if attemptId still matches (race guard)
+                    if (currentAttempt?.attemptId == attempt.attemptId) {
+                        currentResult = result
+                    }
+                }
+            }
+            // V0.6.3 Phase 11: All encode errors are visible to the user
+            is com.elysium.nexus.fabric.infrared.EncodeResult.UnsupportedProtocol -> {
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.EncodeFailed("unsupported=${encodeResult.protocol.name}"))
+                Log.e(TAG, "sendTestAction: unsupported protocol ${encodeResult.protocol}")
+                probeUiState = ProbeUiState.Error("Protocolo ${encodeResult.protocol.displayName} no soportado")
+            }
+            is com.elysium.nexus.fabric.infrared.EncodeResult.InvalidParameters -> {
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.EncodeFailed(encodeResult.reason))
+                Log.e(TAG, "sendTestAction: invalid parameters: ${encodeResult.reason}")
+                probeUiState = ProbeUiState.Error("Parámetros inválidos: ${encodeResult.reason}")
             }
         }
     }
 
-    // §38 Auto-sweep: transmit candidate N, pause, advance, repeat until the
-    // user confirms or candidates are exhausted. Every stop leaves the engine
-    // positioned on the LAST transmitted candidate (never a stuck state).
+    // §38 Auto-sweep: for each candidate, transmit every probe key it exposes
+    // (Phase A multi-key: VOLUME_UP → MUTE → POWER_TOGGLE), pause, advance.
+    // Every stop leaves the engine positioned on the LAST transmitted
+    // candidate (never a stuck state).
     fun startAutoScan(engine: ProbeCursor) {
         if (isAutoScanning) return
         isAutoScanning = true
         currentResult = null
         autoScanJob?.cancel()
         autoScanJob = scope.launch {
+            // RC-11: nextCandidate() returns the candidate it advanced past and
+            // transparently loads the following page when the current one ends;
+            // it returns null ONLY when the whole sweep is exhausted. Unlike
+            // currentCandidate() (which is null at the end of every page and
+            // used to stall the sweep on the page boundary), this advances
+            // through ALL pages to the final candidate.
             while (isActive) {
-                val candidate = engine.currentCandidate() ?: break
+                val candidate = engine.nextCandidate() ?: break
                 lastProbedCandidate = candidate
-                sendTestAction(candidate, IrAction.VOLUME_UP)
-                // Give the TV OSD time to react before the next candidate.
-                delay(3_500)
-                if (!engine.hasMore) break
-                engine.nextCandidate()
+                // Phase A: transmit the probe keys the candidate exposes, in
+                // sweep order, with a gap so the TV OSD can react per key.
+                val keysToSend = SWEEP_PROBE_KEYS.filter { it in candidate.commands }
+                if (keysToSend.isEmpty()) continue
+                for (key in keysToSend) {
+                    if (!isActive) break
+                    lastProbedAction = key
+                    sendTestAction(candidate, key)
+                    delay(if (key == keysToSend.last()) SWEEP_SLOT_TAIL_MS else SWEEP_KEY_GAP_MS)
+                }
             }
             isAutoScanning = false
             autoScanJob = null
+            // P1-EVIDENCE: log the sweep outcome (exhausted or cancelled).
+            if (engine.currentProbeNumber > 0) {
+                IrRuntimeDiagnostics.event(
+                    IrDiagnosticEvent.CandidateExhausted(
+                        totalTested = engine.currentProbeNumber
+                    )
+                )
+            }
+            // RC-13: an exhausted sweep has no winner — close its Room session
+            // and drop the session identity, otherwise the NEXT brand flow
+            // reuses the stale session ID and fails identity recovery
+            // ("Expected=<last sweep candidate>" on a different engine).
+            if (engine.state == CursorState.EXHAUSTED) {
+                viewModel.completeSession(null)
+                viewModel.resetSessionIdentity()
+            }
         }
     }
 
@@ -402,19 +548,19 @@ fun IrConnectFlow(
     }
 
     // P1-EVIDENCE: Record when a candidate is rejected by the user
-    fun recordCandidateRejection(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+    fun recordCandidateRejection(candidate: com.elysium.nexus.core.device.IrCodeSet, actionKey: String) {
         scope.launch {
             try {
                 val profileRepo = InstalledIrProfileRepository(context)
                 profileRepo.penalizeCandidate(
                     codeSetId = candidate.id,
-                    reason = "user_rejected_vup"
+                    reason = "user_rejected_$actionKey"
                 )
                 profileRepo.recordCompatibilityEvidence(
                     codeSetId = candidate.id,
                     brand = candidate.brand,
                     deviceType = "TV",
-                    actionKey = "VOLUME_UP",
+                    actionKey = actionKey,
                     success = false,
                     source = "local_probe_rejection"
                 )
@@ -425,7 +571,7 @@ fun IrConnectFlow(
     }
 
     // P1-EVIDENCE: Record when a candidate is confirmed by the user
-    fun recordCandidateConfirmation(candidate: com.elysium.nexus.core.device.IrCodeSet) {
+    fun recordCandidateConfirmation(candidate: com.elysium.nexus.core.device.IrCodeSet, actionKey: String) {
         scope.launch {
             try {
                 val profileRepo = InstalledIrProfileRepository(context)
@@ -433,7 +579,7 @@ fun IrConnectFlow(
                     codeSetId = candidate.id,
                     brand = candidate.brand,
                     deviceType = "TV",
-                    actionKey = "VOLUME_UP",
+                    actionKey = actionKey,
                     success = true,
                     source = "local_probe_confirmation"
                 )
@@ -636,6 +782,7 @@ fun IrConnectFlow(
                                     probeEngine = engine,
                                     lastResult = currentResult,
                                     isAutoScanning = isAutoScanning,
+                                    currentAction = lastProbedAction ?: IrAction.VOLUME_UP,
                                     onSendTest = {
                                         if (isAutoScanning) {
                                             // During sweep the user only stops; taps are confirmations.
@@ -651,21 +798,27 @@ fun IrConnectFlow(
                                         if (winner != null) {
                                             stopAutoScan()
                                             engine.selectById(winner.id)
-                                            // Re-transmit VOLUME_UP as challenge before accepting
+                                            // Phase A: re-transmit the SAME key that worked
+                                            // (VOLUME_UP, MUTE or POWER_TOGGLE), not a hardcoded one.
+                                            val confirmKey = lastProbedAction ?: IrAction.VOLUME_UP
                                             step = IrStep.CHALLENGE
-                                            sendTestAction(winner, IrAction.VOLUME_UP)
+                                            sendTestAction(winner, confirmKey)
                                         }
                                     },
                                     onNextCandidate = {
                                         if (isAutoScanning) return@TestStep
                                         // P1-EVIDENCE: Record rejection before advancing
                                         val rejected = engine.currentCandidate()
-                                        if (rejected != null) recordCandidateRejection(rejected)
-                                        scope.launch { engine.nextCandidate() }
-                                        lastProbedCandidate = engine.currentCandidate()
-                                        currentResult = null
-                                        val candidate = engine.currentCandidate() ?: return@TestStep
-                                        sendTestAction(candidate, IrAction.VOLUME_UP)
+                                        if (rejected != null) recordCandidateRejection(rejected, lastProbedAction?.name ?: "VOLUME_UP")
+                                        // V0.6.3 Phase 4: Atomic advance — nextCandidate() must complete
+                                        // before currentCandidate() is read. Single coroutine, no race.
+                                        scope.launch {
+                                            engine.nextCandidate()
+                                            lastProbedCandidate = engine.currentCandidate()
+                                            currentResult = null
+                                            val candidate = engine.currentCandidate() ?: return@launch
+                                            sendTestAction(candidate, IrAction.VOLUME_UP)
+                                        }
                                     },
                                     onStartAutoScan = { startAutoScan(engine) },
                                     onStopAutoScan = { stopAutoScan() },
@@ -673,13 +826,15 @@ fun IrConnectFlow(
                                 )
                                 IrStep.CHALLENGE -> ChallengeStep(
                                     lastResult = currentResult,
+                                    action = lastProbedAction ?: IrAction.VOLUME_UP,
                                     onDidWork = {
-                                        // P0-1: Challenge confirmed — VOLUME_UP verified twice.
+                                        // P0-1: Challenge confirmed — the sweep key verified twice.
                                         // Phase 13: record evidence with confirmed timestamp
                                         val winner = engine.currentCandidate()
                                         if (winner != null) {
-                                            verifiedActions = setOf(IrAction.VOLUME_UP)
-                                            recordCandidateConfirmation(winner)
+                                            val confirmKey = lastProbedAction ?: IrAction.VOLUME_UP
+                                            verifiedActions = setOf(confirmKey)
+                                            recordCandidateConfirmation(winner, confirmKey.name)
                                             // Phase 13: confirm the attempt as proven
                                             currentAttempt?.let { att ->
                                                 viewModel.confirmAttempt(att.attemptId, "USER_CHALLENGE")
@@ -695,15 +850,19 @@ fun IrConnectFlow(
                                     onNo = {
                                         // P1-EVIDENCE: Record rejection on challenge failure
                                         val rejected = engine.currentCandidate()
-                                        if (rejected != null) recordCandidateRejection(rejected)
-                                        // Challenge failed — the re-transmit didn't work. Try next.
-                                        scope.launch { engine.nextCandidate() }
-                                        currentResult = null
-                                        currentAttempt = null
-                                        verifiedActions = emptySet()
-                                        step = IrStep.TEST
-                                        val candidate = engine.currentCandidate() ?: return@ChallengeStep
-                                        sendTestAction(candidate, IrAction.VOLUME_UP)
+                                        if (rejected != null) recordCandidateRejection(rejected, lastProbedAction?.name ?: "VOLUME_UP")
+                                        // V0.6.3 Phase 4: Atomic advance — nextCandidate() must complete
+                                        // before currentCandidate() is read. Single coroutine, no race.
+                                        scope.launch {
+                                            engine.nextCandidate()
+                                            currentResult = null
+                                            currentAttempt = null
+                                            verifiedActions = emptySet()
+                                            lastProbedAction = null
+                                            step = IrStep.TEST
+                                            val candidate = engine.currentCandidate() ?: return@launch
+                                            sendTestAction(candidate, IrAction.VOLUME_UP)
+                                        }
                                     }
                                 )
                                 IrStep.VERIFY_SECONDARY -> VerifyActionStep(
@@ -764,6 +923,10 @@ fun IrConnectFlow(
                                             // §24 Use actually verified actions, not assumed
                                             val profile = buildAndPersistInstalledProfile(winner, verifiedActions)
                                             if (profile != null) {
+                                                // RC-13: a winning session must close with its winner —
+                                                // never leave it ACTIVE for a later brand flow to restore.
+                                                viewModel.completeSession(winner.id)
+                                                viewModel.resetSessionIdentity()
                                                 probeUiState = ProbeUiState.Completed(profile)
                                                 onProfileInstalled(profile)
                                             } else {
@@ -839,6 +1002,8 @@ fun IrConnectFlow(
                                     step = IrStep.ORIENT
                                     verifiedActions = emptySet()
                                     probeUiState = ProbeUiState.LoadingCatalog
+                                    // RC-10: force the LaunchedEffect to re-run fresh
+                                    sweepRestartToken++
                                 }
                             )
                         }
@@ -852,13 +1017,13 @@ fun IrConnectFlow(
     if (showHelp) {
         HelpCard(
             title = "Ayuda — Probar ${template.brand}",
-            whatIsThis = "Esta pantalla busca un perfil de control IR probando VolumeUp.",
+            whatIsThis = "Esta pantalla busca un perfil de control IR probando señales del catálogo.",
             howToUse = listOf(
                 "Paso 1: Asegúrate de que la TV esté encendida.",
                 "Paso 2: Apunta el teléfono al sensor IR. La señal se envía automáticamente.",
-                "Paso 3: Si aparece el indicador de volumen, toca 'Sí'. Si no, toca 'Probar siguiente'."
+                "Paso 3: Si la TV reacciona (sube el volumen, silencia o se apaga/enciende), toca 'Sí'. Si no, toca 'Probar siguiente'."
             ),
-            tip = "El sistema probará candidatos distintos sin repetir señales fallidas. Se verificarán VOLUME_UP, VOLUME_DOWN y MUTE del mismo codeSet.",
+            tip = "El barrido universal prueba cada candidato con Volumen, Mute y Encendido/Apagado — si la TV responde a cualquiera, el candidato se verifica y se confirman VOLUME_UP, VOLUME_DOWN y MUTE del mismo codeSet.",
             onDismiss = { showHelp = false }
         )
     }
@@ -942,6 +1107,7 @@ private fun TestStep(
     probeEngine: ProbeCursor,
     lastResult: IrTransmitResult?,
     isAutoScanning: Boolean,
+    currentAction: IrAction,
     onSendTest: () -> Unit,
     onDidWork: () -> Unit,
     onNextCandidate: () -> Unit,
@@ -956,12 +1122,12 @@ private fun TestStep(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 if (isAutoScanning) "Barrido Automático Activo — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}"
-                else "Prueba de Volumen — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}",
+                else "Prueba de ${currentAction.name} — Candidato ${probeEngine.currentProbeNumber} de ${probeEngine.totalCandidates}",
                 style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface
             )
             Text(
                 "Perfil: ${currentCand?.brand ?: template.brand} (${currentCand?.id?.take(12) ?: "?"})\n" +
-                "Acción: VOLUME_UP\n" +
+                "Acción: ${currentAction.name}\n" +
                 "Verificación: ${currentCand?.verification ?: VerificationStatus.UNVERIFIED}",
                 style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp), color = ElysiumColors.OnSurfaceVariant
             )
@@ -990,7 +1156,7 @@ private fun TestStep(
             } else {
                 NeonChip(label = "▶ Barrido automático (probar todas las marcas)", onClick = onStartAutoScan, accent = ElysiumColors.NeonCyan, icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) }, modifier = Modifier.fillMaxWidth())
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NeonChip(label = "Sí, subió el volumen", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
+                    NeonChip(label = "Sí, funcionó", onClick = { if (canConfirm) onDidWork() }, accent = if (canConfirm) ElysiumColors.NeonGreen else Color.Gray, active = canConfirm, icon = { Icon(Icons.Filled.Check, contentDescription = null) }, modifier = Modifier.weight(1f))
                     if (probeEngine.hasMore) {
                         NeonChip(label = "No / Siguiente", onClick = onNextCandidate, accent = ElysiumColors.NeonOrange, icon = { Icon(Icons.Filled.Refresh, contentDescription = null) }, modifier = Modifier.weight(1f))
                     }
@@ -1003,6 +1169,7 @@ private fun TestStep(
 @Composable
 private fun ChallengeStep(
     lastResult: IrTransmitResult?,
+    action: IrAction,
     onDidWork: () -> Unit,
     onNo: () -> Unit
 ) {
@@ -1012,7 +1179,7 @@ private fun ChallengeStep(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Re-verificación de señal", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold), color = ElysiumColors.OnSurface)
             Text(
-                "Se reenvió VOLUME_UP para confirmar que este candidato funciona. ¿La TV reaccionó?",
+                "Se reenvió ${action.name} para confirmar que este candidato funciona. ¿La TV reaccionó?",
                 style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = ElysiumColors.OnSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))

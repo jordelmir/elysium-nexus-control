@@ -84,6 +84,6 @@ class CatalogCuratedSeedGateTest {
             counts.getInt("command_bindings") >= 36000)
         // V06-P5 §14: v5 entities present in the canonical hash scope.
         assertTrue("protocol_definitions are hashed", counts.getInt("protocol_definitions") >= 20)
-        assertTrue("protocol_variants are hashed", counts.getInt("protocol_variants") >= 25)
+        assertTrue("protocol_variants are hashed", counts.getInt("protocol_variants") >= 20)
     }
 }

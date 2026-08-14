@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material.icons.filled.VideoLabel
 import androidx.compose.material.icons.filled.Wifi
@@ -96,10 +97,12 @@ import com.elysium.nexus.ui.theme.NeonStatusPill
 fun HubScreen(
     onCategorySelected: (DeviceCategory) -> Unit,
     onTvControlsSelected: () -> Unit,
+    onLearnSelected: () -> Unit = {},
     onInstalledProfilesSelected: () -> Unit = {},
     onMacSelected: () -> Unit,
     onUsbCSelected: () -> Unit = {},
     onUniversalRemoteSelected: () -> Unit = {},
+    onWifiUniversalSelected: () -> Unit = {},
     onAutomationSelected: () -> Unit = {},
     onScenesSelected: () -> Unit = {},
     onSettings: () -> Unit,
@@ -226,9 +229,11 @@ fun HubScreen(
 
             // === DEDICATED MAC / PC SECTION ==========================
             // Trackpad + Teclado + Mouse + Gestos.
-            // The Mac/PC connection uses Wi-Fi LAN
-            // (mDNS discovery + X25519 pairing) and
-            // is the headline feature of the app.
+            // This card is the Mac/PC companion
+            // (screen sharing + input surface), NOT
+            // the universal control path. The phone
+            // connects to the agent over USB-C or
+            // Wi-Fi LAN (mDNS discovery + X25519).
             NeonCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -271,7 +276,7 @@ fun HubScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Trackpad + Teclado + Mouse completo",
+                            text = "Comparte tu pantalla · trackpad + teclado + mouse",
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
@@ -349,6 +354,71 @@ fun HubScreen(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = ElysiumColors.NeonYellow,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === CONTROL UNIVERSAL · WI-FI ========================
+            // Phase ULT.21 — Android TV / Google TV / Fire TV
+            // via ADB over the local network (mDNS + subnet
+            // sweep + manual IP). Pair once with the standard
+            // "Allow USB debugging" dialog; the RSA key is
+            // persisted, so every later connection reuses it.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onWifiUniversalSelected() },
+                accent = ElysiumColors.NeonCyan,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonCyan.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Wifi,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonCyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "CONTROL UNIVERSAL · WI-FI",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonCyan
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Android TV · Google TV · Fire TV — control real por ADB",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonCyan,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -469,6 +539,70 @@ fun HubScreen(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "TODAS las marcas · búsqueda · filtros",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = ElysiumColors.OnSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = ElysiumColors.NeonOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            // === APRENDER SEÑAL IR =================================
+            // §5 / §46 real learning: capture any remote's
+            // signal via the Nexus Receiver (Wi-Fi/USB-C) and
+            // keep it in the local IR database. This is the
+            // fallback for TVs that are not in the catalog.
+            NeonCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = info.sidePadding,
+                        vertical = 4.dp
+                    )
+                    .clickable { onLearnSelected() },
+                accent = ElysiumColors.NeonOrange,
+                cornerRadius = 18.dp,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ElysiumColors.NeonOrange.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.TouchApp,
+                            contentDescription = null,
+                            tint = ElysiumColors.NeonOrange,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "APRENDER SEÑAL IR",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = ElysiumColors.NeonOrange
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Captura la señal de cualquier control remoto",
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium

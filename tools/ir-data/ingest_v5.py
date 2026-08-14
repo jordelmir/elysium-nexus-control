@@ -206,7 +206,7 @@ DEVICE_TYPE_ALIASES: dict[str, str] = {
     "digital_signs": "Digital_Sign",
     "cameras": "Camera", "camera": "Camera",
     "fireplaces": "Fireplace", "fireplace": "Fireplace",
-    "universal_tv_remotes": "Universal_Remote",
+    "universal_tv_remotes": "TV",
     "cd_players": "CD_Player", "cd player": "CD_Player",
     "consoles": "Console", "console": "Console",
     "mp3 player": "MP3_Player", "mp3": "MP3_Player",
@@ -215,6 +215,11 @@ DEVICE_TYPE_ALIASES: dict[str, str] = {
     "amplifier": "Amplifier", "amp": "Amplifier",
     "misc": "Miscellaneous", "miscellaneous": "Miscellaneous",
     "receiver": "AV_Receiver",
+    # TV-family device types that must join the universal TV sweep pool.
+    "unknown_tv": "TV", "unknown_dtv": "TV", "unknown_sonytv": "TV",
+    "plasma": "TV", "plasma displays": "TV", "plasma_display": "TV",
+    "led_tv": "TV", "rear projection dlp tv": "TV", "rear_projection_tv": "TV",
+    "projection tv": "TV", "lcd tv": "TV",
 }
 
 
@@ -254,6 +259,7 @@ PROTOCOL_MAP: dict[str, tuple[str, int]] = {
     "jvc": ("JVC", 38000),
     "lg": ("NEC", 38000),
     "mitsubishi": ("Mitsubishi", 33000),
+    "aiwa": ("Aiwa", 38123),
     "raw": ("RAW", 38000),
     "broadlink": ("Broadlink", 38000),
 }
@@ -321,7 +327,7 @@ class RejectionCollector:
         rejected unit lands in catalog_rejections (deterministic epoch 0)."""
         for r in self._by_row:
             rid = sha256_text("|".join([
-                "rej-v1", r["source"], r["file"], str(r["row"]),
+                "rej-v1", r["source"], str(r["file"]), str(r["row"]),
                 r["reason"], r["detail"], r["action"], r["protocol"],
             ]))
             cur.execute(
@@ -346,7 +352,8 @@ class RejectionCollector:
             "byReason": self.counts(),
             "rejections": self._by_row,
         }
-        path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+        path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False,
+                                   default=str) + "\n")
 
 
 # ─── Broadlink Base64 Decoder ─────────────────────────────────────────────────
@@ -406,6 +413,46 @@ def init_database(conn: sqlite3.Connection):
 
 # ─── V5 §14: Protocol Definitions & Variants ─────────────────────────────────
 # Seeded from PROTOCOL_MAP — the same single authority the codec gate uses.
+#
+# V06.3: Variant name normalization map. Catalog keys (lowercase, no underscores)
+# must match runtime ProtocolCodecRegistry variant IDs (UPPERCASE with underscores).
+VARIANT_NAME_MAP: dict[str, str] = {
+    "sirc": "SIRC_12",
+    "sirc15": "SIRC_15",
+    "sirc20": "SIRC_20",
+    "sony12": "SIRC_12",
+    "sony15": "SIRC_15",
+    "sony20": "SIRC_20",
+    "nec": "NEC_32",
+    "nec1": "NEC_32",
+    "nec42": "NEC_42",
+    "nec48": "NEC_48",
+    "necext": "NECx_32",
+    "necx": "NECx_32",
+    "necx2": "NECx_32",
+    "samsung32": "SAMSUNG_32",
+    "samsung": "SAMSUNG_32",
+    "samsung36": "SAMSUNG_36",
+    "rc5": "RC5_14",
+    "rc5x": "RC5X_16",
+    "rc6": "RC6_16",
+    "kaseikyo": "KASEIKYO_48",
+    "panasonic": "KASEIKYO_48",
+    "panasonic_old": "KASEIKYO_48",
+    "aiwa": "AIWA_42",
+    # V06.3: irdb families with no Kotlin codec yet — variants are labeled
+    # with the UPPERCASE contract name (PIONEER_40/SHARP_42 were already
+    # whitelisted by CatalogSignalIntegrityTest) or the bit count from
+    # IrpProtocols.xml (Apple 32b, JVC 16b, Mitsubishi 16b, Denon-K 32b).
+    "apple": "APPLE_32",
+    "jvc": "JVC_16",
+    "mitsubishi": "MITSUBISHI_16",
+    "pioneer": "PIONEER_40",
+    "sharp": "SHARP_42",
+    "denon": "DENON_32",
+}
+
+
 def seed_protocol_definitions(conn: sqlite3.Connection):
     seen_variants = set()
     for key, (family_name, carrier_hz) in sorted(PROTOCOL_MAP.items()):
@@ -415,13 +462,16 @@ def seed_protocol_definitions(conn: sqlite3.Connection):
             "(id, family_name, display_name, carrier_hz, encoding_kind) "
             "VALUES (?, ?, ?, ?, 'PARAMETRIC')",
             (proto_id, family_name, family_name, carrier_hz))
-        variant_id = short(f"variant:{family_name}:{key}")
-        if (family_name, key) not in seen_variants:
-            seen_variants.add((family_name, key))
+        # V06.3: variant identity derives from the NORMALIZED name so the
+        # id matches the one computed by insert_signal_parametric().
+        normalized_name = VARIANT_NAME_MAP.get(key, key)
+        variant_id = short(f"variant:{family_name}:{normalized_name}")
+        if (family_name, normalized_name) not in seen_variants:
+            seen_variants.add((family_name, normalized_name))
             conn.execute(
                 "INSERT OR IGNORE INTO protocol_variants "
                 "(id, protocol_id, variant_name) VALUES (?, ?, ?)",
-                (variant_id, proto_id, key))
+                (variant_id, proto_id, normalized_name))
     conn.commit()
 
 
@@ -479,8 +529,8 @@ class EntityCache:
         return self.actions[canonical_key]
 
     def insert_signal_parametric(self, proto: str, carrier_hz: int,
-                                  addr: int, cmd: int,
-                                  sub_device: int = -1, *,
+                                  addr: int, sub_device: int = -1,
+                                  cmd: int = -1, *,
                                   carrier_evidence: str = "UNKNOWN",
                                   source_file_id: str | None = None,
                                   eligibility: str = "PROBE_ELIGIBLE",
@@ -496,7 +546,10 @@ class EntityCache:
                 next((k for k, (fam, _) in PROTOCOL_MAP.items()
                       if fam == proto), None))
             if family_key:
-                protocol_variant_id = short(f"variant:{proto}:{family_key}")
+                # V06.3: use normalized variant name so variant_id matches
+                # the one created by seed_protocol_definitions()
+                normalized_key = VARIANT_NAME_MAP.get(family_key, family_key)
+                protocol_variant_id = short(f"variant:{proto}:{normalized_key}")
         sig_key = "|".join([
             "pid-v1", proto, protocol_variant_id or "-",
             str(carrier_hz), str(addr), str(sub_device), str(cmd),
@@ -1052,6 +1105,33 @@ def _decode_smartir_value(cache: EntityCache,
 
 
 # ─── Parser 3: probonopd/irdb (CSV) ──────────────────────────────────────────
+# irdb labels remotes with unknown device type as "Unknown_<model>". The
+# universal TV sweep must reach TVs regardless of that label, so remotes from
+# brands known to sell TVs are classified as "Unknown_tv" (→ TV) instead of
+# being stranded outside the sweep pool. Non-TV brands stay "Unknown".
+IRDB_TV_BRANDS = {
+    "samsung", "lg", "sony", "panasonic", "philips", "tcl", "hisense",
+    "konka", "telstar", "aiwa", "rca", "jvc", "xiaomi", "daewoo", "sanyo",
+    "sharp", "toshiba", "vizio", "hitachi", "mitsubishi", "skyworth", "cce",
+    "philco", "semp", "gradiente", "aoc", "westinghouse", "polaroid",
+    "emerson", "funai", "magnavox", "sylvania", "apex", "haier", "insignia",
+    "element", "dynex", "proscan", "orion", "coby", "craig", "benq",
+    "viewsonic", "ge", "zenith", "goldstar", "gibralter", "radioshack",
+}
+
+
+def classify_irdb_device_type(raw_type: str, brand: str) -> str:
+    """irdb second-level directories are the device type; "Unknown_<model>"
+    means the type is unknown. Brands that sell TVs keep their unknown remotes
+    reachable by the universal TV sweep (as Unknown_tv → TV)."""
+    key = raw_type.lower().strip()
+    if key.startswith("unknown_"):
+        if brand.lower().strip() in IRDB_TV_BRANDS:
+            return "Unknown_tv"
+        return "Unknown"
+    return raw_type
+
+
 def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
     irdb_root = CACHE / "probonopd-irdb" / "codes"
     if not irdb_root.exists():
@@ -1059,9 +1139,11 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
         return
 
     source_id = "probonopd-irdb"
+    lock_entry = cache.lock.get(source_id) or {}
+    prod_enabled = bool(lock_entry.get("productionEnabled", False))
     cache.ensure_source(source_id, "probonopd/irdb",
                         "https://github.com/probonopd/irdb",
-                        "LicenseRef-IRDB-CUSTOM", False)
+                        "LicenseRef-IRDB-CUSTOM", prod_enabled)
     cache.ensure_revision(source_id, "HEAD")
 
     csv_files = list(irdb_root.rglob("*.csv"))
@@ -1081,6 +1163,8 @@ def ingest_probonopd(conn: sqlite3.Connection, cache: EntityCache):
             remote_model = csv_file.stem
         else:
             continue
+
+        device_type = classify_irdb_device_type(device_type, brand)
 
         b_id = cache.get_or_create_brand(brand)
         dt_id = cache.get_or_create_device_type(device_type)
@@ -1518,6 +1602,9 @@ def run_ingestion(profile: str = "production"):
 
     if profile == "research":
         print("\n[3/5] Ingesting probonopd/irdb (RESEARCH ONLY)...")
+        ingest_probonopd(conn, cache)
+    elif (cache.lock.get("probonopd-irdb") or {}).get("productionEnabled"):
+        print("\n[3/5] Ingesting probonopd/irdb (PRODUCTION — lockfile approved)...")
         ingest_probonopd(conn, cache)
     else:
         print("\n[3/5] Skipping probonopd/irdb for PRODUCTION profile (GATED)...")

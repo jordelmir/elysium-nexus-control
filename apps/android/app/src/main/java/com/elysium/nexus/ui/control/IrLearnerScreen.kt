@@ -80,6 +80,8 @@ fun IrLearnerScreen(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onSave: (IrLearner.LearnResult) -> Unit,
+    onTransmit: (IrLearner.LearnResult) -> Unit = {},
+    listenPort: Int = com.elysium.nexus.fabric.infrared.IrCaptureBridge.DEFAULT_PORT,
     modifier: Modifier = Modifier
 ) {
     var showHelp by remember { mutableStateOf(false) }
@@ -130,8 +132,8 @@ fun IrLearnerScreen(
             }
 
             if (learnResult == null) {
-                // No result yet — waiting for capture
-                WaitingForCapture(info.sidePadding)
+                // No result yet — listening on the capture bridge
+                WaitingForCapture(info.sidePadding, listenPort)
             } else {
                 // Show the result
                 LazyColumn(
@@ -198,6 +200,37 @@ fun IrLearnerScreen(
                                 )
                                 Text(
                                     text = "La señal se guardará en la base de datos IR",
+                                    style = TextStyle(fontSize = 12.sp),
+                                    color = ElysiumColors.OnSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        NeonCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            accent = ElysiumColors.NeonCyan,
+                            cornerRadius = 12.dp,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onTransmit(learnResult) }
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Probar transmitir",
+                                    style = TextStyle(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = ElysiumColors.OnSurface
+                                )
+                                Text(
+                                    text = "Dispara la señal por el emisor IR del teléfono",
                                     style = TextStyle(fontSize = 12.sp),
                                     color = ElysiumColors.OnSurface.copy(alpha = 0.6f)
                                 )
@@ -281,7 +314,7 @@ fun IrLearnerScreen(
 }
 
 @Composable
-private fun WaitingForCapture(sidePadding: androidx.compose.ui.unit.Dp) {
+private fun WaitingForCapture(sidePadding: androidx.compose.ui.unit.Dp, listenPort: Int) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulse by infiniteTransition.animateFloat(
         initialValue = 0.4f,
@@ -321,6 +354,12 @@ private fun WaitingForCapture(sidePadding: androidx.compose.ui.unit.Dp) {
                     lineHeight = 20.sp
                 ),
                 color = ElysiumColors.OnSurface.copy(alpha = 0.6f)
+            )
+            NeonChip(
+                label = "Receptor en puerto $listenPort",
+                onClick = {},
+                accent = ElysiumColors.NeonCyan,
+                icon = { Icon(Icons.Filled.Info, contentDescription = null) }
             )
         }
     }
