@@ -54,7 +54,7 @@ class ProtocolCodecGoldenVectorTest {
         assertEquals(38123, waveform.carrierHz)
         assertEquals(8800, waveform.pattern[0])
         assertEquals(4400, waveform.pattern[1])
-        assertEquals(61, waveform.pattern.size)
+        assertEquals(87, waveform.pattern.size)
         assertEquals(550, waveform.pattern[2])
         assertEquals(1650, waveform.pattern[3])
     }

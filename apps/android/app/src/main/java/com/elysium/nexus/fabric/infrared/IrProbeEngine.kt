@@ -128,23 +128,52 @@ class IrProbeEngine(
 
     private var currentIndex = 0
 
+    /** V0.6.3 Phase 2: Engine state machine. */
+    private var _state: CursorState = CursorState.UNINITIALIZED
+    override val state: CursorState get() = _state
+
     override val totalCandidates: Int get() = candidates.size
     override val currentProbeNumber: Int get() = (currentIndex + 1).coerceAtMost(totalCandidates)
     override val hasMore: Boolean get() = currentIndex < candidates.size
+
+    /**
+     * V0.6.3 Phase 2: Initialize eager engine.
+     * After this returns Ready, [currentCandidate] MUST NOT be null.
+     */
+    override suspend fun initialize(): CursorInitResult {
+        if (_state == CursorState.READY) return CursorInitResult.Ready(this)
+        if (_state == CursorState.EXHAUSTED) return CursorInitResult.NoCandidates
+
+        currentIndex = 0
+        if (candidates.isEmpty()) {
+            _state = CursorState.EXHAUSTED
+            return CursorInitResult.NoCandidates
+        }
+
+        _state = CursorState.READY
+        return CursorInitResult.Ready(this)
+    }
 
     /** Get the currently selected candidate code set, or null if exhausted. */
     override fun currentCandidate(): IrCodeSet? = candidates.getOrNull(currentIndex)
 
     /** Advance to the next candidate code set. Returns the candidate consumed or null if exhausted. */
     override suspend fun nextCandidate(): IrCodeSet? {
-        if (currentIndex >= candidates.size) return null
+        if (currentIndex >= candidates.size) {
+            _state = CursorState.EXHAUSTED
+            return null
+        }
         val current = candidates.getOrNull(currentIndex)
         currentIndex++
+        if (currentIndex >= candidates.size) {
+            _state = CursorState.EXHAUSTED
+        }
         return current
     }
 
     /** Reset state back to beginning. */
     override fun reset() {
+        _state = CursorState.UNINITIALIZED
         currentIndex = 0
     }
 

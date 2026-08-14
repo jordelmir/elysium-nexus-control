@@ -59,6 +59,7 @@ import com.elysium.nexus.core.device.IrCommandBinding
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.AndroidIrTransmitter
+import com.elysium.nexus.fabric.infrared.CursorState
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
 import com.elysium.nexus.fabric.infrared.IrProtocol
 import com.elysium.nexus.fabric.infrared.IrRuntimeDiagnostics
@@ -305,7 +306,19 @@ fun IrConnectFlow(
         // V0.6.2 PR3 Phase 12: process-death recovery — restore from SavedStateHandle first,
         // then from Room. Guard: catalog hash mismatch → never restore silently.
         val savedSession = viewModel.getSessionId()?.let { sid ->
-            viewModel.restoreSession(sid)
+            val entity = viewModel.restoreSession(sid)
+            if (entity != null && manifestHash != null && entity.catalogHashAtStart != null &&
+                manifestHash != entity.catalogHashAtStart
+            ) {
+                // ULT.21: the SAME hash guard the Room path has. If the
+                // catalog changed since that session started, the saved
+                // candidate identity is stale → discard, start fresh.
+                Log.w(TAG, "ULT.21: Discarding SavedStateHandle session — catalog hash changed (was ${entity.catalogHashAtStart}, now $manifestHash)")
+                viewModel.resetSessionIdentity()
+                null
+            } else {
+                entity
+            }
         }
 
         // V0.6.3 Phase 15: if no SavedStateHandle session, try Room latest active.
@@ -358,7 +371,23 @@ fun IrConnectFlow(
                 }
             }
         } else {
-            probeUiState = viewModel.probeUiState.value
+            val failedState = viewModel.probeUiState.value
+            if (failedState is ProbeUiState.RecoveryRequired) {
+                // ULT.21: never show the dead-end technical screen. The
+                // stale session means the catalog changed or the saved
+                // position no longer resolves; the honest behavior is an
+                // automatic start-over with a clear DIAG trail.
+                IrRuntimeDiagnostics.warn(IrDiagnosticEvent.CatalogError(
+                    "stale_session_auto_restart: ${failedState.reason}"
+                ))
+                Log.w(TAG, "ULT.21: RecoveryRequired (${failedState.reason}) — auto restarting sweep from scratch")
+                viewModel.completeSession(null)
+                viewModel.resetSessionIdentity()
+                probeUiState = ProbeUiState.LoadingCatalog
+                sweepRestartToken++
+            } else {
+                probeUiState = failedState
+            }
         }
     }
 
@@ -500,6 +529,14 @@ fun IrConnectFlow(
                         totalTested = engine.currentProbeNumber
                     )
                 )
+            }
+            // RC-13: an exhausted sweep has no winner — close its Room session
+            // and drop the session identity, otherwise the NEXT brand flow
+            // reuses the stale session ID and fails identity recovery
+            // ("Expected=<last sweep candidate>" on a different engine).
+            if (engine.state == CursorState.EXHAUSTED) {
+                viewModel.completeSession(null)
+                viewModel.resetSessionIdentity()
             }
         }
     }
@@ -886,6 +923,10 @@ fun IrConnectFlow(
                                             // §24 Use actually verified actions, not assumed
                                             val profile = buildAndPersistInstalledProfile(winner, verifiedActions)
                                             if (profile != null) {
+                                                // RC-13: a winning session must close with its winner —
+                                                // never leave it ACTIVE for a later brand flow to restore.
+                                                viewModel.completeSession(winner.id)
+                                                viewModel.resetSessionIdentity()
                                                 probeUiState = ProbeUiState.Completed(profile)
                                                 onProfileInstalled(profile)
                                             } else {

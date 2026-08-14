@@ -9,6 +9,7 @@ import com.elysium.nexus.fabric.ranking.CandidatePager
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -337,6 +338,7 @@ class PagedIrProbeEngineTest {
         ))
         val pager = multiKeyPager(listOf(a, b))
         val engine = PagedIrProbeEngine(pager, probeKeys = THREE_KEYS)
+        engine.initialize()
 
         var handedOut = 0
         while (engine.nextCandidate() != null) handedOut++
@@ -356,6 +358,7 @@ class PagedIrProbeEngineTest {
             mockCodeSetMulti("csB", same)
         ))
         val engine = PagedIrProbeEngine(pager, probeKeys = THREE_KEYS)
+        engine.initialize()
 
         var handedOut = 0
         while (engine.nextCandidate() != null) handedOut++
@@ -373,6 +376,7 @@ class PagedIrProbeEngineTest {
         ))
         val pager = multiKeyPager(listOf(muteOnly))
         val engine = PagedIrProbeEngine(pager, probeKeys = THREE_KEYS)
+        engine.initialize()
 
         assertEquals(1, engine.totalCandidates)
         assertEquals("csMute", engine.nextCandidate()!!.id)
@@ -385,6 +389,7 @@ class PagedIrProbeEngineTest {
         ))
         val pager = multiKeyPager(listOf(powerOnly))
         val engine = PagedIrProbeEngine(pager, probeKeys = THREE_KEYS)
+        engine.initialize()
 
         assertEquals("POWER-only TV is a real candidate", 1, engine.totalCandidates)
         assertEquals("csPower", engine.nextCandidate()!!.id)

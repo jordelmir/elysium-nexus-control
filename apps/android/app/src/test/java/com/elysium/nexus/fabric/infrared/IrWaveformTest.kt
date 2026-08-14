@@ -115,14 +115,14 @@ class IrWaveformTest {
     }
 
     @Test
-    fun `Aiwa encode produces 61 entries (header + D8 + S5 + inv D8 + inv S5 + F8 + inv F8 + stop mark)`() {
+    fun `Aiwa encode produces 87 entries (header + D8 + S5 + inv D8 + inv S5 + F8 + inv F8 + stop mark)`() {
         val w = IrWaveform.encodeAiwa(address = 25, subDevice = 1, command = 0x05)
         assertEquals(IrProtocol.Aiwa.carrierHz, w.carrierHz)
         assertEquals(38123, w.carrierHz)
         assertEquals(8800, w.pattern[0])
         assertEquals(4400, w.pattern[1])
-        // 2 header + (8+5+8+5+8+8)*2 bit slots + 1 stop = 61 entries
-        assertEquals(61, w.pattern.size)
+        // 2 header + (8+5+8+5+8+8)*2 bit slots + 1 stop = 87 entries
+        assertEquals(87, w.pattern.size)
         assertTrue(w.pattern.all { it > 0 })
     }
 

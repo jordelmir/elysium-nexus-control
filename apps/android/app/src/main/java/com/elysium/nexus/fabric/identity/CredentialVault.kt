@@ -366,10 +366,10 @@ class AndroidKeystoreCredentialVault(
         keyStore.getEntry(alias, null)?.let { entry ->
             return (entry as java.security.KeyStore.SecretKeyEntry).secretKey
         }
-        val keyGen = javax.crypto.KeyGenerator.getInstance(
-            javax.crypto.KeyGenerator.getInstance(AES_GCM).algorithm,
-            ANDROID_KEYSTORE
-        )
+        // V0.6.3 Phase 21: Fixed KeyGenerator initialization.
+        // AES/GCM/NoPadding is a Cipher transformation, not a KeyGenerator algorithm.
+        // KeyGenerator must use "AES" only; GCM parameters are set on Cipher, not KeyGenerator.
+        val keyGen = javax.crypto.KeyGenerator.getInstance("AES", ANDROID_KEYSTORE)
         keyGen.init(
             KeyGenParameterSpec.Builder(
                 alias,

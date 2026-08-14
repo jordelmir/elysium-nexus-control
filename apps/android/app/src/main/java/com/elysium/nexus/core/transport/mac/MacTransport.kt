@@ -253,7 +253,13 @@ class MacTransport {
                         return@withContext _state.value
                     }
                 } else {
-                    Log.d(TAG, "Server responded with frame $pairType; auto-approved zero-PIN connection active")
+                    // V0.6.3 Phase 22: Fail-closed — only PAIR_OK is accepted.
+                    // Non-PAIR_OK frames (e.g. zero-PIN auto-approval attempts) are rejected.
+                    Log.w(TAG, "Server responded with frame $pairType; rejecting non-PAIR_OK frame (fail-closed)")
+                    _state.value = MacConnectionState.Error("Pairing failed: server sent $pairType instead of PAIR_OK")
+                    connected.set(false)
+                    sock.close()
+                    return@withContext _state.value
                 }
             }
 

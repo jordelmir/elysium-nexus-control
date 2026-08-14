@@ -140,7 +140,8 @@ class CatalogSignalIntegrityTest {
                 'NEC_32', 'NEC_32_EXT', 'NECx_32', 'SAMSUNG_32', 'SAMSUNG_20',
                 'SIRC_12', 'SIRC_15', 'SIRC_20', 'RC5_14', 'RC5X_16',
                 'RC6_16', 'RC6_20', 'KASEIKYO_48', 'PIONEER_40', 'SHARP_42',
-                'NEC_42', 'NEC_48'
+                'NEC_42', 'NEC_48', 'AIWA_42', 'SAMSUNG_36', 'APPLE_32',
+                'JVC_16', 'MITSUBISHI_16', 'DENON_32'
               )
             GROUP BY pv.variant_name
             HAVING COUNT(DISTINCT sig.id) > 0;

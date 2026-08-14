@@ -440,6 +440,16 @@ VARIANT_NAME_MAP: dict[str, str] = {
     "panasonic": "KASEIKYO_48",
     "panasonic_old": "KASEIKYO_48",
     "aiwa": "AIWA_42",
+    # V06.3: irdb families with no Kotlin codec yet — variants are labeled
+    # with the UPPERCASE contract name (PIONEER_40/SHARP_42 were already
+    # whitelisted by CatalogSignalIntegrityTest) or the bit count from
+    # IrpProtocols.xml (Apple 32b, JVC 16b, Mitsubishi 16b, Denon-K 32b).
+    "apple": "APPLE_32",
+    "jvc": "JVC_16",
+    "mitsubishi": "MITSUBISHI_16",
+    "pioneer": "PIONEER_40",
+    "sharp": "SHARP_42",
+    "denon": "DENON_32",
 }
 
 
