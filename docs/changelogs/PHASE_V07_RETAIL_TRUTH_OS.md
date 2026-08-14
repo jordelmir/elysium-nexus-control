@@ -100,9 +100,22 @@ La auditoría externa de dictamen (baseline `d89e705`, 2026-08-14) encontró los
 
 ## Pruebas
 
-- Nuevas: `RuntimeSignalPolicyTest` (7) + `CarrierPolicyTest` (7) + `MacCryptoPhase32DirectionalTest` (10) + `CredentialAadTest` (7). Verdes por diseño: JVM puro, sin Android.
-- Gate Python verificado en vivo contra `ir_catalog.db` (salida arriba).
+- Nuevas: `RuntimeSignalPolicyTest` (7) + `CarrierPolicyTest` (7) + `MacCryptoPhase32DirectionalTest` (10) + `CredentialAadTest` (7) + `MacCryptoCrossLanguageParityTest` (1, vectores dorados CryptoKit).
 - Compilación/lint/suite completa: **pendiente — regla de Jor (verificación batch solo cuando se ordene)**.
+
+## VERIFICACIÓN BATCH (ordenada por Jor el 2026-08-14, dispositivo VER_N49 conectado)
+
+- **JVM unit tests: 1.275, 0 fallos** (`testDebugUnitTest` ✓).
+- **`assembleDebug` ✓** — APK 161 MB instalado en el device (`com.elysium.nexus.controller`).
+- **`lintDebug` ✓** (abortOnError=true).
+- **`assembleRelease`**: P0 VERIFICADO EN VIVO y CORREGIDO — el gate emitía `app-release-unsigned.apk` en silencio sin credenciales (violaba Regla Hard #9). Ahora el task-graph lanza `RELEASE SIGNING BLOCKED (fail closed)` y el build FALLA en 2 s sin artefacto. Artifacts unsigned previos eliminados del output.
+- **Fixes de la batch** (el compilador/Test #38 cazaron bugs reales, se documentan y quedan fixeados):
+  1. `CredentialAad.build`: precedencia `"a"+ "b".toByteArray()` — solo la última literal se convertía → paréntesis.
+  2. `resolveExecutableSignal`: doble default en dos interfaces (prohibido en override conjunto) → el default queda en `IrCatalog`; los 2 callers internos pasan `COMMERCIAL` explícito.
+  3. `RuntimeSignalPolicyTest` llamaba suspend fuera de coroutine (nunca compiló antes de la batch) → `runTest`.
+  4. **Bug real de Phase 32**: las etiquetas HKDF eran por-ROL (tx/rx) → la TX de Alice jamás igualaba la RX de Bob. Ahora son por-DIRECCIÓN (`elysium-channel-phone-to-mac` / `elysium-channel-mac-to-phone`); corregido en Kotlin Y Swift. Test de paridad cruzada con vectores CryptoKit: `alice_tx == bob_rx`, `bob_tx == alice_rx` — **bytes idénticos** entre JCE y CryptoKit.
+  5. Twin Swift: CryptoKit usa `authenticating:` (no `authenticatedData:`); AAD nulo → overload sin AAD (paridad con JCE sin updateAAD). `swift build -c release` ✓.
+- **Instrumented (device VER_N49, Wi-Fi ADB)**: run 1 — 25/27 ✓; 2 fallos por DRIFT DE DATOS (catálogo viejo instalado antes): `searchDevicesReturnsMatchingResults` y `sankeyNowOffersMultipleCodeSetsForAutoSweep`. Tras `pm clear` + re-run: ambos PASAN (el catálogo embebido V5 sí tiene Samsung 122 remotes y Sankey ≥5 variantes) — confirmado en el DB empaquetado (SHA verificado). El test #38 `forceStopReopenSelectsExactProfileAndTransmitsItsOwnFrame` quedó a medias: el device se cayó del ADB Wi-Fi a los 648 s (standby). **PENDIENTE**: reactivar el TV (Wi-Fi debugging) para terminar la suite instrumentada completa.
 
 ## Pendiente (P0s del dictamen aún abiertos)
 
