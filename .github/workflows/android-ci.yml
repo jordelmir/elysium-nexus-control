@@ -242,50 +242,52 @@ jobs:
           total=$(find app/build/test-results -name "*.xml" -exec grep -oE 'tests="[0-9]+"' {} \; | awk -F'"' '{sum+=$2} END {print sum}')
           echo "Total tests: $total"
 
-  instrumented:
-    name: Instrumented tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: build
-    # P0.3: Instrumented tests are best-effort — emulator boot is flaky on CI.
-    # The real gate is the build job (JVM tests + lint + builds).
-    # This job provides bonus coverage when the emulator cooperates.
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          # V06.2: instrumented tests compile the APK (assets included).
-          # Without LFS the APK ships a 132-byte pointer instead of the DB.
-          lfs: true
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" "emulator" "system-images;android-34;google_apis;x86_64"
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x apps/android/gradlew
-
-      - name: Run instrumented tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          disable-animations: true
-          working-directory: apps/android
-          script: ./gradlew :app:connectedDebugAndroidTest --console=plain --no-daemon
+  # ── Instrumented tests (DISABLED — v0.7 P0.3) ──────────────────────
+  # WHY DISABLED:
+  #   reactivecircus/android-emulator-runner@v2 crashes on GitHub Actions
+  #   Ubuntu runners with "Emulator client has not yet been configured"
+  #   and "step: Not implemented". Even with continue-on-error: true,
+  #   the red X is visible and misleading. The real quality gate is the
+  #   build job above (JVM tests + lint + debug/release APK + SBOM).
+  #
+  # RE-ENABLE WHEN:
+  #   - GitHub Actions ships stable KVM-enabled runners, OR
+  #   - We migrate to Firebase Test Lab / physical device farm, OR
+  #   - reactivecircus/android-emulator-runner@v3 resolves boot issues.
+  #
+  # instrumented:
+  #   name: Instrumented tests
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 45
+  #   needs: build
+  #   continue-on-error: true
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #       with:
+  #         lfs: true
+  #     - name: Set up JDK 17
+  #       uses: actions/setup-java@v4
+  #       with:
+  #         distribution: temurin
+  #         java-version: 17
+  #         cache: gradle
+  #     - name: Setup Android SDK
+  #       uses: android-actions/setup-android@v3
+  #     - name: Install Android SDK packages
+  #       run: |
+  #         yes | sdkmanager --licenses > /dev/null 2>&1 || true
+  #         sdkmanager "platforms;android-36" "build-tools;36.0.0" "platforms;android-34" "build-tools;34.0.0" "platform-tools" "emulator" "system-images;android-34;google_apis;x86_64"
+  #     - name: Grant execute permission for gradlew
+  #       run: chmod +x apps/android/gradlew
+  #     - name: Run instrumented tests
+  #       uses: reactivecircus/android-emulator-runner@v2
+  #       with:
+  #         api-level: 34
+  #         arch: x86_64
+  #         target: google_apis
+  #         force-avd-creation: false
+  #         emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+  #         disable-animations: true
+  #         working-directory: apps/android
+  #         script: ./gradlew :app:connectedDebugAndroidTest --console=plain --no-daemon
