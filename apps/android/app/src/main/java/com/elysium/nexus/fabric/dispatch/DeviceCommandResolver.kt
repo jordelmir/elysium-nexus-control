@@ -84,7 +84,7 @@ class DeviceCommandResolver(
         val binding = profile.commands[irAction]
             ?: return CommandResolution.ActionNotInProfile(profileId, irAction)
 
-        val signal = catalogRepository.getSignal(binding.signalId)
+        val signal = catalogRepository.resolveExecutableSignal(binding.signalId)
             ?: return CommandResolution.SignalMissing(binding.signalId, profileId)
 
         // §21 Fingerprint verification at domain layer

@@ -4,6 +4,8 @@ import com.elysium.nexus.core.device.CatalogCommandBinding
 import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCodeSet
 import com.elysium.nexus.core.device.IrSignal
+import com.elysium.nexus.fabric.infrared.RuntimePolicy
+import com.elysium.nexus.fabric.infrared.RuntimeSignalPolicy
 
 data class DeviceSearchResult(
     val id: String,
@@ -182,6 +184,21 @@ interface IrCatalog {
     suspend fun getSignal(signalId: String): IrSignal?
 
     /**
+     * V0.7 Phase 5 — The SINGLE executable-signal entry point for every
+     * runtime path (probe, saved profiles, brand lookup, direct lookup,
+     * automation).
+     *
+     * Returns the signal only when [RuntimeSignalPolicy.isExecutable]
+     * admits it under the given [RuntimePolicy]. Default [RuntimePolicy.COMMERCIAL]
+     * blocks EXPERIMENTAL codecs (RC5, RC6, Kaseikyo) and unknown codecs —
+     * zero bypass, fail closed.
+     */
+    suspend fun resolveExecutableSignal(
+        signalId: String,
+        policy: RuntimePolicy = RuntimePolicy.COMMERCIAL
+    ): IrSignal?
+
+    /**
      * §7 Retrieve all command bindings for a code set with deterministic selection.
      */
     suspend fun getCommandsForCodeSet(codeSetId: String): Map<IrAction, List<CatalogCommandBinding>>
@@ -282,6 +299,14 @@ class InMemoryIrCatalog(
 
     override suspend fun getSignal(signalId: String): IrSignal? {
         return signalMap[signalId]
+    }
+
+    override suspend fun resolveExecutableSignal(
+        signalId: String,
+        policy: RuntimePolicy
+    ): IrSignal? {
+        val signal = signalMap[signalId] ?: return null
+        return if (RuntimeSignalPolicy.isExecutable(signal, policy)) signal else null
     }
 
     override suspend fun getCommandsForCodeSet(codeSetId: String): Map<IrAction, List<CatalogCommandBinding>> {

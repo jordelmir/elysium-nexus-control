@@ -447,7 +447,7 @@ private suspend fun sendProfileCommand(
     val binding = profile.commands[action]
         ?: return IrTransmitResult.InvalidPattern("Acción $action no mapeada en perfil ${profile.id}")
 
-    val signal = catalogRepo.getSignal(binding.signalId)
+    val signal = catalogRepo.resolveExecutableSignal(binding.signalId)
         ?: return IrTransmitResult.InvalidPattern("Signal ${binding.signalId} no encontrado en catálogo SQLite")
 
     // §21 Fingerprint verification

@@ -9,6 +9,7 @@ import com.elysium.nexus.core.device.IrAction
 import com.elysium.nexus.core.device.IrCommandBinding
 import com.elysium.nexus.core.device.VerificationStatus
 import com.elysium.nexus.fabric.infrared.IrProbeEngine
+import com.elysium.nexus.fabric.infrared.RuntimePolicy
 import com.elysium.nexus.fabric.infrared.database.IrCatalogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,6 +23,15 @@ private const val TAG = "ElysiumNexus.Revalidation"
 interface RevalidationCatalog {
     suspend fun getSignal(signalId: String): IrSignal?
     suspend fun getCodeSet(codeSetId: String): IrCodeSet?
+
+    /**
+     * V0.7 Phase 5 — policy-gated signal access. EXPERIMENTAL codecs are
+     * LAB_ONLY and must never re-enter a saved profile.
+     */
+    suspend fun resolveExecutableSignal(
+        signalId: String,
+        policy: RuntimePolicy = RuntimePolicy.COMMERCIAL
+    ): IrSignal?
 }
 
 /**
@@ -236,8 +246,9 @@ class ProfileRevalidationService(
         action: IrAction,
         binding: IrCommandBinding
     ): BindingRevalidationResult {
-        // 1. Check if signalId exists in current catalog
-        val catalogSignal = catalog.getSignal(binding.signalId)
+        // 1. Check if signalId exists in current catalog (commercial policy:
+        //    EXPERIMENTAL codecs are LAB_ONLY and never re-enter profiles).
+        val catalogSignal = catalog.resolveExecutableSignal(binding.signalId)
 
         if (catalogSignal != null) {
             // 2. Verify physical fingerprint matches
@@ -289,7 +300,7 @@ class ProfileRevalidationService(
         // 5. CodeSet exists but signal doesn't — try selectedCommands as single authority
         val alternativeSignalId = codeSet.selectedCommands[action]?.signalId
         if (alternativeSignalId != null) {
-            val alternativeSignal = catalog.getSignal(alternativeSignalId)
+            val alternativeSignal = catalog.resolveExecutableSignal(alternativeSignalId)
             if (alternativeSignal != null) {
                 val newFingerprint = IrProbeEngine.fingerprintSignal(alternativeSignal)
                 val newBinding = binding.copy(

@@ -18,6 +18,8 @@ import com.elysium.nexus.fabric.infrared.CodecResolution
 import com.elysium.nexus.fabric.infrared.ProtocolCodecRegistry
 import com.elysium.nexus.fabric.infrared.ProtocolVariant
 import com.elysium.nexus.fabric.infrared.CodecVerificationStatus
+import com.elysium.nexus.fabric.infrared.RuntimePolicy
+import com.elysium.nexus.fabric.infrared.RuntimeSignalPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -776,6 +778,25 @@ class IrCatalogRepository private constructor(
         resultSignal
     }
 
+    override suspend fun resolveExecutableSignal(
+        signalId: String,
+        policy: RuntimePolicy
+    ): IrSignal? = withContext(Dispatchers.IO) {
+        val signal = getSignal(signalId)
+        if (signal != null && RuntimeSignalPolicy.isExecutable(signal, policy)) {
+            signal
+        } else {
+            if (signal != null) {
+                Log.d(
+                    TAG,
+                    "Signal $signalId blocked by RuntimePolicy=$policy " +
+                        "(codecId=${(signal as? IrSignal.Encoded)?.codecId}). LAB_ONLY."
+                )
+            }
+            null
+        }
+    }
+
     override suspend fun searchBrands(query: String): List<String> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val database = getDatabase()
@@ -923,7 +944,7 @@ class IrCatalogRepository private constructor(
                     } else null
                 } else null
 
-                if (signal != null) {
+                if (signal != null && RuntimeSignalPolicy.isExecutable(signal)) {
                     result.getOrPut(irAction) { mutableListOf() }.add(
                         CatalogCommandBinding(
                             bindingId = bindingId,

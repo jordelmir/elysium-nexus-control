@@ -37,6 +37,10 @@ class ProfileRevalidationServiceUpgradeTest {
     ) : RevalidationCatalog {
         override suspend fun getSignal(signalId: String): IrSignal? = signals[signalId]
         override suspend fun getCodeSet(codeSetId: String): IrCodeSet? = codeSets[codeSetId]
+        override suspend fun resolveExecutableSignal(
+            signalId: String,
+            policy: com.elysium.nexus.fabric.infrared.RuntimePolicy
+        ): IrSignal? = signals[signalId]
     }
 
     private class FakeStore : ProfileRevalidationStore {
