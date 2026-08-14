@@ -395,6 +395,13 @@ def main():
         log("ERROR: Post-build verification failed!")
         sys.exit(1)
 
+    # Step 10: V0.7 Phase 4 — Generate Runtime Executable Catalog Report
+    try:
+        import catalog_executable_report
+        catalog_executable_report.main()
+    except Exception as e:
+        log(f"WARNING: Failed to generate executable report: {e}")
+
     log(f"Catalog build complete: {counts.get('code_sets', 0)} code sets, "
         f"{counts.get('signals', 0)} signals, {counts.get('command_bindings', 0)} bindings")
 
