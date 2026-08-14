@@ -133,6 +133,9 @@ class IrCatalogRepository private constructor(
         // blocked, only BLOCKED is). Evidence floors apply to production
         // claims, not to the probe surface.
 
+        // Phase 2 & 3: Strict TV device type enforcement and unlimited brand candidate paging
+        val effectiveDevType = if (deviceType.isBlank()) "TV" else deviceType.trim()
+
         val query = """
             SELECT cs.id AS cs_id, b.display_name AS brand_name, r.display_remote_model,
                    s.id AS source_name, s.license_id, dt.canonical_name AS device_type,
@@ -147,17 +150,15 @@ class IrCatalogRepository private constructor(
             JOIN actions a ON cb.action_id = a.id
             WHERE (b.display_name LIKE ? OR b.normalized_name LIKE ?)
               AND a.canonical_key = ?
-              AND (dt.canonical_name = ? OR ? = '')
+              AND dt.canonical_name = ?
               AND s.production_approved = 1
               AND cs.verification_status != 'BLOCKED'
             GROUP BY cs.id
             ORDER BY cs.id
-            LIMIT 200
         """.trimIndent()
 
         val brandArg = "%${brand.trim()}%"
-        val devTypeArg = deviceType.trim()
-        database.rawQuery(query, arrayOf(brandArg, brandArg, actionKey, devTypeArg, devTypeArg)).use { cursor ->
+        database.rawQuery(query, arrayOf(brandArg, brandArg, actionKey, effectiveDevType)).use { cursor ->
             while (cursor.moveToNext()) {
                 val csId = cursor.getString(0)
                 val brandName = cursor.getString(1) ?: brand

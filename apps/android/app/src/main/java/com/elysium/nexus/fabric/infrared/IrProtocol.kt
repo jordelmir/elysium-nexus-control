@@ -113,12 +113,34 @@ enum class IrProtocol(
                                 IrWaveform.encodeSamsung(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
                             SonySirc -> {
-                                // V0.6.3 Phase 12: SIRC fail-closed.
-                                // Explicit variant dispatch only — null or unknown → InvalidParameters.
-                                val addressBits = when (signal.variantId) {
-                                    "SIRC_12" -> 5
-                                    "SIRC_15" -> 8
-                                    "SIRC_20" -> 13
+                                // V0.7 Phase 6: SIRC20 physical strictness.
+                                // SIRC_12: address 5 bits
+                                // SIRC_15: address 8 bits
+                                // SIRC_20: address 5 bits + subDevice 8 bits (must be non-null)
+                                when (signal.variantId) {
+                                    "SIRC_12" -> {
+                                        EncodeResult.Success(
+                                            IrWaveform.encodeSonySirc(signal.address, signal.command, addressBits = 5, carrierHz = signal.carrierHz)
+                                        )
+                                    }
+                                    "SIRC_15" -> {
+                                        EncodeResult.Success(
+                                            IrWaveform.encodeSonySirc(signal.address, signal.command, addressBits = 8, carrierHz = signal.carrierHz)
+                                        )
+                                    }
+                                    "SIRC_20" -> {
+                                        val subDev = signal.subDevice
+                                            ?: return EncodeResult.InvalidParameters(
+                                                "SIRC_20 requires a non-null 8-bit subDevice. Missing subdevice forbidden."
+                                            )
+                                        require(signal.address in 0..31) { "SIRC_20 5-bit address must be in [0, 31] (got ${signal.address})" }
+                                        require(subDev in 0..255) { "SIRC_20 8-bit subDevice must be in [0, 255] (got $subDev)" }
+                                        // 13-bit combined field: 5 bits address (LSB) + 8 bits subDevice (MSB)
+                                        val combinedAddress = (subDev shl 5) or (signal.address and 0x1F)
+                                        EncodeResult.Success(
+                                            IrWaveform.encodeSonySirc(combinedAddress, signal.command, addressBits = 13, carrierHz = signal.carrierHz)
+                                        )
+                                    }
                                     null -> {
                                         return EncodeResult.InvalidParameters(
                                             "SIRC encoder: variantId is null. Caller must specify SIRC_12, SIRC_15, or SIRC_20."
@@ -131,9 +153,6 @@ enum class IrProtocol(
                                         )
                                     }
                                 }
-                                EncodeResult.Success(
-                                    IrWaveform.encodeSonySirc(signal.address, signal.command, addressBits = addressBits, carrierHz = signal.carrierHz)
-                                )
                             }
                             Rc5 -> EncodeResult.Success(
                                 IrWaveform.encodeRc5(signal.address, signal.command, signal.toggle, carrierHz = signal.carrierHz)
@@ -144,14 +163,22 @@ enum class IrProtocol(
                             Kaseikyo -> EncodeResult.Success(
                                 IrWaveform.encodeKaseikyo(signal.address, signal.command, carrierHz = signal.carrierHz)
                             )
-                            Aiwa -> EncodeResult.Success(
-                                IrWaveform.encodeAiwa(
-                                    signal.address,
-                                    signal.subDevice ?: 0,
-                                    signal.command,
-                                    carrierHz = signal.carrierHz
+                            Aiwa -> {
+                                // V0.7 Phase 7: Aiwa physical strictness.
+                                // subDevice MUST NOT default to 0. Fail closed if null.
+                                val subDev = signal.subDevice
+                                    ?: return EncodeResult.InvalidParameters(
+                                        "Aiwa protocol requires a non-null subDevice. Defaulting to 0 is forbidden."
+                                    )
+                                EncodeResult.Success(
+                                    IrWaveform.encodeAiwa(
+                                        signal.address,
+                                        subDev,
+                                        signal.command,
+                                        carrierHz = signal.carrierHz
+                                    )
                                 )
-                            )
+                            }
                             Raw -> EncodeResult.InvalidParameters("Raw protocol must use IrSignal.Raw payload.")
                         }
                     } catch (e: Exception) {

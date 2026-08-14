@@ -86,7 +86,7 @@ object IrCaptureBridge {
                                 TAG,
                                 "DIAG LEARN_FRAME carrier=${frame.carrierHz} slices=${frame.pattern.size}"
                             )
-                            val result = IrLearner.learn(frame.pattern, 1_000_000)
+                            val result = IrLearner.learn(frame.pattern, 1_000_000, frame.carrierHz)
                             val proto = result.command?.protocol?.name ?: "UNKNOWN"
                             Log.i(
                                 TAG,

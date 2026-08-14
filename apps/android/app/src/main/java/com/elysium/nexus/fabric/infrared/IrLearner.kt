@@ -12,7 +12,7 @@ object IrLearner {
         val confidence: Float
     )
 
-    fun learn(raw: IntArray, sampleRateHz: Int = 1_000_000): LearnResult {
+    fun learn(raw: IntArray, sampleRateHz: Int = 1_000_000, measuredCarrierHz: Int? = null): LearnResult {
         require(raw.size >= 2) {
             "IrLearner.learn: raw waveform must have at least 2 entries."
         }
@@ -23,7 +23,12 @@ object IrLearner {
             "IrLearner.learn: sampleRateHz must be positive."
         }
 
-        val carrier = estimateCarrier(raw, sampleRateHz)
+        // V0.7 Phase 10: Measured raw carrier is AUTHORITATIVE physical evidence when present.
+        val carrier = if (measuredCarrierHz != null && measuredCarrierHz in 30_000..60_000) {
+            measuredCarrierHz
+        } else {
+            estimateCarrier(raw, sampleRateHz)
+        }
         val safeCarrier = if (carrier in 30_000..60_000) carrier else IrProtocol.DEFAULT_CARRIER_HZ
 
         val candidates: List<MatchCandidate> = listOf(

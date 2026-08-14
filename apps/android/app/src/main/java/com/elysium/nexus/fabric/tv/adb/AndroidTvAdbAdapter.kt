@@ -51,9 +51,12 @@ class AndroidTvAdbAdapter(
 
     override val brand: TvBrand = TvBrand.AndroidGoogle
 
+    // V0.7 Phase 25: ADB Wi-Fi is strictly DEVELOPER_ONLY.
+    // Protocol is WiFi (ADB over TCP). HdmiCec is removed until natively implemented.
+    val isDeveloperOnlyRoute: Boolean = true
+
     override val supportedProtocols: Set<Protocol> = setOf(
-        Protocol.WiFi,
-        Protocol.HdmiCec
+        Protocol.WiFi
     )
 
     override val supportedCapabilities: Set<Capability> = setOf(

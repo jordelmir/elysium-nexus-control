@@ -278,7 +278,7 @@ fun IrConnectFlow(
             // Brand search: bounded 200, eager load — still correct
             val candidates = repo.getCandidatesForBrand(
                 brand = template.brand,
-                deviceType = "",
+                deviceType = "TV",
                 action = IrAction.VOLUME_UP
             )
             if (candidates.isEmpty()) {

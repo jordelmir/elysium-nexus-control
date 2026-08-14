@@ -19,13 +19,19 @@ android {
     namespace = "com.elysium.nexus"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
-    // V0.6.3 Phase 25: release signing config
+    // V0.7 Phase 30: release signing config without hardcoded password fallbacks
     signingConfigs {
         create("release") {
-            storeFile = file("../release.jks")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: "Elysium2026!"
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "elysium-nexus"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "Elysium2026!"
+            val storePass = System.getenv("RELEASE_STORE_PASSWORD")
+            val keyPass = System.getenv("RELEASE_KEY_PASSWORD")
+            val alias = System.getenv("RELEASE_KEY_ALIAS") ?: "elysium-nexus"
+            val ksFile = file("../release.jks")
+            if (ksFile.exists() && !storePass.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = ksFile
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
+            }
         }
     }
 
@@ -33,8 +39,8 @@ android {
         applicationId = "com.elysium.nexus.controller"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 6
-        versionName = "0.6.3-ir-recovery"
+        versionCode = 7
+        versionName = "0.7.0-retail-truth"
 
         // No instrumentation runner until we add AndroidX Test. We add
         // it in 0.5 alongside the first Context-dependent test.
@@ -47,10 +53,13 @@ android {
         }
         release {
             // R8 minification + resource shrinking for release builds.
-            // V0.6.3 Phase 25: production signing with dedicated release keystore.
+            // V0.7 Phase 30: production signing only when verified env keys are present.
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            val relConfig = signingConfigs.findByName("release")
+            if (relConfig?.storeFile?.exists() == true && !relConfig.storePassword.isNullOrEmpty()) {
+                signingConfig = relConfig
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

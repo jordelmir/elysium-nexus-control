@@ -1,238 +1,84 @@
-# Elysium Nexus Universal Controller
+# Elysium Nexus Universal Control OS — Retail Truth Edition
 
-> **v0.5.0-engineering-preview** · A platform that turns any Android phone into a **universal, professional, dynamic control surface** for desktop, mobile, console, IoT, and infrared-controlled devices.
-
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-780%20passed-brightgreen)]()
-[![Lint](https://img.shields.io/badge/lint-0%20errors-brightgreen)]()
-[![Device Verified](https://img.shields.io/badge/verified-dimoru-magic--v2-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.5.0--engineering--preview-blue)]()
-[![License](https://img.shields.io/badge/license-proprietary-lightgrey)]()
+> **v0.7.0-retail-truth** · Commercial Retail Control Platform targeting Monge, El Verdugo, and Gollo (Costa Rica). Built on a local-first IR Data Fabric with strict zero-false-claim physical evidence mandates.
 
 ```
-┌──────────────────────────────────────────────┐
-│  Phone touch surface                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ Stick L  │  │ Buttons  │  │ Stick R  │   │
-│  └──────────┘  └──────────┘  └──────────┘   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ LT  RT   │  │ D-pad    │  │ Touchpad │   │
-│  └──────────┘  └──────────┘  └──────────┘   │
-│  ┌──────────────────────────────────────┐    │
-│  │         IR Remote Control            │    │
-│  │   1,976 code sets · 36,317 commands  │    │
-│  └──────────────────────────────────────┘    │
-└──────────────────────────────────────────────┘
-        │              │                 ▲
-        │ BT HID       │ IR Blaster      │ Wi-Fi / Elysium Link
-        │ (Gamepad)     │ (38kHz)         │ (Mac agent + AES)
-        ▼              ▼                 │
-   ┌──────────────────────────────────────┐
-   │  TV / AC / STB / Desktop / Steam     │
-   └──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   ELYSIUM NEXUS RETAIL CONTROL PLATFORM                     │
+│                                                                             │
+│  [Android Phone App]  ⇄  [Elysium Nexus Bridge (IR TX/RX + BLE + USB-C)]    │
+│                                      │                                      │
+│                                      ▼                                      │
+│                  Physical Optical Control & Verification                    │
+│                                      │                                      │
+│                                      ▼                                      │
+│            Retail Active SKU Matrix (Monge · Gollo · El Verdugo)            │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Features
+## 🔴 Retail IR Data Fabric Metrics (v0.7.0-retail-truth)
 
-### 🔴 Infrared Universal Remote — IR Data Fabric v0.5.0
-- **812 brands**, **45 device types**, **1,976 code sets**, **36,317 verified IR commands** in a local-first SQLite catalog (Schema v4, ~19.7 MB). Curated seeds for `Kintech`, `Universal TV` and `Control Universal TV` verified end-to-end on the lab Honor Magic V2.
-- **7 supported protocols**: NEC, NECx, Samsung32, Sony SIRC (12/15/20), RC5, RC6, Kaseikyo/Panasonic — all with golden vector verified encoders + 13 parametric codecs.
-- **Smart probing engine**: Automatic brand/model detection via sequential candidate testing with physical SHA-256 signal fingerprinting.
-- **Persistent winner profiles**: Once a working code set is confirmed, it's saved locally and survives app restarts, updates, and device reboots.
-- **Strict protocol resolution**: Fail-closed `ProtocolResolution.Unsupported` — zero silent NEC fallbacks.
-- **Immutable supply chain**: 5 upstream IR repositories locked to exact commit SHAs with cryptographic license verification.
-- **Checksum-refreshed catalog**: the packaged DB is reinstalled atomically when the asset SHA drifts (survives in-place `adb install -r` upgrades).
+| Asset Category | Measured Count | Retail Verification Status |
+|----------------|----------------|----------------------------|
+| **Brands** | 1,430 | `UNIT_SHAPE_VALIDATED` |
+| **Device Types** | 264 | `UNIT_SHAPE_VALIDATED` |
+| **Remotes** | 5,004 | `UNIT_SHAPE_VALIDATED` |
+| **Code Sets** | 4,715 | `UNIT_SHAPE_VALIDATED` |
+| **IR Signals** | 106,033 | `UNIT_SHAPE_VALIDATED` |
+| **Command Bindings** | 223,571 | `UNIT_SHAPE_VALIDATED` |
+| **Protocol Definitions** | 23 | `UNIT_SHAPE_VALIDATED` |
+| **Protocol Variants** | 24 | `UNIT_SHAPE_VALIDATED` |
+| **Explicit Rejections** | 37,753 | `PARSER_REJECTED` |
+| **Physical Test Evidence** | **0** | **`COMMERCIAL_CLAIM_BLOCKED`** |
+| **Retail Compatibility Assertions** | **0** | **`COMMERCIAL_CLAIM_BLOCKED`** |
 
-### 🖥️ USB-C Direct Mac Screen Replacement
-- **60 FPS ultra-low latency** headless Mac control over USB-C cable (`127.0.0.1:7878`).
-- **Zero-PIN auto-connection**: Instant pairing with no prompts.
-- **Dual modes**: `100% Pantalla` (edge-to-edge monitor) and `Teclado Mac` (split display + keyboard).
-- **Zero accumulative latency**: `conflate()` frame stream ensures <15ms glass-to-glass delay.
-
-### 🎮 Universal Bluetooth HID Gamepad
-- **Combo HID descriptor**: Keyboard + Mouse + Consumer Control + Gamepad in a single Bluetooth profile.
-- **23-button canonical model** with 5 stick filter curves, trigger pipeline, and touch arbitration.
-- **Foldable-aware**: `PostureAdaptiveLayout` via `WindowManager` for devices like Honor Magic V2.
-
-### 📡 Multi-Transport Architecture
-- Bluetooth HID (BLE / Classic)
-- USB-C Direct (ADB + Screen Mirror)
-- Wi-Fi (Elysium Link encrypted)
-- Infrared (ConsumerIrManager)
-- Future: Elysium Nexus Receiver (BLE/Wi-Fi/USB hardware dongle)
+> [!IMPORTANT]
+> **Strict Commercial Doctrine**:
+> Transmitting a waveform (`ConsumerIrManager TX_OK`) does NOT equal physical TV control.
+> Claims of 100% compatibility are strictly forbidden until dual-path physical test evidence (`REAL_DEVICE_VERIFIED` / `HIL_VERIFIED`) is recorded against an exact retailer SKU MPN.
 
 ---
 
-## Quick Start
+## 🛡️ Commercial Hard Rules (Zero False Compatibility)
 
-### Build & Install
+1. **NO MOCK. NO FAKE TV. NO TEMPLATE-AS-TRUTH. NO GUESSED COMPATIBILITY. NO AI-GENERATED PRODUCTION IR CODE. NO SILENT FALLBACK. NO CLAIM WITHOUT EVIDENCE.**
+2. **Retail Strategy**: Shift from software-only APK to hardware-backed **Elysium Nexus Bridge** for guaranteed physical control across all mobile devices (iOS & non-IR Android).
+3. **Paging & Filtering**: Brand lookups strictly filter by `deviceType = TV` and use cursor-based pagination (no `LIMIT 200` truncation).
+4. **Codec Eligibility**: Experimental codecs (`RC5`, `RC6`, `Kaseikyo`) are restricted to `LAB_ONLY`. Only `HIL_VERIFIED` codecs are commercial candidates.
+5. **ADB Wi-Fi Reclassification**: ADB transport is strictly `DEVELOPER_ONLY` and cannot be presented as a consumer retail control path.
+6. **No Hardcoded Release Secrets**: Production release signing requires explicit environment credentials (`RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`).
+
+---
+
+## 🛠️ Build & Verification Toolchain
+
+| Component | Target SDK | AGP Version | Compile SDK | License Verification |
+|-----------|------------|-------------|-------------|----------------------|
+| Android App | **API 36** | 8.10.0+ | **API 36** | ✅ Lock-verified |
+| IR Data Pipeline | Schema v4 | SQLite 3 | SHA-256 | ✅ Lock-verified |
+
+### Build Commands
 ```bash
 cd apps/android
-./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+# Run JVM unit tests
+./gradlew :app:testDebugUnitTest
 
-### Mac Setup (1-Click)
-```bash
-./tools/install-mac.sh
-```
-
-### IR Catalog Rebuild (Development)
-```bash
-# Bootstrap upstream IR data sources
-bash tools/ir-data/bootstrap-sources.sh --locked
-
-# Build production catalog (excludes gated sources)
-python3 tools/ir-data/build_catalog.py --profile production
-
-# Seed curated universally-resolvable brands (Kintech, Universal TV, …)
-python3 tools/ir-data/seed_curated_brands_v4.py
-
-# Verify supply chain integrity
-python3 tools/ir-data/verify_source_locks.py
+# Assemble Release APK (requires release env credentials)
+./gradlew :app:assembleRelease
 ```
 
 ---
 
-## Build Matrix
+## 📄 License & Supply Chain Provenance
 
-| Component | Language | Min API | Target API | Tests | Status |
-|-----------|----------|---------|------------|-------|--------|
-| Android Controller | Kotlin 2.2.21 | 26 | 34 | 780 | ✅ Green |
-| Mac Agent | Swift | macOS 12+ | — | — | ✅ Functional |
-| IR Data Pipeline | Python 3 | — | — | — | ✅ Production |
-| Desktop Agents | — | — | — | — | 🔲 Phase 3 |
-| Nexus Receiver FW | — | — | — | — | 🔲 Phase 4 |
-| Console Backends | — | — | — | — | 🔒 Vendor License Gated |
+Included IR sources:
+- **Flipper-IRDB** (CC0-1.0 locked to commit `d126fb1b`)
+- **SmartIR** (MIT locked to commit `e4df2957`)
+- **radioxoma/infrared** (CC0-1.0 locked to commit `96179666`)
 
----
+Excluded / Gated:
+- **probonopd/irdb** (GPL-2.0, gated until B2B compliance review)
 
-## Codebase Metrics
-
-| Metric | Value |
-|--------|-------|
-| **Kotlin source files** | 194 |
-| **Kotlin production LoC** | 41,586 |
-| **Kotlin test LoC** | 12,827 |
-| **JVM unit tests** | 780 (100% green) |
-| **Instrumented tests** | Release Blocker + catalog (green on Honor V2) |
-| **Lint errors** | 0 |
-| **APK size (debug)** | 73 MB |
-| **IR catalog size** | ~19 MB |
-| **IR code sets** | 1,976 |
-| **IR command bindings** | 36,317 |
-| **IR brands** | 812 |
-
----
-
-## Architecture
-
-```
-elysium-nexus-controller/
-├── apps/
-│   ├── android/                    # Main APK (Kotlin, Compose, Room)
-│   │   └── app/src/main/
-│   │       ├── java/com/elysium/nexus/
-│   │       │   ├── core/           # Domain models (CanonicalInput, IrAction, InstalledIrProfile)
-│   │       │   ├── fabric/         # Engine layer (IR, HID, Dispatch, Profile persistence)
-│   │       │   │   ├── infrared/   # IrWaveform, IrProtocol, IrProbeEngine, ProtocolCodecRegistry
-│   │       │   │   │   ├── database/   # IrCatalogRepository, IrCatalogDatabaseManager (SQLite)
-│   │       │   │   │   └── ingestion/  # LicenseGate, parsers per upstream repo
-│   │       │   │   ├── dispatch/   # ActionDispatcher, DeviceCommandResolver
-│   │       │   │   ├── profile/    # InstalledIrProfileRepository
-│   │       │   │   └── canonical/  # UniversalAction, CanonicalEngine
-│   │       │   └── ui/            # Compose screens (Hub, Control, Connect, Settings)
-│   │       └── assets/ir/         # ir_catalog.db + manifest + rejections
-│   ├── macos-agent/               # Swift daemon (screen capture + ADB bridge)
-│   └── profile-studio/            # Editor host (future)
-├── ir-data/                       # sources.lock.json, ingestion configs
-├── tools/ir-data/                 # bootstrap-sources.sh, build_catalog.py, lock/verify scripts
-├── docs/
-│   ├── architecture/              # MASTER_ORDER.md
-│   ├── adr/                       # Architecture Decision Records
-│   ├── changelogs/                # 48 phase changelogs
-│   ├── audits/                    # IR_V03_BASELINE.md
-│   ├── licensing/                 # License matrix
-│   └── security/                  # Threat model
-└── .github/workflows/             # CI
-```
-
----
-
-## IR Data Fabric — Supply Chain
-
-| Source Repository | License | Commit Lock | Production |
-|-------------------|---------|-------------|------------|
-| [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) | CC0-1.0 | `d126fb1b` | ✅ Included |
-| [SmartIR](https://github.com/smartHomeHub/SmartIR) | MIT | `e4df2957` | ✅ Included |
-| [radioxoma/infrared](https://github.com/radioxoma/infrared) | CC0-1.0 | `96179666` | ✅ Included |
-| [IrpTransmogrifier](https://github.com/bengtmartensson/IrpTransmogrifier) | GPL-2.0+ | `8636d20a` | ✅ Spec Reference |
-| [probonopd/irdb](https://github.com/probonopd/irdb) | GPL-2.0 | `11aa5eb3` | 🔒 **GATED** (excluded from APK) |
-
-All locks verified via `verify_source_locks.py` with 40-hex SHA commit, tree, and license file hashes.
-
----
-
-## Supported IR Protocols
-
-| Protocol | Carrier | Encoder Status | Golden Vectors |
-|----------|---------|----------------|----------------|
-| NEC | 38 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 12 |
-| NECx (Extended) | 38 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 10 |
-| Samsung32 | 38 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 8 |
-| Sony SIRC (12/15/20) | 40 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 6 |
-| RC5 (Manchester) | 36 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 5 |
-| RC6 | 36 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 4 |
-| Kaseikyo / Panasonic | 38 kHz | ✅ GOLDEN_VECTOR_VERIFIED | 4 |
-
----
-
-## Hard Rules (No Exceptions)
-
-1. **No impersonation of commercial devices.** We ship our own descriptor under our own VID/PID (`Elysium Nexus Gamepad`). We never present a fake Xbox- or PlayStation-branded identity.
-2. **Licensed console backends are gated.** Direct PS4/5, Xbox One/Series, Switch/2 backends compile only when a vendor license, authorized SDK, and provisioned secrets are present.
-3. **No Accessibility abuse for gamepad injection.** Accessibility Service is not a substitute for a real system-level gamepad.
-4. **Disconnection must neutralize everything.** Test §38 is a release blocker. Zero stuck inputs after abrupt disconnect.
-5. **No silent claims.** Compatibility states: `VERIFIED_LAB`, `VERIFIED_COMMUNITY`, `PARTIALLY_VERIFIED`, `UNVERIFIED`, `REGRESSION`, `BLOCKED`.
-6. **No GlobalScope in Kotlin.** Structured concurrency tied to lifecycle or service scope.
-7. **No `unwrap()` in production Rust.** Typed errors, no panics on external data.
-8. **No device-hardcoding.** Honor Magic V2 is the *lab* device, not the *target*. Capabilities come from `WindowManager` + `InputDevice` + sensor introspection.
-9. **No silent NEC fallbacks.** Protocol resolution is fail-closed with `ProtocolResolution.Unsupported`.
-10. **No commercial / cloud gate for the core.** The APK works as a local controller without a network.
-
----
-
-## Changelog Phases
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0.1 | Gradle 9.3.1, AGP 8.7.3, Kotlin 2.0.21, JUnit | ✅ |
-| 0.2 | Canonical input model (23 buttons) | ✅ |
-| 0.3 | Stick filter pipeline (5 curves) | ✅ |
-| 0.4 | Canonical input engine + §32 state machine | ✅ |
-| 0.5 | Trigger + touch pipeline | ✅ |
-| 0.6 | §38 disconnect test (release blocker) | ✅ |
-| 0.7 | First MainActivity end-to-end | ✅ |
-| 0.8 | §30 latency harness (p50 0.05ms) | ✅ |
-| 0.9 | Generic HID descriptor + compatibility DB | ✅ |
-| 1.0 | Room + Compose UI | ✅ |
-| 1.1–1.24 | Profile editor, gestures, motion, haptics, transports, settings, CI | ✅ |
-| ULT.0–ULT.13 | Fabric foundation, hierarchy, BT HID, foldable, media keys, IR protocols | ✅ |
-| IR Fabric | Local-first SQLite IR catalog (Schema v4, 1,976 code sets) | ✅ |
-| **IR v0.5.0-preview** | **Authoritative signal path, release-blocker tests, Kintech verified on-device** | ✅ |
-
-All 51 phase changelogs are in [`docs/changelogs/`](docs/changelogs/).
-
----
-
-## Contributing
-
-Read [`AGENTS.md`](AGENTS.md) first. It is the project's operating contract: hard rules, working contract with the maintainer, iteration loop, build commands, and source-of-truth ordering.
-
----
-
-## License
-
-The codebase is the property of the project owner. The project is not open source at this time; permission to mirror or fork is not granted by default.
+Read [`AGENTS.md`](AGENTS.md) for full project rules and operating instructions.

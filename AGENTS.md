@@ -8,25 +8,39 @@
 
 **Elysium Nexus Universal Control OS** — a platform that transforms any authorized control intent into the correct action on the correct device via the best available route, with minimal configuration, practical latency, execution evidence where possible, and automatic recovery from failures.
 
-Code name: **ELYSiUM NEXUS — UNIVERSAL INTENT FABRIC**.
+Code name: **ELYSiUM NEXUS — UNIVERSAL INTENT FABRIC / RETAIL TRUTH OS**.
 
-The governing constitution is `docs/architecture/MASTER_ORDER.md` (100-point Universal Intent Fabric order). Every architectural decision references one or more of its sections. The original 46-section order is preserved in `MASTER_ORDER_SECTIONS.md` for historical reference.
+The governing constitution is `docs/architecture/MASTER_ORDER.md` (100-point Universal Intent Fabric order) updated with **v0.7 Retail Truth Master Implementation Order**.
 
-## Hard rules (no exceptions)
+## Maturity Scale (Strict Commercial Taxonomy)
 
-These mirror `MASTER_ORDER.md` §2, §3, §4, §6, §30, §35, §38, §41, §45. They are not negotiable.
+Only the following 11 maturity levels are permitted to describe subsystem or compatibility status:
+1. `CONCEPT` — Proposed idea, architectural note.
+2. `DESIGNED` — Documented spec, ADR or interface design.
+3. `IMPLEMENTED` — Code written and compiled.
+4. `UNIT_VERIFIED` — Covered by passing JVM/Rust unit tests.
+5. `INTEGRATION_VERIFIED` — Integration test suite green.
+6. `ON_DEVICE_VERIFIED` — Transmitted cleanly from physical host (e.g. Android ConsumerIrManager TX_OK).
+7. `REAL_DEVICE_VERIFIED` — Observed physical reaction on target device (e.g. TV responds to optical pulse).
+8. `HIL_VERIFIED` — Dual-path hardware-in-the-loop test lab verified (optical raw capture + independent decoder).
+9. `DEVICE_MATRIX_VERIFIED` — Complete CORE action matrix verified on specific exact device MPN.
+10. `RETAIL_MATRIX_VERIFIED` — 100% of dated active SKU matrix for a retailer (Monge, Gollo, Verdugo) verified.
+11. `PRODUCTION_APPROVED` — Signed build meeting all 25 Final Commercial Truth Gate checks.
 
-1. **No impersonation of commercial devices.** We do not forge DualSense, DualShock, Xbox Controller, Joy-Con, or Pro Controller. We ship our own descriptor under our own VID/PID (allocated via the USB-IF path) named `Elysium Nexus Gamepad`. We never present a fake Xbox- or PlayStation-branded identity to a host. (See §2, §18.)
-2. **Licensed console backends are gated.** Direct PS4/5, Xbox One/Series, Switch/2 backends compile **only** when a vendor license, an authorized SDK, and provisioned secrets are present. Without those, the build is `REQUIRES_VENDOR_LICENSE` and the runtime surface is empty. (§2, §21, §22, §23, §24, §41.)
-3. **No Accessibility abuse for gamepad injection.** Accessibility Service is **not** a substitute for a real system-level gamepad. We use Accessibility for accessibility. (§25.)
-4. **Disconnection must neutralize everything.** Test #38 is a release blocker. If a single input is "stuck" after an abrupt disconnect, the change is rejected. (§38.)
-5. **No silent claims.** We do not assert compatibility we have not measured. Compatibility states are exactly: `VERIFIED_LAB`, `VERIFIED_COMMUNITY`, `PARTIALLY_VERIFIED`, `UNVERIFIED`, `REGRESSION`, `BLOCKED`. (§33, §44.)
-6. **No Rust as decoration.** If a Rust crate is added, it must justify a JNI/FFI boundary with a benchmark. Otherwise it lives in `crates/` only when a measured benefit exists. (§9.)
-7. **No GlobalScope in Kotlin.** Structured concurrency tied to lifecycle or service scope. No leaks. (§31.)
-8. **No `unwrap()` in production Rust.** Typed errors, no panics on external data. (§31.)
-9. **No device-hardcoding.** Honor Magic V2 is the **lab** device, not the **target**. All capabilities come from `WindowManager` + `InputDevice` + sensor introspection. Foldable postures are first-class. (§0, §16.)
-10. **No commercial / cloud gate for the core.** The APK must work as a local controller without a network. (§43, item 25.)
-11. **No "completado" claims for UI or pseudocode.** A subsystem is `VERIFIED` only when it has code, tests, and a green build. (§44.)
+No other vocabulary (such as "universal", "compatible with all TVs", "100% supported") may imply proof without evidence.
+
+## Commercial Hard Rules (v0.7 Retail Truth)
+
+1. **NO MOCK. NO FAKE TV. NO TEMPLATE-AS-TRUTH. NO GUESSED COMPATIBILITY. NO AI-GENERATED PRODUCTION IR CODE. NO SILENT FALLBACK. NO CLAIM WITHOUT EVIDENCE.**
+2. **Retail Target**: GOLLO_CR, MONGE_CR, VERDUGO_CR. "100% CORE VERIFIED" claims are generated exclusively from physical evidence against a dated active SKU matrix.
+3. **No impersonation of commercial devices.** We do not forge DualSense, DualShock, Xbox Controller, Joy-Con, or Pro Controller. We ship our own descriptor under our own VID/PID named `Elysium Nexus Gamepad`.
+4. **Licensed console backends are gated.** Direct PS4/5, Xbox One/Series, Switch/2 backends compile **only** when a vendor license, an authorized SDK, and provisioned secrets are present.
+5. **Disconnection must neutralize everything.** Test #38 is a release blocker.
+6. **No silent claims.** Compatibility states are strictly derived from evidence using the 11-level maturity scale.
+7. **ADB Wi-Fi is DEVELOPER_ONLY.** ADB transport is strictly classified for developer/lab use and must NEVER be presented as a consumer retail control path.
+8. **Experimental Codecs Gated.** Codecs marked `EXPERIMENTAL` (`RC5`, `RC6`, `Kaseikyo`) are `LAB_ONLY` and blocked from commercial runtime candidate lookups.
+9. **No hardcoded release credentials.** Release signing requires verified environment variables (`RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`). Build fails closed if missing.
+10. **Hardware-Ecosystem Baseline.** Commercial guarantee is backed by **Elysium Nexus Bridge** (IR TX/RX + BLE + USB-C) for universal physical control across all smartphones.
 
 ## Repository layout (from §6)
 
