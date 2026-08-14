@@ -257,10 +257,10 @@ object CredentialAad {
         deviceId: DeviceId,
         purpose: String = PURPOSE_STORAGE,
         schemaVersion: Int = SCHEMA_VERSION
-    ): ByteArray =
+    ): ByteArray = (
         "$ENVELOPE_VERSION|alias=$keyAlias|protocol=${protocol.name}|" +
             "device=${deviceId.value}|purpose=$purpose|schema=$schemaVersion"
-            .toByteArray(Charsets.UTF_8)
+        ).toByteArray(Charsets.UTF_8)
 }
 
 /**

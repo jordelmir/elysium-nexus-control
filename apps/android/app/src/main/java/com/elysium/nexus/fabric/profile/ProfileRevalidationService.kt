@@ -30,7 +30,7 @@ interface RevalidationCatalog {
      */
     suspend fun resolveExecutableSignal(
         signalId: String,
-        policy: RuntimePolicy = RuntimePolicy.COMMERCIAL
+        policy: RuntimePolicy
     ): IrSignal?
 }
 
@@ -248,7 +248,10 @@ class ProfileRevalidationService(
     ): BindingRevalidationResult {
         // 1. Check if signalId exists in current catalog (commercial policy:
         //    EXPERIMENTAL codecs are LAB_ONLY and never re-enter profiles).
-        val catalogSignal = catalog.resolveExecutableSignal(binding.signalId)
+        val catalogSignal = catalog.resolveExecutableSignal(
+            binding.signalId,
+            RuntimePolicy.COMMERCIAL
+        )
 
         if (catalogSignal != null) {
             // 2. Verify physical fingerprint matches
@@ -300,7 +303,10 @@ class ProfileRevalidationService(
         // 5. CodeSet exists but signal doesn't — try selectedCommands as single authority
         val alternativeSignalId = codeSet.selectedCommands[action]?.signalId
         if (alternativeSignalId != null) {
-            val alternativeSignal = catalog.resolveExecutableSignal(alternativeSignalId)
+            val alternativeSignal = catalog.resolveExecutableSignal(
+                alternativeSignalId,
+                RuntimePolicy.COMMERCIAL
+            )
             if (alternativeSignal != null) {
                 val newFingerprint = IrProbeEngine.fingerprintSignal(alternativeSignal)
                 val newBinding = binding.copy(
