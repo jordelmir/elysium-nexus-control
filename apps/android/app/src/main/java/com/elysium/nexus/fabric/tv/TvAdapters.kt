@@ -53,7 +53,8 @@ class SamsungTizenTvAdapter : TvLanAdapter {
     )
     override suspend fun pair(request: PairingRequest) = PairingResult.Failed("Not implemented")
     override suspend fun queryCapabilities() = supportedCapabilities.map {
-        TvCapability(it, readable = true, subscribable = true)
+        // V0.7 Phase 25: readState() returns null — never advertise readable=true.
+        TvCapability(it, readable = false, subscribable = false)
     }.toSet()
     override suspend fun execute(action: UniversalAction) = ActionExecutionResult.Unsupported(action::class.simpleName ?: "Unknown")
     override suspend fun readState(capability: com.elysium.nexus.fabric.canonical.Capability) = null
@@ -109,7 +110,8 @@ class SonyBraviaTvAdapter : TvLanAdapter {
     )
     override suspend fun pair(request: PairingRequest) = PairingResult.Failed("Not implemented")
     override suspend fun queryCapabilities() = supportedCapabilities.map {
-        TvCapability(it, readable = true, subscribable = false)
+        // V0.7 Phase 25: readState() returns null — never advertise readable=true.
+        TvCapability(it, readable = false, subscribable = false)
     }.toSet()
     override suspend fun execute(action: UniversalAction) = ActionExecutionResult.Unsupported(action::class.simpleName ?: "Unknown")
     override suspend fun readState(capability: com.elysium.nexus.fabric.canonical.Capability) = null
@@ -155,7 +157,8 @@ class AndroidGoogleTvAdapter : TvLanAdapter {
     )
     override suspend fun pair(request: PairingRequest) = PairingResult.Failed("Not implemented")
     override suspend fun queryCapabilities() = supportedCapabilities.map {
-        TvCapability(it, readable = true, subscribable = false)
+        // V0.7 Phase 25: readState() returns null — never advertise readable=true.
+        TvCapability(it, readable = false, subscribable = false)
     }.toSet()
     override suspend fun execute(action: UniversalAction) = ActionExecutionResult.Unsupported(action::class.simpleName ?: "Unknown")
     override suspend fun readState(capability: com.elysium.nexus.fabric.canonical.Capability) = null
