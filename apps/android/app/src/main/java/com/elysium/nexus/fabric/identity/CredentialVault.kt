@@ -327,22 +327,21 @@ class InMemoryCredentialVault : CredentialVault {
  * serialized to JSON, encrypted with a unique AES key, and stored
  * in a [CredentialVaultStore].
  *
- * ## Key hierarchy
+ * ## Architecture: Master Key with AEAD AAD Binding
  *
- * - A **master KeyStore key** (`KEYSTORE_ALIAS`) is generated once and
- *   never leaves the Keystore.
- * - Each credential gets a unique AES key (`$KEYSTORE_ALIAS.vN`) that
- *   is encrypted by the master key and stored alongside the ciphertext.
- *   This enables per-credential rotation without re-encrypting others.
+ * - A **Master Keystore key** (`KEYSTORE_ALIAS`) is generated once in Android KeyStore
+ *   and never leaves hardware-backed storage (TEE/SE).
+ * - All credential entries are encrypted with AES-256-GCM using this master key.
+ * - AEAD Associated Authenticated Data (AAD) binds the ciphertext to the schema version,
+ *   preventing cross-credential ciphertext substitution attacks.
  *
  * ## Security contract
  *
  * - [store] encrypts before persisting — plaintext never touches disk.
  * - [retrieve] decrypts in memory only — plaintext never leaves the vault.
- * - [delete] permanently destroys the Keystore entry.
- * - If the Android Keystore is unavailable (e.g. emulator without
- *   hardware), [store] throws [IllegalStateException] — **never**
- *   falls back to plaintext storage.
+ * - [delete] permanently destroys the credential entry in storage.
+ * - If the Android Keystore is unavailable, [store] throws [IllegalStateException] —
+ *   **never** falls back to plaintext storage.
  */
 class AndroidKeystoreCredentialVault(
     private val keystoreAlias: String = KEYSTORE_ALIAS,

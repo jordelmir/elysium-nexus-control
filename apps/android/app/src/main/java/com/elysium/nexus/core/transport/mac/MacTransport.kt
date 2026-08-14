@@ -241,26 +241,31 @@ class MacTransport {
 
             // 2. Read response frame (PAIR_OK or zero-PIN auto-approved stream frame).
             val frameResult = readOneFrame(input)
-            if (frameResult != null) {
-                val (pairType, pairPayload) = frameResult
-                if (pairType == MacProtocol.FrameType.PAIR_OK) {
-                    val pairPlain = ck.decrypt(pairPayload)
-                    if (pairPlain.isNotEmpty() && pairPlain[0] != 0x01.toByte()) {
-                        Log.w(TAG, "Pairing rejected by server")
-                        _state.value = MacConnectionState.Error("Pairing rejected: wrong PIN")
-                        connected.set(false)
-                        sock.close()
-                        return@withContext _state.value
-                    }
-                } else {
-                    // V0.6.3 Phase 22: Fail-closed — only PAIR_OK is accepted.
-                    // Non-PAIR_OK frames (e.g. zero-PIN auto-approval attempts) are rejected.
-                    Log.w(TAG, "Server responded with frame $pairType; rejecting non-PAIR_OK frame (fail-closed)")
-                    _state.value = MacConnectionState.Error("Pairing failed: server sent $pairType instead of PAIR_OK")
+            if (frameResult == null) {
+                Log.w(TAG, "Server disconnected before completing pairing handshake (EOF)")
+                _state.value = MacConnectionState.Error("Pairing failed: EOF during handshake")
+                connected.set(false)
+                sock.close()
+                return@withContext _state.value
+            }
+
+            val (pairType, pairPayload) = frameResult
+            if (pairType == MacProtocol.FrameType.PAIR_OK) {
+                val pairPlain = ck.decrypt(pairPayload)
+                if (pairPlain.isNotEmpty() && pairPlain[0] != 0x01.toByte()) {
+                    Log.w(TAG, "Pairing rejected by server")
+                    _state.value = MacConnectionState.Error("Pairing rejected: wrong PIN")
                     connected.set(false)
                     sock.close()
                     return@withContext _state.value
                 }
+            } else {
+                // V0.6.3 Phase 22: Fail-closed — only PAIR_OK is accepted.
+                Log.w(TAG, "Server responded with frame $pairType; rejecting non-PAIR_OK frame (fail-closed)")
+                _state.value = MacConnectionState.Error("Pairing failed: server sent $pairType instead of PAIR_OK")
+                connected.set(false)
+                sock.close()
+                return@withContext _state.value
             }
 
             // 3. Handshake complete — start the read/write pumps.
