@@ -70,6 +70,20 @@ WHERE a.canonical_key = ?
   AND sig.eligibility_status = 'PROBE_ELIGIBLE'
   AND cs.verification_status NOT IN ('INTERNAL_UNVERIFIED', 'BLOCKED')
   AND ({PHYSICAL_FLOOR.strip()})
+  -- V0.7 §XXX: claims derive from evidence. A code set is CLAIM_ELIGIBLE
+  -- ONLY when at least one PASS physical test exists AND no FAIL/REGRESSION
+  -- is recorded for it. With physical_test_evidence empty the claim surface
+  -- is honestly 0 (Engineering Preview, not a Production Compatibility Build).
+  AND EXISTS (
+      SELECT 1 FROM physical_test_evidence pte
+      WHERE pte.code_set_id = cs.id
+        AND UPPER(pte.result) = 'PASS'
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM physical_test_evidence pte
+      WHERE pte.code_set_id = cs.id
+        AND UPPER(pte.result) IN ('FAIL', 'REGRESSION')
+  )
 """
 
 
