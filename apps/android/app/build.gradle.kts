@@ -67,6 +67,28 @@ android {
         }
     }
 
+    // V0.7 Phase 30 (fail closed, verificado en batch del 2026-08-14):
+    // `assembleRelease` SIN credenciales verificadas emite APK *unsigned*
+    // en silencio (app-release-unsigned.apk). La Regla Comercial Hard #9
+    // exige fail closed: release jamás se produce sin firma de release.
+    gradle.taskGraph.whenReady {
+        val releaseArtifactNames = setOf("assembleRelease", "bundleRelease")
+        val needsReleaseArtifact = allTasks.any { it.name in releaseArtifactNames }
+        if (needsReleaseArtifact) {
+            val release = signingConfigs.findByName("release")
+            val hasCredentials = release?.storeFile?.exists() == true &&
+                !release.storePassword.isNullOrEmpty() &&
+                !release.keyPassword.isNullOrEmpty()
+            if (!hasCredentials) {
+                throw GradleException(
+                    "RELEASE SIGNING BLOCKED (fail closed): expected ../release.jks + " +
+                        "RELEASE_STORE_PASSWORD / RELEASE_KEY_PASSWORD verified env vars. " +
+                        "No unsigned release artifact will be produced."
+                )
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
