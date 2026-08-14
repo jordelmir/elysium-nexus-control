@@ -497,7 +497,8 @@ class MainActivity : ComponentActivity() {
                             navStack.value = navStack.value + HubDestination.InstalledProfiles
                         },
                         onMacSelected = {
-                            // USB-C Direct transport is top priority when connecting to Mac/PC
+                            // MAC/PC card is the companion surface
+                            // (screen sharing), not universal control.
                             navStack.value = navStack.value + HubDestination.UsbC
                         },
                         onUsbCSelected = {
@@ -505,6 +506,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onUniversalRemoteSelected = {
                             navStack.value = navStack.value + HubDestination.UniversalRemote
+                        },
+                        onWifiUniversalSelected = {
+                            navStack.value = navStack.value + HubDestination.WifiUniversal
                         },
                         onAutomationSelected = {
                             navStack.value = navStack.value + HubDestination.AutomationList
@@ -728,6 +732,9 @@ class MainActivity : ComponentActivity() {
                     is HubDestination.UsbC -> com.elysium.nexus.ui.usb.UsbCConnectionScreen(
                         onBack = { navStack.value = navStack.value.dropLast(1) },
                         transport = macTransport
+                    )
+                    is HubDestination.WifiUniversal -> com.elysium.nexus.ui.wifi.WifiUniversalScreen(
+                        onBack = { navStack.value = navStack.value.dropLast(1) }
                     )
                     is HubDestination.AcControl -> {
                         val ir = irTransmitter

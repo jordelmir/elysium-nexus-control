@@ -30,6 +30,7 @@ sealed class HubDestination {
     data class MacPairing(val host: com.elysium.nexus.ui.mac.DiscoveredHost) : HubDestination()
     data class MacControl(val host: com.elysium.nexus.ui.mac.DiscoveredHost) : HubDestination()
     object UniversalRemote : HubDestination()
+    object WifiUniversal : HubDestination()
     object UsbC : HubDestination()
     data class AcControl(val template: DeviceTemplate) : HubDestination()
     data class IrLearner(val learnResult: com.elysium.nexus.fabric.infrared.IrLearner.LearnResult?) : HubDestination()

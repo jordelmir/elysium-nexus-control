@@ -36,6 +36,7 @@ object HubStackCodec {
         HubDestination.InstalledProfiles -> "ip"
         is HubDestination.Control -> "ctl:${destination.profileId}"
         HubDestination.UniversalRemote -> "ur"
+        HubDestination.WifiUniversal -> "wifi"
         HubDestination.UsbC -> "usbc"
         is HubDestination.AcControl -> "ac:${destination.template.id}"
         is HubDestination.IrLearner -> "learn"
@@ -73,6 +74,7 @@ object HubStackCodec {
                 if (id.isBlank()) null else HubDestination.Control(id)
             }
             "ur" -> HubDestination.UniversalRemote
+            "wifi" -> HubDestination.WifiUniversal
             "usbc" -> HubDestination.UsbC
             "ac" -> templateById(code.removePrefix("ac:"))?.let { HubDestination.AcControl(it) }
             "learn" -> HubDestination.IrLearner(null)
