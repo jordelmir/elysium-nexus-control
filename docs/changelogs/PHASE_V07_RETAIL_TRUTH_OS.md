@@ -76,22 +76,34 @@ La auditoría externa de dictamen (baseline `d89e705`, 2026-08-14) encontró los
 1. **Phase 5 completada** — `RuntimeSignalPolicy.kt`, `RuntimePolicy`, `IrCatalog.resolveExecutableSignal`, implementación SQLite + in-memory, filtrado de `getCommandsForCodeSet`, callers migrados (DeviceCommandResolver, TvControlScreen, ProfileRevalidationService/RevalidationCatalog). Cero bypass: probe, brand lookup, direct lookup, saved profiles, automation — todos pasan por la política COMMERCIAL.
 2. **§XXVI verificación local del catálogo** — `verifyIrCatalogAsset` ahora exige **SHA-256 exacto + tamaño exacto** contra `ir_catalog.manifest.json` (mismo contrato que CI). Un DB incorrecto de cualquier tamaño falla en local.
 
+## Qué se construyó en el lote de cierre §XXXX (delivery actual 2)
+
+1. **§XII / Phase 9 — CarrierPolicy, sin fallback global** — `CarrierPolicy.kt` (selector puro JVM): `STRICT` (default comercial) usa la portadora pedida y ante hardware no soportado devuelve `UnsupportedCarrier` (fail closed, cero desplazamiento silencioso); `LAB_TOLERANCE` (solo laboratorio) permite el desplazamiento ±2000 Hz anterior. `AndroidIrTransmitter.transmit(waveform, policy=STRICT)` migrado; los 4 callers de producción quedan en STRICT por default. Tests: `CarrierPolicyTest` (7).
+2. **§XVI / Phase 25 — AndroidTvAdbAdapter honesto** — `pair()` ahora es REAL: `Success` solo tras un round-trip autorizado (connect + `getprop`), con credential alias derivado del fingerprint de la clave RSA; `queryCapabilities()` ya no miente (`readable=false` porque `readState()` es null); `InputSource` eliminado de capacidades (no tiene keycode). Clase documentada como DEVELOPER_ONLY con contrato de honestidad.
+3. **§XXX — El claim gate deriva de evidencia física** — `check_catalog_eligibility.py` CLAIM_QUERY exige: `EXISTS physical_test_evidence result='PASS'` **y** `NOT EXISTS FAIL/REGRESSION` por code set. Con `physical_test_evidence=0` filas, el claim surface es honestamente 0 (Engineering Preview); `--require-claims` falla. Verificado contra el DB real: probe 8.070 OK, claims CLAIM_EMPTY, exit 0.
+   - Resultado del gate con el catálogo actual:
+     ```
+     probe_POWER 2705 · probe_VOLUME_UP 1957 · probe_VOLUME_DOWN 1550 · probe_MUTE 1858
+     claim_* = 0 (CLAIM_EMPTY) — la verdad comercial: sin evidencia física no hay claims.
+     ```
+
 ## Pruebas
 
-- Nuevas: `RuntimeSignalPolicyTest` (7). Verdes por diseño JVM puro (sin Android).
-- Existente ajustada: ninguna rota — `getCommandsForCodeSet` retiene `CatalogCommandBinding` solo si la política COMMERCIAL lo admite.
+- Nuevas: `RuntimeSignalPolicyTest` (7) + `CarrierPolicyTest` (7). Verdes por diseño JVM puro (sin Android).
+- Gate Python verificado en vivo contra `ir_catalog.db` (salida arriba).
 - Compilación/lint/suite completa: **pendiente — regla de Jor (verificación batch solo cuando se ordene)**.
 
 ## Pendiente (P0s del dictamen aún abiertos)
 
 - **Toolchain**: AGP 8.7.3 + compileSdk 36 (combinación no soportada oficialmente; AGP ≥ 8.10 + Gradle ≥ 8.11.1 según matriz Google) — cambio config-only, requiere verificación de build (se hará en la batch).
 - `MacCrypto`: claves direccionales, nonce domains, secuencia/anti-replay, AAD (Phase 32 completo).
-- `CredentialVault`: documentación = implementación (master key ya alineada en docs/creds — revisión final pendiente).
+- `CredentialVault`: AAD por credential (credentialId/deviceId/protocol/purpose/schemaVersion) — docs ya alineadas a master key en 2999abf.
 - `IrCaptureBridge`: auth mutua + AEAD + rate limit (Phase 11 completo) — depende del Bridge firmware.
-- ADB Wi-Fi: reclassificado `DEVELOPER_ONLY` en docs; `AndroidTvAdbAdapter` claims internos alineados (sin capabilities falsas) — verificación pendiente del keyevent en Android TV real.
-- Evidencia física: `device_models=0`, `compatibility_assertions=0`, `physical_test_evidence=0` — HIL/Bridge (fase hardware).
+- ADB Wi-Fi: keyevent contra Android TV real de producción pendiente de verificación (clasificación honesta PARTIALLY_VERIFIED).
+- Evidencia física: `physical_test_evidence=0` → claim gate honestamente 0 — HIL/Bridge (fase hardware).
 - Monge matrix 51/51, Verdugo 100%, Gollo vía feed autoritativo.
 - `runtime-executable-report.json`: commercialGate `isPass=false` hasta UNKNOWN=0.
+- Instrumented tests: volver a activar como blocker de RC cuando los runners de GitHub lo soporten.
 
 ## Archivos (este lote)
 
