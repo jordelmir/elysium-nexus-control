@@ -39,6 +39,17 @@ import java.net.Socket
  * adbd authorization is handled by Android's standard
  * per-key "Allow USB debugging" dialog on the TV. After
  * that the TV remembers the RSA key.
+ *
+ * V0.7 Phase 25 — honesty contract:
+ *  - This is a DEVELOPER_ONLY route (ADB is a debugging
+ *    transport, never a consumer retail control path).
+ *  - pair() is REAL: it only returns Success after an
+ *    authorized connect + shell round-trip succeeds,
+ *    proving the RSA key is accepted by the TV.
+ *  - queryCapabilities() never advertises `readable`:
+ *    readState() returns null (ADB has no state readback).
+ *  - InputSource is NOT advertised: no keycode mapping
+ *    exists for it.
  */
 class AndroidTvAdbAdapter(
     private val ip: String,
@@ -62,7 +73,6 @@ class AndroidTvAdbAdapter(
     override val supportedCapabilities: Set<Capability> = setOf(
         Capability.OnOff,
         Capability.Volume,
-        Capability.InputSource,
         Capability.MediaTransport
     )
 
@@ -123,10 +133,32 @@ class AndroidTvAdbAdapter(
         )
     }
 
-    override suspend fun pair(request: PairingRequest) = PairingResult.Success("adb-key")
+    /**
+     * REAL pairing: ADB pairing is the TV accepting this device's RSA key
+     * (the standard "Allow USB debugging" dialog). Success is returned ONLY
+     * after an authorized connect + shell round-trip proves the key is
+     * accepted. No fake success without an authorized session.
+     */
+    override suspend fun pair(request: PairingRequest): PairingResult {
+        return try {
+            val client = AdbWirelessClient(ip, port)
+            client.connect(authorization, authorizationTimeoutMs = request.timeoutMs.toInt())
+            val out = client.shell("getprop ro.product.model", authorization)
+            client.disconnect()
+            if (out.isNullOrBlank()) {
+                PairingResult.Failed("ADB authorized but getprop returned empty model")
+            } else {
+                PairingResult.Success("adb-key:${authorization.fingerprintSha256().take(12)}")
+            }
+        } catch (e: Exception) {
+            PairingResult.Failed("ADB authorization not confirmed: ${e.message}")
+        }
+    }
 
     override suspend fun queryCapabilities() = supportedCapabilities.map {
-        TvCapability(it, readable = true, subscribable = false)
+        // V0.7 Phase 25: readState() always returns null for ADB —
+        // `readable` must never be advertised as true.
+        TvCapability(it, readable = false, subscribable = false)
     }.toSet()
 
     override suspend fun execute(action: UniversalAction): ActionExecutionResult {
