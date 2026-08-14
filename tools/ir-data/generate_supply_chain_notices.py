@@ -17,6 +17,7 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
 LOCK_FILE = os.path.join(REPO_ROOT, "ir-data/sources.lock.json")
 OUTPUT_NOTICES_PATH = os.path.join(REPO_ROOT, "THIRD_PARTY_NOTICES.md")
 
+
 def main():
     if not os.path.exists(LOCK_FILE):
         print(f"Error: Lock file not found at {LOCK_FILE}", file=sys.stderr)
@@ -27,7 +28,7 @@ def main():
 
     sources = lock_data.get("sources", [])
 
-    notice_content = f"""# Third-Party Open Source & Asset Notices — Elysium Nexus OS v0.7
+    notice_content = """# Third-Party Open Source & Asset Notices — Elysium Nexus OS v0.7
 
 This document provides attribution and legal compliance notices for third-party open source datasets,
 protocol specifications, and curated signals incorporated into Elysium Nexus OS.
@@ -44,8 +45,10 @@ protocol specifications, and curated signals incorporated into Elysium Nexus OS.
         src_id = info.get("id", "UNKNOWN")
         license_grant = info.get("sourceLicense", "UNKNOWN")
         commit_hash = info.get("resolvedCommit", "N/A")
-        tree_hash = info.get("resolvedTree") or info.get("sourceContentSha256", "N/A")
-        
+        tree_hash = info.get("resolvedTree") or info.get(
+            "sourceContentSha256", "N/A"
+        )
+
         if "probonopd" in src_id.lower() or "irdb" in src_id.lower():
             comm_eligibility = "COMMERCIAL_ATTRIBUTION_REQUIRED"
         elif "flipper" in src_id.lower():
@@ -81,6 +84,7 @@ Elysium Nexus OS incorporates signal structures from the open-source `irdb` proj
         f.write(notice_content)
 
     print(f"✅ Supply Chain Notices generated successfully at {OUTPUT_NOTICES_PATH}")
+
 
 if __name__ == "__main__":
     main()

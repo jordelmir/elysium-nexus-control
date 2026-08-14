@@ -16,11 +16,28 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
 DB_PATH = os.path.join(REPO_ROOT, "apps/android/app/src/main/assets/ir/ir_catalog.db")
-OUTPUT_REPORT_PATH = os.path.join(REPO_ROOT, "apps/android/app/src/main/assets/ir/runtime-executable-report.json")
+OUTPUT_REPORT_PATH = os.path.join(
+    REPO_ROOT, "apps/android/app/src/main/assets/ir/runtime-executable-report.json"
+)
 
 # Codec classifications per Phase 5 & 8 Commercial Policy
 EXPERIMENTAL_CODECS = {"RC5", "RC6", "KASEIKYO", "PANASONIC"}
-PRODUCTION_CODECS = {"NEC", "NEC1", "NECEXT", "NEC_EXTENDED", "SAMSUNG", "SAMSUNG32", "SIRC", "SONY", "SIRC12", "SIRC15", "SIRC20", "AIWA", "AIWA_RC501"}
+PRODUCTION_CODECS = {
+    "NEC",
+    "NEC1",
+    "NECEXT",
+    "NEC_EXTENDED",
+    "SAMSUNG",
+    "SAMSUNG32",
+    "SIRC",
+    "SONY",
+    "SIRC12",
+    "SIRC15",
+    "SIRC20",
+    "AIWA",
+    "AIWA_RC501",
+}
+
 
 def main():
     if not os.path.exists(DB_PATH):
@@ -31,7 +48,7 @@ def main():
     cursor = conn.cursor()
 
     query = """
-    SELECT 
+    SELECT
         s.id AS signal_id,
         cs.id AS code_set_id,
         b.display_name AS brand_name,
@@ -67,7 +84,17 @@ def main():
     protocol_counts = {}
 
     for row in rows:
-        (sig_id, cs_id, brand, dev_type, source, enc_type, family, variant, cmd_val) = row
+        (
+            sig_id,
+            cs_id,
+            brand,
+            dev_type,
+            source,
+            enc_type,
+            family,
+            variant,
+            cmd_val,
+        ) = row
 
         proto_name = (family or "").upper()
         if not proto_name and variant:
@@ -75,23 +102,20 @@ def main():
 
         if enc_type == "RAW":
             raw_executable += 1
-            cat = "RAW_EXECUTABLE"
         elif proto_name in EXPERIMENTAL_CODECS:
             experimental_lab_only += 1
-            cat = "EXPERIMENTAL_LAB_ONLY"
         elif proto_name in PRODUCTION_CODECS:
             if cmd_val is not None and cmd_val < 0:
                 invalid_parameters += 1
-                cat = "INVALID_PARAMETERS"
             else:
                 parametric_executable += 1
-                cat = "PARAMETRIC_EXECUTABLE"
         else:
             unsupported += 1
-            cat = "UNSUPPORTED"
 
         brand_counts[brand] = brand_counts.get(brand, 0) + 1
-        protocol_counts[proto_name or "UNKNOWN"] = protocol_counts.get(proto_name or "UNKNOWN", 0) + 1
+        protocol_counts[proto_name or "UNKNOWN"] = (
+            protocol_counts.get(proto_name or "UNKNOWN", 0) + 1
+        )
 
     report = {
         "version": "0.7.0-retail-truth",
@@ -102,14 +126,11 @@ def main():
             "PARAMETRIC_EXECUTABLE": parametric_executable,
             "EXPERIMENTAL_LAB_ONLY": experimental_lab_only,
             "INVALID_PARAMETERS": invalid_parameters,
-            "UNSUPPORTED": unsupported
+            "UNSUPPORTED": unsupported,
         },
-        "commercialGate": {
-            "unknownCount": unsupported,
-            "isPass": (unsupported == 0)
-        },
+        "commercialGate": {"unknownCount": unsupported, "isPass": (unsupported == 0)},
         "brandCount": len(brand_counts),
-        "protocolBreakdown": protocol_counts
+        "protocolBreakdown": protocol_counts,
     }
 
     with open(OUTPUT_REPORT_PATH, "w", encoding="utf-8") as f:
@@ -122,6 +143,7 @@ def main():
     print(f"   Experimental (Lab Only): {experimental_lab_only}")
     print(f"   Unsupported: {unsupported}")
     print(f"   Gate Status: {'PASS' if unsupported == 0 else 'FAIL'}")
+
 
 if __name__ == "__main__":
     main()
