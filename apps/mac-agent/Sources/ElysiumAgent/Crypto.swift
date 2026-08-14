@@ -164,16 +164,29 @@ final class ChannelKeys {
                            theirPublic: Curve25519.KeyAgreement.PublicKey,
                            side: LinkSide) -> ChannelKeys {
         let shared = try! myPrivate.sharedSecretFromKeyAgreement(with: theirPublic)
+        // The label is bound to the DIRECTION, so the peer's
+        // RX key always equals this side's TX key for the
+        // same wire direction (Kotlin twin parity).
+        let txInfo: String
+        let rxInfo: String
+        switch side {
+        case .phone:
+            txInfo = "elysium-channel-phone-to-mac"
+            rxInfo = "elysium-channel-mac-to-phone"
+        case .mac:
+            txInfo = "elysium-channel-mac-to-phone"
+            rxInfo = "elysium-channel-phone-to-mac"
+        }
         let tx = shared.hkdfDerivedSymmetricKey(
             using: SHA256.self,
             salt: "elysium-nexus-v1".data(using: .utf8)!,
-            sharedInfo: "elysium-channel-tx".data(using: .utf8)!,
+            sharedInfo: txInfo.data(using: .utf8)!,
             outputByteCount: 32
         )
         let rx = shared.hkdfDerivedSymmetricKey(
             using: SHA256.self,
             salt: "elysium-nexus-v1".data(using: .utf8)!,
-            sharedInfo: "elysium-channel-rx".data(using: .utf8)!,
+            sharedInfo: rxInfo.data(using: .utf8)!,
             outputByteCount: 32
         )
         return ChannelKeys(side: side, txKey: tx, rxKey: rx)

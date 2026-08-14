@@ -75,9 +75,9 @@ object MacCrypto {
     /** The HKDF info. Must match the Mac agent's `sharedInfo` parameter. */
     private val HKDF_INFO = "elysium-channel".toByteArray(Charsets.UTF_8)
 
-    /** Phase 32 (v0.7): directional HKDF info labels. */
-    private val HKDF_INFO_TX = "elysium-channel-tx".toByteArray(Charsets.UTF_8)
-    private val HKDF_INFO_RX = "elysium-channel-rx".toByteArray(Charsets.UTF_8)
+    /** Phase 32 (v0.7): directional HKDF info labels — one per DIRECTION, not per role. */
+    private val HKDF_INFO_PHONE_TO_MAC = "elysium-channel-phone-to-mac".toByteArray(Charsets.UTF_8)
+    private val HKDF_INFO_MAC_TO_PHONE = "elysium-channel-mac-to-phone".toByteArray(Charsets.UTF_8)
 
     /** The X25519 named curve. */
     private const val X25519_CURVE = "XDH"
@@ -198,8 +198,12 @@ object MacCrypto {
         side: ChannelSide
     ): ChannelKeys {
         val sharedSecret = computeSharedSecret(myKeyPair, theirPublicKeyBytes)
-        val txKey = hkdfSha256(sharedSecret, HKDF_SALT, HKDF_INFO_TX, KEY_SIZE_BYTES)
-        val rxKey = hkdfSha256(sharedSecret, HKDF_SALT, HKDF_INFO_RX, KEY_SIZE_BYTES)
+        // The label is bound to the DIRECTION, so Alice's TX key always
+        // equals Bob's RX key for the same wire direction.
+        val txInfo = if (side == ChannelSide.PHONE) HKDF_INFO_PHONE_TO_MAC else HKDF_INFO_MAC_TO_PHONE
+        val rxInfo = if (side == ChannelSide.PHONE) HKDF_INFO_MAC_TO_PHONE else HKDF_INFO_PHONE_TO_MAC
+        val txKey = hkdfSha256(sharedSecret, HKDF_SALT, txInfo, KEY_SIZE_BYTES)
+        val rxKey = hkdfSha256(sharedSecret, HKDF_SALT, rxInfo, KEY_SIZE_BYTES)
         return ChannelKeys(side, txKey, rxKey)
     }
 

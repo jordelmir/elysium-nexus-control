@@ -93,7 +93,7 @@ class RuntimeSignalPolicyTest {
     }
 
     @Test
-    fun `resolveExecutableSignal default policy blocks experimental on InMemory catalog`() {
+    fun `resolveExecutableSignal default policy blocks experimental on InMemory catalog`() = kotlinx.coroutines.test.runTest {
         val rc5 = encodedSignal(IrProtocol.Rc5, "RC5")
         val nec = encodedSignal(IrProtocol.Nec, "NEC")
         val raw = IrSignal.Raw(carrierHz = 38_000, patternUs = intArrayOf(9000, 4500, 560, 560))
@@ -119,7 +119,7 @@ class RuntimeSignalPolicyTest {
     }
 
     @Test
-    fun `resolveExecutableSignal LAB_ONLY bypasses only in lab`() {
+    fun `resolveExecutableSignal LAB_ONLY bypasses only in lab`() = kotlinx.coroutines.test.runTest {
         val rc5 = encodedSignal(IrProtocol.Rc5, "RC5")
         val catalog = InMemoryIrCatalog(signalMap = mapOf("sig-rc5" to rc5))
 
