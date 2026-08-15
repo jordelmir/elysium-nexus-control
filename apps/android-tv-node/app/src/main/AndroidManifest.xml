@@ -21,10 +21,16 @@
     <uses-feature
         android:name="android.software.picture_in_picture"
         android:required="false" />
+    <!-- Not required: many TVs are touchless; without this the manifest
+         implies android.hardware.touchscreen=true and excludes them. -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
 
     <application
         android:name=".application.TvNodeApp"
         android:allowBackup="false"
+        android:banner="@drawable/tv_banner"
         android:icon="@drawable/ic_launcher_foreground"
         android:label="@string/app_name"
         android:supportsRtl="true"

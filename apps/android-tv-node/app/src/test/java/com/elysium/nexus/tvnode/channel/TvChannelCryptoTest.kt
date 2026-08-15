@@ -23,7 +23,7 @@ class TvChannelCryptoTest {
     private val adTvToPhone = TvChannelCrypto.channelAd(TvChannelCrypto.NonceDomain.TV_TO_PHONE)
 
     @Test
-    fun `directional keys are mirrors: tv rx equals phone tx and vice versa`() {
+    fun `directional keys are mirrors, tv rx equals phone tx and vice versa`() {
         val tv = TvChannelCrypto.generateKeyPair()
         val phone = TvChannelCrypto.generateKeyPair()
 
@@ -181,5 +181,28 @@ class TvChannelCryptoTest {
         assertEquals(32, a.publicKeyBytes.size)
         assertEquals(32, b.publicKeyBytes.size)
         assertFalse(a.publicKeyBytes.contentEquals(b.publicKeyBytes))
+    }
+
+    @Test
+    fun `modern and legacy X25519 paths derive identical shared secrets`() {
+        val tv = TvChannelCrypto.generateKeyPair()
+        val phone = TvChannelCrypto.generateKeyPair()
+        val modern = TvChannelCrypto.computeSharedSecretModern(tv, phone.publicKeyBytes)
+        val legacy = TvChannelCrypto.computeSharedSecretLegacy(tv, phone.publicKeyBytes)
+        assertEquals(32, modern.size)
+        assertArrayEquals(modern, legacy)
+    }
+
+    @Test
+    fun `modern and legacy X25519 paths produce interchangeable keys`() {
+        val modernPair = TvChannelCrypto.generateKeyPairModern()
+        val legacyPair = TvChannelCrypto.generateKeyPairLegacy()
+        val theirModern = TvChannelCrypto.generateKeyPairModern()
+        assertEquals(32, modernPair.publicKeyBytes.size)
+        assertEquals(32, legacyPair.publicKeyBytes.size)
+        val secretA = TvChannelCrypto.computeSharedSecretLegacy(modernPair, theirModern.publicKeyBytes)
+        val secretB = TvChannelCrypto.computeSharedSecretModern(legacyPair, theirModern.publicKeyBytes)
+        assertEquals(32, secretA.size)
+        assertEquals(32, secretB.size)
     }
 }

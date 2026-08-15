@@ -19,6 +19,11 @@ class PairingCode private constructor(val value: String) {
         require(VALID.matches(value)) { "Pairing code must be 6 decimal digits." }
     }
 
+    /** Wrapper equality: two codes with the same digits ARE equal. */
+    override fun equals(other: Any?): Boolean = other is PairingCode && other.value == value
+
+    override fun hashCode(): Int = value.hashCode()
+
     /** Constant-time verifier against the plain showing to the user. */
     fun matches(input: String?): Boolean = constantTimeEquals(value, input)
 
@@ -54,6 +59,13 @@ class PairingNonce private constructor(val value: String) {
     init {
         require(VALID.matches(value)) { "Pairing nonce must be 16 hex chars." }
     }
+
+    /** Wrapper equality: two nonces with the same hex value ARE equal. */
+    override fun equals(other: Any?): Boolean = other is PairingNonce && other.value == value
+
+    override fun hashCode(): Int = value.hashCode()
+
+    override fun toString(): String = value
 
     companion object {
         private val random = SecureRandom()

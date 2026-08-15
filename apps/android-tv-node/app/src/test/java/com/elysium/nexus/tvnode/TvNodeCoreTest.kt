@@ -33,6 +33,28 @@ private class MutableEngine : TvObservationEngine {
     override fun isMediaSessionActive(): Boolean = sessionActive
 }
 
+/**
+ * Effector that SIMULATES a real TV responding: firing Up raises the engine
+ * state (as AudioManager + a fresh observeVolume() would see it). This is the
+ * only honest way to exercise the before → fire → after delta choreography.
+ */
+private class RaiserEffector(private val engine: MutableEngine) : TvEffector {
+    val calls = AtomicInteger(0)
+    override fun adjustStreamVolume(direction: VolumeActionInterpreter.VolumeDirectionAction): Boolean {
+        calls.incrementAndGet()
+        val cur = engine.current ?: return true
+        engine.current = when (direction) {
+            VolumeActionInterpreter.VolumeDirectionAction.Up ->
+                cur.copy(rawVolume = (cur.rawVolume + 1).coerceAtMost(cur.maxVolume))
+            VolumeActionInterpreter.VolumeDirectionAction.Down ->
+                cur.copy(rawVolume = (cur.rawVolume - 1).coerceAtLeast(0))
+            VolumeActionInterpreter.VolumeDirectionAction.Mute -> cur.copy(isMuted = !cur.isMuted)
+        }
+        return true
+    }
+    override fun supportsGlobalTvKeys(): Boolean = false
+}
+
 class VolumeActionInterpreterTest {
 
     @Test
@@ -109,22 +131,36 @@ class VolumeActionInterpreterTest {
 class TvActionExecutorTest {
 
     @Test
-    fun `executor fires once and confirms only with observed delta`() {
+    fun `executor fires once and confirms only when the TV shows a real delta`() {
         val engine = MutableEngine()
-        engine.current = vol(5)
-        val effector = FakeEffector()
+        val effector = RaiserEffector(engine)
         val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
 
+        // before=5 → fire → after=6: the TV responded with a real delta.
+        engine.current = vol(5)
+        val confirmed = executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
+        assertEquals(VolumeActionInterpreter.Verdict.Confirmed, confirmed)
+        assertEquals(1, effector.calls.get())
+        assertEquals(6, engine.current!!.rawVolume)
+
+        // Off the new floor it fires again and still confirms on the delta.
+        val again = executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
+        assertEquals(VolumeActionInterpreter.Verdict.Confirmed, again)
+        assertEquals(2, effector.calls.get())
+        assertEquals(7, engine.current!!.rawVolume)
+    }
+
+    @Test
+    fun `executor stays unverified when the TV shows no delta after firing`() {
+        val engine = MutableEngine()
+        val effector = FakeEffector() // fires but never moves the state
+        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+
+        engine.current = vol(5)
         val unverified = executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
         assertEquals(VolumeActionInterpreter.Verdict.Unverified, unverified)
         assertEquals(1, effector.calls.get())
-
-        engine.current = vol(6)
-        assertEquals(
-            VolumeActionInterpreter.Verdict.Confirmed,
-            executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
-        )
-        assertEquals(2, effector.calls.get())
+        assertEquals(5, engine.current!!.rawVolume)
     }
 
     @Test

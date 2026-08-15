@@ -260,39 +260,41 @@ object TvLinkProtocol {
      * unknown version, unknown action code, overlong length) — fail-closed:
      * the caller must REJECT, never guess.
      */
-    fun decodeEnvelope(bytes: ByteArray): TvEnvelope? = try {
-        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
-        // Absolute minimum: version(1)+msgId(8)+connId(8)+devLen(1)+code(1)+
-        // intParam(4)+strLen(2)+ts(8)+deadline(8)+seq(8)+capLen(1)+authLen(1) = 51.
-        if (buf.remaining() < 51) return null
-        val version = buf.get().toInt() and 0xFF
-        if (version != PROTOCOL_VERSION) return null
-        val messageId = buf.getLong()
-        val connectionId = buf.getLong()
-        val deviceId = readLenString(buf) ?: return null
-        val actionCode = TvActionCode.fromByte(buf.get()) ?: return null
-        val intParam = buf.getInt()
-        val stringParam = readLenU16(buf) ?: return null
-        val timestampMillis = buf.getLong()
-        val deadlineMillis = buf.getLong()
-        val sequenceNumber = buf.getLong()
-        val capabilityContext = readLenString(buf) ?: return null
-        val authMetadata = readLenString(buf) ?: return null
-        if (buf.hasRemaining()) return null
-        TvEnvelope(
-            protocolVersion = version,
-            messageId = messageId,
-            connectionId = connectionId,
-            deviceId = deviceId,
-            action = TvWireAction(actionCode, intParam, stringParam),
-            timestampMillis = timestampMillis,
-            deadlineMillis = deadlineMillis,
-            sequenceNumber = sequenceNumber,
-            capabilityContext = capabilityContext,
-            authMetadata = authMetadata
-        )
-    } catch (e: Exception) {
-        null
+    fun decodeEnvelope(bytes: ByteArray): TvEnvelope? {
+        try {
+            val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+            // Absolute minimum: version(1)+msgId(8)+connId(8)+devLen(1)+code(1)+
+            // intParam(4)+strLen(2)+ts(8)+deadline(8)+seq(8)+capLen(1)+authLen(1) = 51.
+            if (buf.remaining() < 51) return null
+            val version = buf.get().toInt() and 0xFF
+            if (version != PROTOCOL_VERSION) return null
+            val messageId = buf.getLong()
+            val connectionId = buf.getLong()
+            val deviceId = readLenString(buf) ?: return null
+            val actionCode = TvActionCode.fromByte(buf.get()) ?: return null
+            val intParam = buf.getInt()
+            val stringParam = readLenU16(buf) ?: return null
+            val timestampMillis = buf.getLong()
+            val deadlineMillis = buf.getLong()
+            val sequenceNumber = buf.getLong()
+            val capabilityContext = readLenString(buf) ?: return null
+            val authMetadata = readLenString(buf) ?: return null
+            if (buf.hasRemaining()) return null
+            return TvEnvelope(
+                protocolVersion = version,
+                messageId = messageId,
+                connectionId = connectionId,
+                deviceId = deviceId,
+                action = TvWireAction(actionCode, intParam, stringParam),
+                timestampMillis = timestampMillis,
+                deadlineMillis = deadlineMillis,
+                sequenceNumber = sequenceNumber,
+                capabilityContext = capabilityContext,
+                authMetadata = authMetadata
+            )
+        } catch (e: Exception) {
+            return null
+        }
     }
 
     // ------------------------------------------------------------------
@@ -311,16 +313,18 @@ object TvLinkProtocol {
     }
 
     /** Decodes a RESPONSE body; null on malformed input (fail-closed reject). */
-    fun decodeResponseBody(bytes: ByteArray): TvResponseBody? = try {
-        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
-        if (buf.remaining() < 10) return null
-        val state = TvResponseState.fromCode(buf.get()) ?: return null
-        val answerTo = buf.getLong()
-        val detail = readLenString(buf) ?: return null
-        if (buf.hasRemaining()) return null
-        TvResponseBody(state, answerTo, detail)
-    } catch (e: Exception) {
-        null
+    fun decodeResponseBody(bytes: ByteArray): TvResponseBody? {
+        try {
+            val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+            if (buf.remaining() < 10) return null
+            val state = TvResponseState.fromCode(buf.get()) ?: return null
+            val answerTo = buf.getLong()
+            val detail = readLenString(buf) ?: return null
+            if (buf.hasRemaining()) return null
+            return TvResponseBody(state, answerTo, detail)
+        } catch (e: Exception) {
+            return null
+        }
     }
 
     // ------------------------------------------------------------------

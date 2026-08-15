@@ -48,7 +48,11 @@ class AndroidVolumeEffector(
             VolumeActionInterpreter.VolumeDirectionAction.Down -> AudioManager.ADJUST_LOWER
             VolumeActionInterpreter.VolumeDirectionAction.Mute -> AudioManager.ADJUST_MUTE
         }
-        return manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjustment, AudioManager.FLAG_SHOW_UI) == 0
+        // adjustStreamVolume is void: a return value here can only mean
+        // "dispatched", never "succeeded". The caller verifies the actual
+        // effect through observeVolume() before/after (§19 causal verifier).
+        manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjustment, AudioManager.FLAG_SHOW_UI)
+        return true
     }
 
     override fun supportsGlobalTvKeys(): Boolean = useGlobalActions

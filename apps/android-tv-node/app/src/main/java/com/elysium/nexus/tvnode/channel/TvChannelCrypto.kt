@@ -1,5 +1,7 @@
 package com.elysium.nexus.tvnode.channel
 
+import android.annotation.TargetApi
+import android.os.Build
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -81,18 +83,35 @@ object TvChannelCrypto {
         TV_TO_PHONE(0x22)
     }
 
-    /** Generates a fresh X25519 key pair (throws [CryptoUnavailableException]). */
+    /**
+     * Generates a fresh X25519 key pair (throws [CryptoUnavailableException]).
+     *
+     * X25519 is a Java 11 class-set (API 33 on Android: `NamedParameterSpec`,
+     * `XECPrivateKey`, `XECPublicKey`). This node keeps minSdk 24 deliberately
+     * (cheap-Android degradation is a feature, not a gate), so we split the
+     * implementation: API 33+ uses the native XEC spec extraction; API ≤32
+     * requests the same curve by name and reads the last 32 bytes of the
+     * standard encoded form, which is byte-identical for X25519.
+     */
     fun generateKeyPair(): KeyPair = try {
+        if (Build.VERSION.SDK_INT >= 33) {
+            generateKeyPairModern()
+        } else {
+            generateKeyPairLegacy()
+        }
+    } catch (e: Exception) {
+        throw CryptoUnavailableException("X25519 not available on this platform: ${e.message}", e)
+    }
+
+    /** API 33+ path: full XEC spec access. (internal: parity-tested on JVM) */
+    @TargetApi(33)
+    internal fun generateKeyPairModern(): KeyPair {
         val kpg = try {
             KeyPairGenerator.getInstance("X25519")
         } catch (e: Exception) {
             KeyPairGenerator.getInstance(X25519_CURVE)
         }
-        try {
-            kpg.initialize(NamedParameterSpec.X25519, SecureRandom())
-        } catch (e: Exception) {
-            runCatching { kpg.initialize(255, SecureRandom()) }
-        }
+        kpg.initialize(NamedParameterSpec.X25519, SecureRandom())
         val pair = kpg.generateKeyPair()
         val publicKeyBytes = if (pair.public is XECPublicKey) {
             bigIntegerToLittleEndian((pair.public as XECPublicKey).u, 32)
@@ -109,10 +128,29 @@ object TvChannelCrypto {
             val enc = pair.private.encoded ?: error("No private key bytes")
             enc.takeLast(32).toByteArray()
         }
+        requireKeyLengths(publicKeyBytes, privateScalar)
+        return KeyPair(publicKeyBytes, privateScalar)
+    }
+
+    /** API ≤32 path: algorithm-by-name + standard encoded forms (no XEC types). */
+    internal fun generateKeyPairLegacy(): KeyPair {
+        val kpg = try {
+            KeyPairGenerator.getInstance("X25519")
+        } catch (e: Exception) {
+            KeyPairGenerator.getInstance(X25519_CURVE)
+        }
+        kpg.initialize(255, SecureRandom())
+        val pair = kpg.generateKeyPair()
+        val publicEnc = pair.public.encoded ?: error("No public key bytes")
+        val privateEnc = pair.private.encoded ?: error("No private key bytes")
+        val publicKeyBytes = publicEnc.takeLast(32).toByteArray()
+        val privateScalar = privateEnc.takeLast(32).toByteArray()
+        requireKeyLengths(publicKeyBytes, privateScalar)
+        return KeyPair(publicKeyBytes, privateScalar)
+    }
+
+    private fun requireKeyLengths(publicKeyBytes: ByteArray, privateScalar: ByteArray) {
         require(publicKeyBytes.size == 32 && privateScalar.size == 32) { "X25519 keys must be 32 bytes" }
-        KeyPair(publicKeyBytes, privateScalar)
-    } catch (e: Exception) {
-        throw CryptoUnavailableException("X25519 not available on this platform: ${e.message}", e)
     }
 
     /**
@@ -147,51 +185,71 @@ object TvChannelCrypto {
     private fun computeSharedSecret(myKeyPair: KeyPair, theirPublicKeyBytes: ByteArray): ByteArray {
         require(theirPublicKeyBytes.size == 32) { "X25519 public key must be 32 bytes" }
         return try {
-            val algorithm = try {
-                KeyFactory.getInstance("X25519")
-                "X25519"
-            } catch (e: Exception) {
-                X25519_CURVE
+            if (Build.VERSION.SDK_INT >= 33) {
+                computeSharedSecretModern(myKeyPair, theirPublicKeyBytes)
+            } else {
+                computeSharedSecretLegacy(myKeyPair, theirPublicKeyBytes)
             }
-            val keyFactory = KeyFactory.getInstance(algorithm)
-            val paramSpec = try {
-                NamedParameterSpec.X25519
-            } catch (e: Exception) {
-                NamedParameterSpec("X25519")
-            }
-            val myPrivate = try {
-                keyFactory.generatePrivate(XECPrivateKeySpec(paramSpec, myKeyPair.privateScalar))
-            } catch (e: Exception) {
-                val pkcs8Header = byteArrayOf(
-                    0x30.toByte(), 0x2e.toByte(), 0x02.toByte(), 0x01.toByte(), 0x00.toByte(),
-                    0x30.toByte(), 0x05.toByte(), 0x06.toByte(), 0x03.toByte(), 0x2b.toByte(),
-                    0x65.toByte(), 0x6e.toByte(), 0x04.toByte(), 0x22.toByte(), 0x04.toByte(), 0x20.toByte()
-                )
-                keyFactory.generatePrivate(
-                    java.security.spec.PKCS8EncodedKeySpec(pkcs8Header + myKeyPair.privateScalar)
-                )
-            }
-            val theirPublic = try {
-                keyFactory.generatePublic(
-                    XECPublicKeySpec(paramSpec, littleEndianToBigInteger(theirPublicKeyBytes))
-                )
-            } catch (e: Exception) {
-                val x509Header = byteArrayOf(
-                    0x30.toByte(), 0x2a.toByte(), 0x30.toByte(), 0x05.toByte(), 0x06.toByte(),
-                    0x03.toByte(), 0x2b.toByte(), 0x65.toByte(), 0x6e.toByte(), 0x03.toByte(),
-                    0x21.toByte(), 0x00.toByte()
-                )
-                keyFactory.generatePublic(
-                    java.security.spec.X509EncodedKeySpec(x509Header + theirPublicKeyBytes)
-                )
-            }
-            val ka = KeyAgreement.getInstance(algorithm)
-            ka.init(myPrivate)
-            ka.doPhase(theirPublic, true)
-            ka.generateSecret()
         } catch (e: Exception) {
             throw CryptoUnavailableException("Key derivation failed: ${e.message}", e)
         }
+    }
+
+    /** API 33+ path: full XEC spec access for both keys. (internal: parity-tested on JVM) */
+    @TargetApi(33)
+    internal fun computeSharedSecretModern(myKeyPair: KeyPair, theirPublicKeyBytes: ByteArray): ByteArray {
+        val algorithm = try {
+            KeyFactory.getInstance("X25519")
+            "X25519"
+        } catch (e: Exception) {
+            X25519_CURVE
+        }
+        val keyFactory = KeyFactory.getInstance(algorithm)
+        val paramSpec = NamedParameterSpec.X25519
+        val myPrivate = keyFactory.generatePrivate(XECPrivateKeySpec(paramSpec, myKeyPair.privateScalar))
+        val theirPublic = keyFactory.generatePublic(
+            XECPublicKeySpec(paramSpec, littleEndianToBigInteger(theirPublicKeyBytes))
+        )
+        val ka = KeyAgreement.getInstance(algorithm)
+        ka.init(myPrivate)
+        ka.doPhase(theirPublic, true)
+        return ka.generateSecret()
+    }
+
+    /**
+     * API ≤32 path: same curve requested by name, keys rebuilt from the
+     * standard PKCS8/X509 encoded forms (byte-identical result). Avoids the
+     * API-33 XEC types entirely so old Android (Conscrypt-era XDH) keeps
+     * working instead of crashing on `NoClassDefFoundError`.
+     */
+    internal fun computeSharedSecretLegacy(myKeyPair: KeyPair, theirPublicKeyBytes: ByteArray): ByteArray {
+        val algorithm = try {
+            KeyFactory.getInstance("X25519")
+            "X25519"
+        } catch (e: Exception) {
+            X25519_CURVE
+        }
+        val keyFactory = KeyFactory.getInstance(algorithm)
+        val pkcs8Header = byteArrayOf(
+            0x30.toByte(), 0x2e.toByte(), 0x02.toByte(), 0x01.toByte(), 0x00.toByte(),
+            0x30.toByte(), 0x05.toByte(), 0x06.toByte(), 0x03.toByte(), 0x2b.toByte(),
+            0x65.toByte(), 0x6e.toByte(), 0x04.toByte(), 0x22.toByte(), 0x04.toByte(), 0x20.toByte()
+        )
+        val x509Header = byteArrayOf(
+            0x30.toByte(), 0x2a.toByte(), 0x30.toByte(), 0x05.toByte(), 0x06.toByte(),
+            0x03.toByte(), 0x2b.toByte(), 0x65.toByte(), 0x6e.toByte(), 0x03.toByte(),
+            0x21.toByte(), 0x00.toByte()
+        )
+        val myPrivate = keyFactory.generatePrivate(
+            java.security.spec.PKCS8EncodedKeySpec(pkcs8Header + myKeyPair.privateScalar)
+        )
+        val theirPublic = keyFactory.generatePublic(
+            java.security.spec.X509EncodedKeySpec(x509Header + theirPublicKeyBytes)
+        )
+        val ka = KeyAgreement.getInstance(algorithm)
+        ka.init(myPrivate)
+        ka.doPhase(theirPublic, true)
+        return ka.generateSecret()
     }
 
     /** Manual HKDF-SHA256 (RFC 5869) — identical to the controller's MacCrypto. */

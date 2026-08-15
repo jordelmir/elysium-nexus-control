@@ -2,6 +2,7 @@ package com.elysium.nexus.tvnode.application
 
 import android.app.Application
 import android.view.KeyEvent
+import com.elysium.nexus.tvnode.BuildConfig
 import com.elysium.nexus.tvnode.accessibility.NexusAccessibilityService
 import com.elysium.nexus.tvnode.discovery.NexusTvDiscovery
 import com.elysium.nexus.tvnode.identity.NexusTvIdentityProvider

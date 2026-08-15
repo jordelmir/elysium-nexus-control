@@ -57,7 +57,8 @@ class TvLinkHandshakeTest {
     fun `wrong nonce echo fails the handshake closed`() {
         val tv = TvLinkHandshake()
         val phoneMirror = PhoneMirror(connectionId = 1L)
-        tv.onFrame(TvLinkProtocol.FrameType.HELLO, phoneMirror.buildHello()) as TvLinkHandshake.Result.Send
+        val hello = tv.onFrame(TvLinkProtocol.FrameType.HELLO, phoneMirror.buildHello()) as TvLinkHandshake.Result.Send
+        phoneMirror.observeTvPublicKey(hello.payload.copyOfRange(0, 32))
 
         // The echo is a VALID sealed frame (authenticates under the channel
         // key) but does NOT carry the exact challenge — possession of the key
@@ -141,7 +142,7 @@ class TvLinkHandshakeTest {
      * and echoes the challenge as `encryptToPeer(challenge, ad)`. This is the
      * seed of the controller-side mirror that the next slice wires into NSD.
      */
-    private class PhoneMirror(connectionId: Long) {
+    private class PhoneMirror(private val connectionId: Long) {
         private val myKeyPair = TvChannelCrypto.generateKeyPair()
         private var tvPublicKey: ByteArray? = null
 

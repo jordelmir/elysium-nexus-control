@@ -64,7 +64,9 @@ class TvLinkProtocolTest {
 
     @Test
     fun `absurd frame length is rejected`() {
-        val wire = byteArrayOf(0x7F, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte())
+        // length=0x7FFFFFFF (> MAX_FRAME_SIZE), any type byte: with ≥5 bytes
+        // in hand the frame reader must refuse, never attempt a huge alloc.
+        val wire = byteArrayOf(0x7F, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0x10)
         val result = TvLinkProtocol.readFrame(wire)
         assertTrue(result is TvLinkProtocol.FrameParseResult.Error)
     }
