@@ -1254,16 +1254,24 @@ User-generated capture never becomes global verified truth immediately.
 Community submissions are:
 
 ```
-PENDING_REVIEW
+USER_CAPTURED
     ↓
-STRUCTURALLY_VALID
+MULTI_CAPTURE_STABLE
     ↓
-PEER_REPLICATED (at least 2 independent captures match)
+LOCAL_REPLAY_VERIFIED
     ↓
-PHYSICALLY_CONFIRMED
+TV_NODE_CONFIRMED
     ↓
-CATALOG_PROMOTED
+MULTI_DEVICE_CORROBORATED
+    ↓
+LAB_VERIFIED
+    ↓
+HIL_VERIFIED
+    ↓
+RETAIL_MATRIX_VERIFIED
 ```
+
+Track per signal: unique physical devices, unique installations, firmware families, success count, failure count, regressions. Require independence where appropriate.
 
 - Never promote from a single unverified upload to "verified."
 - Never merge community data into the physical evidence tier without replication.
@@ -1273,7 +1281,71 @@ CATALOG_PROMOTED
 
 ---
 
-## 42. CATALOG VERSION UPGRADE
+## 42. RETAILER KNOWLEDGE GRAPH
+
+Create:
+
+```
+Retailer
+    ↓
+RetailerSKU
+    ↓
+GTIN / MPN
+    ↓
+ExactDeviceModel
+    ↓
+FirmwareFamily
+    ↓
+OriginalRemoteFamily
+    ↓
+DeviceTwin template
+    ↓
+Per-action bindings
+    ↓
+Evidence
+    ↓
+Compatibility Certificate
+```
+
+Tables:
+
+```
+retailers
+retailer_locations
+retailer_skus
+retailer_inventory_snapshots
+device_models
+device_model_variants
+firmware_families
+original_remote_models
+retail_compatibility_certificates
+retail_certificate_actions
+```
+
+---
+
+## 43. RETAIL INVENTORY
+
+Public website ingestion may bootstrap development.
+Production should prefer:
+
+- official API
+- CSV
+- SFTP
+- ERP export
+- partner feed
+
+Retailers:
+
+```
+MONGE_CR
+VERDUGO_CR
+GOLLO_CR
+```
+
+---
+
+## 44. CATALOG VERSION UPGRADE
 
 Schema upgrades must:
 - verify all existing evidence rows migrate losslessly
@@ -1286,7 +1358,7 @@ Never break a verified TV profile during catalog upgrade.
 
 ---
 
-## 43. REALITY LEDGER
+## 45. REALITY LEDGER
 
 Maintain a single file: `docs/architecture/REALITY_LEDGER.md`
 
@@ -1300,7 +1372,7 @@ the ledger.
 
 ---
 
-## 44. THIRD-PARTY IR DATA LICENSING
+## 46. THIRD-PARTY IR DATA LICENSING
 
 Every source in the catalog must have a recorded license status:
 
@@ -1319,7 +1391,7 @@ sources in a commercial build without legal review.
 
 ---
 
-## 45. SOURCE LOCKS
+## 47. SOURCE LOCKS
 
 Every external IR data ingestion freezes a `sources.lock.json`. Fields per source:
 
@@ -1338,7 +1410,7 @@ On catalog rebuild: verify lock hashes. Mismatch = build failure.
 
 ---
 
-## 46. BRAND / MODEL ALIASES
+## 48. BRAND / MODEL ALIASES
 
 Do not duplicate brand names.
 
@@ -1354,7 +1426,7 @@ Model aliases follow same pattern. No silent canonical mismatch.
 
 ---
 
-## 47. COMPATIBILITY CERTIFICATES
+## 49. COMPATIBILITY CERTIFICATES
 
 Create signed `RetailCompatibilityCertificate`.
 
@@ -1385,7 +1457,7 @@ No boolean `works=true`. Compatibility is **action-level**.
 
 ---
 
-## 48. RETAIL COVERAGE ENGINE
+## 50. RETAIL COVERAGE ENGINE
 
 Calculate:
 ```
@@ -1409,7 +1481,7 @@ No marketing override.
 
 ---
 
-## 49. FIRST COMMERCIAL MATRIX
+## 51. FIRST COMMERCIAL MATRIX
 
 Pilot **one retailer first**.
 
@@ -1435,7 +1507,7 @@ same size, similar model name.
 
 ---
 
-## 50. RETAIL EMPLOYEE UX
+## 52. RETAIL EMPLOYEE UX
 
 Create **Retail Setup Mode**.
 
@@ -1458,7 +1530,7 @@ Target known-model setup: **<20 seconds** (only after measured).
 
 ---
 
-## 51. CONSUMER UX
+## 53. CONSUMER UX
 
 Customer should never see:
 - codec
@@ -1484,7 +1556,7 @@ Advanced engineering diagnostics remain available separately.
 
 ---
 
-## 52. SELF-HEALING
+## 54. SELF-HEALING
 
 Failure of one binding does not invalidate whole device.
 
@@ -1496,7 +1568,7 @@ pseudo-device.
 
 ---
 
-## 53. SECURITY
+## 55. SECURITY
 
 Zero-trust principles. Every command has:
 
@@ -1518,7 +1590,7 @@ Encryption: modern AEAD.
 
 ---
 
-## 54. PRIVACY
+## 56. PRIVACY
 
 Local-first. Core remote must not require cloud.
 
@@ -1530,7 +1602,7 @@ Local-first. Core remote must not require cloud.
 
 ---
 
-## 55. ANDROID RELEASE TOOLCHAIN
+## 57. ANDROID RELEASE TOOLCHAIN
 
 Maintain current supported target requirements. Use toolchain officially
 supporting compile/target SDK.
@@ -1557,7 +1629,7 @@ provenance report
 
 ---
 
-## 56. TEST PYRAMID
+## 58. TEST PYRAMID
 
 ```
 UNIT:              protocol encoders, decoders, candidate ranking, identity,
@@ -1581,7 +1653,7 @@ No level substitutes for the next.
 
 ---
 
-## 57. SOFTWARE-ONLY DEVICE MATRIX
+## 59. SOFTWARE-ONLY DEVICE MATRIX
 
 Begin immediately with real TVs available. Capture:
 ```
@@ -1599,7 +1671,7 @@ phone IR
 
 ---
 
-## 58. PR SEQUENCE
+## 60. PR SEQUENCE
 
 Do not combine all into one giant unreviewable PR.
 
@@ -1668,7 +1740,7 @@ Do not combine all into one giant unreviewable PR.
 
 ---
 
-## 59. REALITY LEDGER MAINTENANCE
+## 61. REALITY LEDGER MAINTENANCE
 
 Every phase update must append to `REALITY_LEDGER.md`. Never overwrite.
 Every entry must state the exact **maturity level before** and **after**,
@@ -1676,7 +1748,7 @@ and the **evidence** that justifies the promotion.
 
 ---
 
-## 60. REGRESSION TRACKING
+## 62. REGRESSION TRACKING
 
 Every verified signal has a regression state:
 ```
@@ -1691,7 +1763,7 @@ This is different from `TX_FAILED` (transmitter problem).
 
 ---
 
-## 61. SUPPLY CHAIN NOTICES
+## 63. SUPPLY CHAIN NOTICES
 
 Generate notices for every third-party IR source used in a build.
 File: `THIRD_PARTY_IR_DATA_NOTICES.md` at repository root.
@@ -1705,7 +1777,7 @@ Content per source:
 
 ---
 
-## 62. DEVICE MATRIX FORMAT
+## 64. DEVICE MATRIX FORMAT
 
 Standard format per device:
 
@@ -1744,7 +1816,7 @@ evidence:
 
 ---
 
-## 63. CRYPTO / IDENTITY SUMMARY
+## 65. CRYPTO / IDENTITY SUMMARY
 
 Summary table for the identity/crypto subsystem:
 
@@ -1760,7 +1832,7 @@ Summary table for the identity/crypto subsystem:
 
 ---
 
-## 64. REQUIRED DELIVERABLE FOR EVERY PHASE
+## 66. REQUIRED DELIVERABLE FOR EVERY PHASE
 
 Every agent must finish a phase with:
 
@@ -1784,7 +1856,7 @@ Never simply say: `"Implemented successfully."`
 
 ---
 
-## 65. SOFTWARE-FIRST ACCEPTANCE TEST
+## 67. SOFTWARE-FIRST ACCEPTANCE TEST
 
 Final Phase-A demonstration:
 
@@ -1812,7 +1884,7 @@ This is the **software-only golden vertical**.
 
 ---
 
-## 66. PHYSICAL GOLDEN VERTICAL — FUTURE
+## 68. PHYSICAL GOLDEN VERTICAL — FUTURE
 
 After Nexus Bridge exists:
 
@@ -1834,7 +1906,7 @@ No Internet database involved. This becomes the ultimate IR acquisition loop.
 
 ---
 
-## 67. COMMERCIAL GOLDEN VERTICAL
+## 69. COMMERCIAL GOLDEN VERTICAL
 
 ```
 Retail SKU
@@ -1856,7 +1928,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 68. FINAL RELEASE TRUTH GATE
+## 70. FINAL RELEASE TRUTH GATE
 
 **NO PRODUCTION_APPROVED** until all applicable gates are true:
 
@@ -1893,7 +1965,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 69. ULTIMATE ARCHITECTURAL PRINCIPLE
+## 71. ULTIMATE ARCHITECTURAL PRINCIPLE
 
 The objective is **NOT**: "make one protocol control everything."
 
@@ -1916,7 +1988,7 @@ UniversalAction + DeviceTwin + Evidence
 
 ---
 
-## 70. FINAL PRODUCT DEFINITION
+## 72. FINAL PRODUCT DEFINITION
 
 Elysium Nexus shall become:
 

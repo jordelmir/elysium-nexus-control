@@ -29,6 +29,7 @@ The single source of truth is **`docs/architecture/MASTER_ORDER.md`** (68 sectio
 - §28 — Route Planner (multi-transport scoring)
 - §33 — Software-Only Success Gate (must pass before hardware)
 - §40 — Elysium Physical Corpus (primary empirical data)
+- §42 — Retailer Knowledge Graph
 - §49 — First Commercial Matrix (MONGE first)
 - §58 — PR Sequence (PR1–PR14)
 - §65 — Software-Only Acceptance Test
