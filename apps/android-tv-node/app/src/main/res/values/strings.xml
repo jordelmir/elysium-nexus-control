@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Elysium Nexus TV Node</string>
+    <string name="accessibility_label">Elysium Nexus TV Node (TV observation)</string>
+    <string name="accessibility_description">Enables the TV node to observe volume/input/app state for the IR oracle. It never consumes keys or injects events without your explicit consent.</string>
+    <string name="ime_label">Elysium Nexus TV Input</string>
+    <string name="notification_access_label">Elysium Nexus TV media observer</string>
+    <string name="pairing_title">Pair with Elysium Nexus</string>
+    <string name="pairing_code">Pairing code</string>
+    <string name="pairing_note">Open Nexus on your phone, scan the QR or enter the 6-digit code.</string>
+    <string name="consent_volume">Allow volume control</string>
+    <string name="consent_volume_desc">Let the phone raise/lower volume through the verified TV node route.</string>
+</resources>
