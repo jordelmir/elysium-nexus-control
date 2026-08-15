@@ -52,7 +52,16 @@ object TvLinkProtocol {
         RESPONSE(0x15),
         HEARTBEAT(0x16),
         GOODBYE(0x17),
-        ERROR(0x18);
+        ERROR(0x18),
+        /**
+         * PAIR_CONFIRM (PR2 slice 5, §10): the phone's sealed proof — sent by
+         * the phone immediately after NONCE_ECHO_ACK and BEFORE CHANNEL_READY —
+         * that it knows BOTH the on-screen 6-digit code AND the QR nonce of the
+         * active pairing session. The TV decodes and verifies it through the
+         * session + credential vault, then pins the phone's X25519 fingerprint
+         * and only then sends CHANNEL_READY (Unknown peer → REJECT, §10).
+         */
+        PAIR_CONFIRM(0x19);
 
         companion object {
             private val BY_INDEX = entries.associateBy { it.byte }

@@ -25,6 +25,13 @@ import java.security.SecureRandom
  */
 class TvLinkClient(
     private val connectionId: Long,
+    /**
+     * PR2 slice 5 (§10): optional pairing confirm the phone sends sealed in
+     * a PAIR_CONFIRM frame immediately after NONCE_ECHO_ACK and before
+     * CHANNEL_READY. Null = the peer already has a pinned credential (or the
+     * server runs without a gate); provided = first pairing on this TV.
+     */
+    private val pairingConfirm: PairingConfirm? = null,
     private val rng: SecureRandom = SecureRandom()
 ) {
     /** State of the phone record after [connect] / before [open]. */
@@ -102,6 +109,16 @@ class TvLinkClient(
         )
         val sealed = keys!!.encryptToPeer(challenge, adPhoneToTv)
         s.send(TvLinkProtocol.FrameType.NONCE_ECHO_ACK, sealed)
+
+        // 3b. First pairing: prove the on-screen code + QR nonce, sealed
+        // (only the key-holding peer can craft a valid PAIR_CONFIRM).
+        val confirm = pairingConfirm
+        if (confirm != null) {
+            s.send(
+                TvLinkProtocol.FrameType.PAIR_CONFIRM,
+                keys!!.encryptToPeer(confirm.encode(), adPhoneToTv)
+            )
+        }
 
         // 4. CHANNEL_READY: link established.
         val ready = s.read()

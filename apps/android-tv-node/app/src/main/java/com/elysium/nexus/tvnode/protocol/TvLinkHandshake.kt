@@ -61,6 +61,18 @@ class TvLinkHandshake(
 
     private var keys: TvChannelCrypto.ChannelKeys? = null
 
+    /** The peer's X25519 public key (HELLO). Retained for fingerprint pinning. */
+    var peerPublicKeyBytes: ByteArray = ByteArray(0)
+        private set
+
+    /** 8-hex SHA-256 fingerprint of the peer's X25519 public key (§10 pinning). */
+    val peerFingerprint: String
+        get() = if (peerPublicKeyBytes.size == 32) {
+            TvChannelCrypto.fingerprintOf(peerPublicKeyBytes)
+        } else {
+            ""
+        }
+
     /** Directional channel keys — ONLY after ESTABLISHED; null before (fail-closed). */
     val channelKeys: TvChannelCrypto.ChannelKeys?
         get() = if (state == State.ESTABLISHED) keys else null
@@ -88,6 +100,7 @@ class TvLinkHandshake(
         if (state != State.WAIT_HELLO) return fail("HELLO received in state $state")
         val parts = parseHello(payload) ?: return fail("malformed HELLO payload (${payload.size} bytes)")
         connectionId = parts.first
+        peerPublicKeyBytes = parts.second
         val peerPublic = parts.second
         // Derive channel keys BEFORE sending anything challenge-worthy: a
         // wrong-size peer key must fail closed with no bytes emitted.

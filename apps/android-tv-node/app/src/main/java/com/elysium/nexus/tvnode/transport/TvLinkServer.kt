@@ -21,6 +21,7 @@ import java.security.SecureRandom
  */
 class TvLinkServer(
     private val dispatcher: TvActionDispatcher,
+    private val pairingGate: PairingGate? = null,
     private val rng: SecureRandom = SecureRandom()
 ) {
     sealed class Outcome {
@@ -53,8 +54,19 @@ class TvLinkServer(
                 when (val r = handshake.onFrame(frame.type, frame.payload)) {
                     is TvLinkHandshake.Result.Send -> stream.send(r.frameType, r.payload)
                     is TvLinkHandshake.Result.Established -> {
-                        stream.send(TvLinkProtocol.FrameType.CHANNEL_READY)
-                        return handleActions(stream, handshake, r.channelKeys)
+                        when (val gateVerdict = runPairingGate(socket, stream, handshake, r.channelKeys)) {
+                            is PairingGate.Verdict.Authorized -> {
+                                stream.send(TvLinkProtocol.FrameType.CHANNEL_READY)
+                                return handleActions(stream, handshake, r.channelKeys)
+                            }
+                            is PairingGate.Verdict.Denied -> {
+                                stream.send(
+                                    TvLinkProtocol.FrameType.ERROR,
+                                    gateVerdict.reason.toByteArray(Charsets.UTF_8)
+                                )
+                                return Outcome.Failed(gateVerdict.reason)
+                            }
+                        }
                     }
                     is TvLinkHandshake.Result.Failed -> {
                         stream.send(
@@ -77,6 +89,58 @@ class TvLinkServer(
         get() = TvChannelCrypto.channelAd(TvChannelCrypto.NonceDomain.PHONE_TO_TV)
     private val adTvToPhone: ByteArray
         get() = TvChannelCrypto.channelAd(TvChannelCrypto.NonceDomain.TV_TO_PHONE)
+
+    /**
+     * PR2 slice 5 (§10): after the AEAD possession proof, when a pairing gate
+     * is configured the server demands ONE more sealed frame: PAIR_CONFIRM.
+     * Only a peer holding the derived channel keys can craft it (it decrypts
+     * under the RX key), so the pairing code + QR nonce inside are
+     * authenticated end-to-end before CHANNEL_READY is ever emitted.
+     *
+     * Fail-closed on silence : a gated server waits a bounded [PAIR_CONFIRM_TIMEOUT]
+     * for the frame; a peer that never proves the code times out and is torn
+     * down, never left hanging in a half-open state.
+     */
+    private fun runPairingGate(
+        socket: Socket,
+        stream: TvFrameStream,
+        handshake: TvLinkHandshake,
+        keys: TvChannelCrypto.ChannelKeys
+    ): PairingGate.Verdict {
+        val gate = pairingGate ?: return PairingGate.Verdict.Authorized
+        // Bounded wait: fail-closed on silence, never a half-open hang (§10).
+        socket.soTimeout = PAIR_CONFIRM_TIMEOUT
+        return try {
+            stepPairingConfirm(stream, handshake, keys, gate)
+        } finally {
+            socket.soTimeout = 0
+        }
+    }
+
+    private fun stepPairingConfirm(
+        stream: TvFrameStream,
+        handshake: TvLinkHandshake,
+        keys: TvChannelCrypto.ChannelKeys,
+        gate: PairingGate
+    ): PairingGate.Verdict {
+        val confirmFrame = try {
+            stream.read()
+        } catch (e: java.net.SocketTimeoutException) {
+            return PairingGate.Verdict.Denied("timed out waiting for PAIR_CONFIRM")
+        } ?: return PairingGate.Verdict.Denied("peer closed the socket during pairing confirm")
+        if (confirmFrame.type != TvLinkProtocol.FrameType.PAIR_CONFIRM) {
+            return PairingGate.Verdict.Denied("expected PAIR_CONFIRM, got ${confirmFrame.type}")
+        }
+        // Authenticate + decrypt under the RX channel key FIRST (possession proof).
+        val plain = try {
+            keys.decryptFromPeer(confirmFrame.payload, adPhoneToTv)
+        } catch (e: Exception) {
+            return PairingGate.Verdict.Denied("PAIR_CONFIRM failed authentication: ${e.message}")
+        }
+        val confirm = PairingConfirm.parse(plain)
+            ?: return PairingGate.Verdict.Denied("PAIR_CONFIRM payload malformed")
+        return gate.authorize(handshake.peerFingerprint, confirm)
+    }
 
     private fun failAction(stream: TvFrameStream, message: String): Outcome {
         stream.send(
@@ -148,5 +212,10 @@ class TvLinkServer(
                 }
             }
         }
+    }
+
+    companion object {
+        /** Bounded wait for the PAIR_CONFIRM frame before CHANNEL_READY (slice 5). */
+        const val PAIR_CONFIRM_TIMEOUT: Int = 10_000
     }
 }
