@@ -1667,11 +1667,37 @@ Accessibility capability
 IME
 Bluetooth HID
 phone IR
+oracle capability
+observations
+latency
+```
+
+A TV is not "Android compatible" merely because an APK installs. Record exact behavior.
+
+---
+
+## 60. KPI FRAMEWORK
+
+Targets become claims only after measured.
+
+**Engineering targets:**
+
+```
+Pairing success             > 99%
+Reconnect                   > 99.9%
+Wrong-device dispatch       = 0
+Silent failure              = 0
+Replay accepted             = 0
+Credential leakage          = 0
+Known-TV setup median       < 20 s
+LAN action latency p50      < 30 ms
+LAN action latency p95      < 100 ms
+Core retail coverage        = 100%
 ```
 
 ---
 
-## 60. PR SEQUENCE
+## 61. PR SEQUENCE
 
 Do not combine all into one giant unreviewable PR.
 
@@ -1740,7 +1766,7 @@ Do not combine all into one giant unreviewable PR.
 
 ---
 
-## 61. REALITY LEDGER MAINTENANCE
+## 62. REALITY LEDGER MAINTENANCE
 
 Every phase update must append to `REALITY_LEDGER.md`. Never overwrite.
 Every entry must state the exact **maturity level before** and **after**,
@@ -1748,7 +1774,7 @@ and the **evidence** that justifies the promotion.
 
 ---
 
-## 62. REGRESSION TRACKING
+## 63. REGRESSION TRACKING
 
 Every verified signal has a regression state:
 ```
@@ -1763,7 +1789,7 @@ This is different from `TX_FAILED` (transmitter problem).
 
 ---
 
-## 63. SUPPLY CHAIN NOTICES
+## 64. SUPPLY CHAIN NOTICES
 
 Generate notices for every third-party IR source used in a build.
 File: `THIRD_PARTY_IR_DATA_NOTICES.md` at repository root.
@@ -1777,7 +1803,7 @@ Content per source:
 
 ---
 
-## 64. DEVICE MATRIX FORMAT
+## 65. DEVICE MATRIX FORMAT
 
 Standard format per device:
 
@@ -1816,7 +1842,7 @@ evidence:
 
 ---
 
-## 65. CRYPTO / IDENTITY SUMMARY
+## 66. CRYPTO / IDENTITY SUMMARY
 
 Summary table for the identity/crypto subsystem:
 
@@ -1832,7 +1858,7 @@ Summary table for the identity/crypto subsystem:
 
 ---
 
-## 66. REQUIRED DELIVERABLE FOR EVERY PHASE
+## 67. REQUIRED DELIVERABLE FOR EVERY PHASE
 
 Every agent must finish a phase with:
 
@@ -1856,7 +1882,7 @@ Never simply say: `"Implemented successfully."`
 
 ---
 
-## 67. SOFTWARE-FIRST ACCEPTANCE TEST
+## 68. SOFTWARE-FIRST ACCEPTANCE TEST
 
 Final Phase-A demonstration:
 
@@ -1884,7 +1910,7 @@ This is the **software-only golden vertical**.
 
 ---
 
-## 68. PHYSICAL GOLDEN VERTICAL — FUTURE
+## 69. PHYSICAL GOLDEN VERTICAL — FUTURE
 
 After Nexus Bridge exists:
 
@@ -1906,7 +1932,7 @@ No Internet database involved. This becomes the ultimate IR acquisition loop.
 
 ---
 
-## 69. COMMERCIAL GOLDEN VERTICAL
+## 70. COMMERCIAL GOLDEN VERTICAL
 
 ```
 Retail SKU
@@ -1928,7 +1954,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 70. FINAL RELEASE TRUTH GATE
+## 71. FINAL RELEASE TRUTH GATE
 
 **NO PRODUCTION_APPROVED** until all applicable gates are true:
 
@@ -1965,7 +1991,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 71. ULTIMATE ARCHITECTURAL PRINCIPLE
+## 72. ULTIMATE ARCHITECTURAL PRINCIPLE
 
 The objective is **NOT**: "make one protocol control everything."
 
@@ -1988,7 +2014,7 @@ UniversalAction + DeviceTwin + Evidence
 
 ---
 
-## 72. FINAL PRODUCT DEFINITION
+## 73. FINAL PRODUCT DEFINITION
 
 Elysium Nexus shall become:
 
