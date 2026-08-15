@@ -41,6 +41,28 @@ jobs:
           # (actions/checkout default is false → pointer files break Gate 1).
           lfs: true
 
+      # ── Gate 0: leaked-secret guard (fail-closed) ──
+      # Never let .env (or any env/secret file) be tracked or contain live
+      # Supabase credentials in the tree. The patterns below are the exact
+      # live secret prefixes from the project — a tracked match aborts the
+      # pipeline. .env.example (template, placeholders ONLY) is exempted.
+      - name: Guard against tracked secrets / .env
+        run: |
+          set -euo pipefail
+          tracked_env=$(git ls-files | grep -E '(^|/)\.env$' || true)
+          if [ -n "$tracked_env" ]; then
+            echo "FATAL: tracked .env file(s) present:" >&2
+            echo "$tracked_env" >&2
+            exit 1
+          fi
+          # .env.example is the placeholder template — exempt (placeholders only).
+          if git grep -nE 'sb_secret_[A-Za-z0-9_-]{12,}|sb_publishable_[A-Za-z0-9]{12,}|SUPABASE_SERVICE_ROLE_KEY=.{30,}' \
+            -- . ':!.env.example' ':!docs/*' ':!*.md' 2>/dev/null; then
+            echo "FATAL: live Supabase credential pattern found in tracked code" >&2
+            exit 1
+          fi
+          echo "secret-guard: PASS (no tracked .env, no live credential patterns)"
+
       # V06.2 P0-1: force LFS pull even if checkout's lfs flag is ignored.
       # Without this, ir_catalog.db is a 132-byte pointer → Gate 1 fails.
       - name: Force LFS pull

@@ -43,6 +43,16 @@ No other vocabulary (such as "universal", "compatible with all TVs", "100% suppo
 9. **No hardcoded release credentials.** Release signing requires verified environment variables (`RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`). Build fails closed if missing.
 10. **Hardware-Ecosystem Baseline.** Commercial guarantee is backed by **Elysium Nexus Bridge** (IR TX/RX + BLE + USB-C) for universal physical control across all smartphones.
 
+### Supabase credential handling (local project, 2026-08-15)
+
+- Project ref: `trccikkcmdqnutwfjrbf`. Endpoint: `https://trccikkcmdqnutwfjrbf.supabase.co`.
+- Credentials live ONLY in `/.env` (gitignored). Template committed as `/.env.example` (placeholders only).
+- **Anon / publishable keys are client-safe** and may be wired into the APK via BuildConfig from a gitignored file.
+- **Service-role / secret keys bypass RLS — NEVER in an APK, never in committed files or workflows.** Owner-only local scripts.
+- CI Gate 0 (`android-ci.yml`) fails closed if `.env` is tracked or a live credential pattern appears in tracked files.
+- If chat/shared logs exposed a key: **rotate it** in the Supabase dashboard before use.
+- Direct Postgres (`SUPABASE_DB_URL`) password is owner-provided, never committed.
+
 ## Repository layout (from §6)
 
 ```

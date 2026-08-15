@@ -21,6 +21,17 @@ secrets/
 secrets.json
 keystore.properties
 
+# Environment / Supabase — NEVER commit real credentials
+.env
+.env.*
+!.env.example
+.env.local
+.env.production
+supabase/.temp/
+supabase/.branches/
+supabase/.branches_*
+supabase/.temp
+
 # Vendor secrets
 vendor-keys/
 *.lic
