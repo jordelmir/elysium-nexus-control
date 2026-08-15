@@ -113,6 +113,7 @@ class RouteNegotiator(
          * Local > standard > vendor > cloud.
          */
         fun protocolPriority(protocol: Protocol): Int = when (protocol) {
+            Protocol.TvNode -> 8
             Protocol.DirectIr -> 10
             Protocol.HubIr -> 15
             Protocol.HidOverUsb -> 20
@@ -144,6 +145,7 @@ class RouteNegotiator(
          * at runtime and fed back into the evidence store.
          */
         fun protocolLatencyEstimate(protocol: Protocol): Long = when (protocol) {
+            Protocol.TvNode -> 15L
             Protocol.DirectIr -> 5L
             Protocol.HubIr -> 50L
             Protocol.HidOverUsb -> 1L

@@ -97,6 +97,7 @@ value class DeviceId(val value: String) {
  */
 enum class DeviceType {
     Unknown,
+    Television,
     Light,
     Switch,
     Outlet,
@@ -324,5 +325,7 @@ enum class Protocol {
     HdmiCec,
     VendorRest,
     VendorWebSocket,
-    ElysiumLink
+    ElysiumLink,
+    /** §11 TV Node protocol — semantic UniversalAction over local network. */
+    TvNode
 }
