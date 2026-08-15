@@ -62,6 +62,7 @@ Regla fail-closed "nunca una credencial en el árbol".
 - `/.github/workflows/android-ci.yml` (Gate 0 anti-fuga)
 - `/supabase/config.toml` (init, sin secretos)
 - `/supabase/.gitignore` (generado por CLI)
+- `/tools/supabase/check.py` (checker read-only reproducible, enmascara secretos)
 - `/docs/changelogs/PHASE_V07_09_SUPABASE_SEGURO.md` (este archivo)
 
 ## TESTS / EVIDENCE
@@ -74,6 +75,8 @@ Regla fail-closed "nunca una credencial en el árbol".
 - `supabase link` OK, `project-ref` correcto en `.temp` ✅
 - curls read-only con códigos 200/401 esperados, secretos enmascarados ✅
 - `python3 yaml` valida el workflow ✅
+- `python3 tools/supabase/check.py` → `ALL HEALTHY` (storage 200, postgrest 200,
+  auth 401 esperado), exit 0, sin secretos en output ✅
 
 ## LIMITATIONS
 
