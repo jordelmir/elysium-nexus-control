@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- TV Node: no INTERNET permission at all. The pairing/link channel
-         is declared, but production wiring never performs network I/O
-         inside the node; discovery is NSD (local), commands arrive
-         via the phone's HID/IR or the secure pairing channel. -->
+    <!-- INTERNET is required by the Android NSD API (NsdManager registers
+         via the OS network stack). The TV Node itself performs NO network
+         I/O of its own: discovery is NSD (local), commands arrive via the
+         phone's HID/IR or the secure pairing channel. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />

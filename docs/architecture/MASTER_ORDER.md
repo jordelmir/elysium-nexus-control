@@ -6,6 +6,19 @@
 > original 46-section order from the first prompt. Every architectural decision
 > must reference one or more of its sections. If code reality diverges, log the
 > divergence in the next `docs/changelogs/PHASE_<N>_<NAME>.md`.
+>
+> **UPDATE (2026-08-15): the consolidated software-first master order
+> (68 sections: phone + TV Node + IR + Bluetooth + LAN + evidence, software
+> before hardware, retail truth) is the NEW governing order. It is recorded
+> verbatim in `MASTER_ORDER_SOFTWARE_FIRST.md` and supersedes the sections
+> below as implementation priority. The sections below remain valid as the
+> long-horizon architecture; the consolidated order (§59 PR1–PR14 slicing)
+> wins where they conflict. Reconciliation note: PR1–PR14 in the consolidated
+> order is the execution plan; the identity/evidence/routing architecture of
+> this file remains the design backbone.**
+>
+> `docs/architecture/MASTER_ORDER_SOFTWARE_FIRST.md` = THE ORDER (verbatim).
+> This file = architecture detail + legacy sections.
 
 ## Fundamental Principle (§0)
 

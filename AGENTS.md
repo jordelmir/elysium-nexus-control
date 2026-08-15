@@ -10,7 +10,8 @@
 
 Code name: **ELYSiUM NEXUS — UNIVERSAL INTENT FABRIC / RETAIL TRUTH OS**.
 
-The governing constitution is `docs/architecture/MASTER_ORDER.md` (100-point Universal Intent Fabric order) updated with **v0.7 Retail Truth Master Implementation Order**.
+The governing constitution is `docs/architecture/MASTER_ORDER_SOFTWARE_FIRST.md` (consolidated 68-section software-first order, 2026-08-15: phone + TV Node + IR + Bluetooth + LAN + evidence; software before hardware; retail truth), supported by `docs/architecture/MASTER_ORDER.md`
+(100-point Universal Intent Fabric order) updated with **v0.7 Retail Truth Master Implementation Order**.
 
 ## Maturity Scale (Strict Commercial Taxonomy)
 
