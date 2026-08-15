@@ -28,10 +28,11 @@ The single source of truth is **`docs/architecture/MASTER_ORDER.md`** (68 sectio
 - §5 — TV Node architecture (`apps/android-tv-node/`)
 - §28 — Route Planner (multi-transport scoring)
 - §33 — Software-Only Success Gate (must pass before hardware)
-- §47 — First Commercial Matrix (MONGE first)
-- §56 — PR Sequence (PR1–PR14)
-- §63 — Software-Only Acceptance Test
-- §66 — Final Release Truth Gate (30 gates)
+- §40 — Elysium Physical Corpus (primary empirical data)
+- §49 — First Commercial Matrix (MONGE first)
+- §58 — PR Sequence (PR1–PR14)
+- §65 — Software-Only Acceptance Test
+- §68 — Final Release Truth Gate (30 gates)
 
 ## Maturity Scale
 
