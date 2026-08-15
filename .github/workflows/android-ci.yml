@@ -205,13 +205,13 @@ jobs:
           ./gradlew :app:assembleDebug --console=plain --no-daemon
 
       # ── Gate 7: Release build (R8) moved to a SEPARATE job ⬇ ──
-      # GitHub Actions does not allow the `secrets` context in a step-level
-      # `if:` ("Unrecognized named-value: 'secrets'"). Regla Comercial Hard #9
-      # (fail-closed, 0f39958): assembleRelease WITHOUT verified env
-      # credentials throws. So the release gate lives in the `release` job
-      # below, which runs ONLY when the repo secrets are provisioned
-      # (job-level `if` may reference `secrets`). No unsigned release APK is
-      # ever built when the credentials are absent.
+      # GitHub Actions does not allow the `secrets` context in ANY `if:`
+      # (step-level or job-level — "Unrecognized named-value: 'secrets'").
+      # Regla Comercial Hard #9 (fail-closed, 0f39958): assembleRelease
+      # WITHOUT verified env credentials throws. So the release gate lives in
+      # the `release` job below, whose steps are gated on the `env` context;
+      # those steps run only when the repo signing secrets are provisioned.
+      # No unsigned release APK is ever built when the credentials are absent.
 
       # ── Gate 8: SBOM generation ──
       - name: Generate SBOM (CycloneDX)
@@ -260,16 +260,22 @@ jobs:
           echo "Total tests: $total"
 
   # ── Release job (R8 + signed APK) ─────────────────────────────────────
-  # Gate 7 lives here, NOT in `build`: GitHub Actions forbids the `secrets`
-  # context in step-level `if:`, but ALLOWS it at job level. Regla Comercial
-  # Hard #9 (fail-closed, 0f39958): assembleRelease WITHOUT verified env
-  # credentials throws GradleException — so this job only runs when the repo
-  # secrets are provisioned; otherwise it is skipped and the pipeline stays
-  # green, never producing an unsigned release APK.
+  # Gate 7 lives here, NOT in `build`. Regla Comercial Hard #9 (fail-closed,
+  # 0f39958): assembleRelease WITHOUT verified env credentials throws
+  # GradleException — so the release steps must NOT run when the repo signing
+  # secrets are absent, and the pipeline must stay green, never producing an
+  # unsigned release APK.
+  #
+  # NOTE (2026-08-15, CI fix): GitHub Actions forbids the `secrets` context
+  # in ANY `if:` expression — step-level AND job-level ("Unrecognized
+  # named-value: 'secrets'"). The secrets are therefore mapped into this
+  # job's `env` (allowed), and the release STEPS are gated with `if:` on the
+  # `env` context (which is valid at step level). When the secrets are not
+  # provisioned, the env vars are empty strings, the steps are skipped, the
+  # job completes green, and no unsigned release APK is produced.
   release:
     name: Release APK (R8 + signed)
     needs: build
-    if: ${{ secrets.RELEASE_STORE_PASSWORD != '' && secrets.RELEASE_KEY_PASSWORD != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -309,11 +315,13 @@ jobs:
         run: chmod +x apps/android/gradlew
 
       - name: Build release APK (R8 minification, signed)
+        if: ${{ env.RELEASE_STORE_PASSWORD != '' && env.RELEASE_KEY_PASSWORD != '' }}
         run: |
           cd apps/android
           ./gradlew :app:assembleRelease --console=plain --no-daemon
 
       - name: Upload release APK
+        if: ${{ env.RELEASE_STORE_PASSWORD != '' && env.RELEASE_KEY_PASSWORD != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: app-release
