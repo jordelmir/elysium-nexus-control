@@ -1,6 +1,6 @@
 package com.elysium.nexus.tvnode.pairing
 
-import java.security.MessageDigest
+import com.elysium.nexus.tvnode.channel.TvChannelCrypto
 
 /**
  * PairingSession — the TV-side secure pairing state machine (PR2, §10).
@@ -12,13 +12,21 @@ import java.security.MessageDigest
  *   FAILED (brute force protection on the 6-digit code).
  * - Expiry: the session dies after `ttlMillis` from creation. A session
  *   that outlives its TTL behaves as if it never existed:
- *     verifyCode → FAILED
+ *     verifyCode → EXPIRED (terminal)
  *     qrPayload  → null (never leaks a stale code)
  * - Malformed payload: never matches, never advances state.
  *
- * The session holds the QR payload with the ephemeral nonce — the nonce is
- * consumed exactly once at QR display time, so a replayed QR cannot bind to
- * a newer session (anti-replay).
+ * Channel binding (PR2 slice 2):
+ * - At creation the node generates its ephemeral X25519 key pair; the QR
+ *   payload carries the SHA-256 fingerprint of the node's public key for
+ *   certificate/public-key pinning BEFORE any key exchange (§10).
+ * - `bindChannel(peerPublic)` only runs in CodeVerified, derives the
+ *   directional channel keys (phone→tv / tv→phone) from the X25519 shared
+ *   secret via HKDF, then transitions to Established. Until then the
+ *   session exposes no channel keys.
+ * - On platforms without X25519 (no Conscrypt), create() throws
+ *   [TvChannelCrypto.CryptoUnavailableException] — pairing is honestly
+ *   unsupported there, never invented.
  */
 class PairingSession private constructor(
     private val nonce: PairingNonce,
@@ -26,7 +34,7 @@ class PairingSession private constructor(
     private val clock: PairingClock,
     private val ttlMillis: Long,
     private val maxCodeAttempts: Int,
-    private val qrFingerprint: String,
+    private val myKeyPair: TvChannelCrypto.KeyPair,
     private val deviceId: String,
     private val protocolVersion: Int,
     private val createdAtMillis: Long
@@ -59,7 +67,14 @@ class PairingSession private constructor(
 
     val createdAt: Long get() = createdAtMillis
 
-    /** Returns the QR payload ONLY while the session is open and not expired. */
+    /** The node's ephemeral public key for this session (the QR pins its fingerprint). */
+    val myPublicKeyBytes: ByteArray get() = myKeyPair.publicKeyBytes
+
+    /** Directional channel keys — ONLY after Established. Null before binding. */
+    var channelKeys: TvChannelCrypto.ChannelKeys? = null
+        private set
+
+    /** The QR payload: deviceId + nonce + pin of the node's real public key. */
     fun qrPayload(): QrPairingPayload? = when {
         state !is State.Open -> null
         isExpired() -> null
@@ -67,7 +82,7 @@ class PairingSession private constructor(
             protocolVersion = protocolVersion,
             deviceId = deviceId,
             nonce = nonce,
-            pubKeyFingerprint = qrFingerprint
+            pubKeyFingerprint = TvChannelCrypto.fingerprintOf(myKeyPair.publicKeyBytes)
         )
     }
 
@@ -102,17 +117,22 @@ class PairingSession private constructor(
     }
 
     /**
-     * After the code is verified, both sides exchange a symmetric channel
-     * secret (forward-secure X25519 + AEAD — crypto layer, next slice).
-     * This session records the binding only after the peer proves nonce +
-     * key material.
+     * Binds the authenticated channel after the peer proves the code and
+     * presents its ephemeral X25519 public key. Derives the directional
+     * phone↔tv channel keys and transitions to Established.
+     *
+     * Fail-closed: only from CodeVerified; a stale session goes Expired;
+     * a wrong-size public key (or any crypto failure) throws — the session
+     * is NOT advanced on failure.
      */
-    fun bindChannel(): State {
+    fun bindChannel(peerPublicKeyBytes: ByteArray): State {
         if (isExpired()) {
             state = State.Expired
             return state
         }
         if (state !is State.CodeVerified) return state
+        require(peerPublicKeyBytes.size == 32) { "Peer X25519 public key must be 32 bytes." }
+        channelKeys = TvChannelCrypto.deriveChannelKeys(myKeyPair, peerPublicKeyBytes, TvChannelCrypto.LinkSide.TV)
         state = State.Established
         return state
     }
@@ -121,24 +141,33 @@ class PairingSession private constructor(
 
     companion object {
 
-        /** Creates a fresh session (used by the TV when pairing starts). */
-        fun create(clock: PairingClock, nonce: PairingNonce, qrFingerprint: String, deviceId: String, protocolVersion: Int = 1, ttlMillis: Long = 60_000, maxCodeAttempts: Int = 5): PairingSession =
-            PairingSession(
+        /**
+         * Creates a fresh session (used by the TV when pairing starts).
+         * Generates the node's ephemeral X25519 key pair.
+         *
+         * @throws TvChannelCrypto.CryptoUnavailableException when the
+         *   platform has no X25519 (honest unsupported pairing).
+         */
+        fun create(
+            clock: PairingClock,
+            nonce: PairingNonce,
+            deviceId: String,
+            protocolVersion: Int = 1,
+            ttlMillis: Long = 60_000,
+            maxCodeAttempts: Int = 5
+        ): PairingSession {
+            val keyPair = TvChannelCrypto.generateKeyPair()
+            return PairingSession(
                 nonce = nonce,
                 code = PairingCode.generate(),
                 clock = clock,
                 ttlMillis = ttlMillis,
                 maxCodeAttempts = maxCodeAttempts,
-                qrFingerprint = qrFingerprint,
+                myKeyPair = keyPair,
                 deviceId = deviceId,
                 protocolVersion = protocolVersion,
                 createdAtMillis = clock.nowMillis()
             )
-
-        /** SHA-256 fingerprint (8 hex) of a public-key blob — what the QR pinning shows. */
-        fun fingerprintOf(publicKeyBytes: ByteArray): String {
-            val digest = MessageDigest.getInstance("SHA-256").digest(publicKeyBytes)
-            return digest.joinToString("") { "%02x".format(it) }.take(8)
         }
     }
 }

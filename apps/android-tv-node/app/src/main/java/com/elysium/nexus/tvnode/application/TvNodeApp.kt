@@ -48,15 +48,18 @@ class TvNodeApp : Application() {
 
     fun startPairing(ttlMillis: Long = 60_000, maxCodeAttempts: Int = 5): PairingSession? {
         if (pairingSession != null) return null // one pairing intent at a time
-        val session = PairingSession.create(
-            clock = SYSTEM_CLOCK,
-            nonce = com.elysium.nexus.tvnode.pairing.PairingNonce.generate(),
-            qrFingerprint = "00000000", // replaced when the channel key is generated (next slice)
-            deviceId = identity.deviceId.value,
-            protocolVersion = 1,
-            ttlMillis = ttlMillis,
-            maxCodeAttempts = maxCodeAttempts
-        )
+        val session = try {
+            PairingSession.create(
+                clock = SYSTEM_CLOCK,
+                nonce = com.elysium.nexus.tvnode.pairing.PairingNonce.generate(),
+                deviceId = identity.deviceId.value,
+                protocolVersion = 1,
+                ttlMillis = ttlMillis,
+                maxCodeAttempts = maxCodeAttempts
+            )
+        } catch (e: com.elysium.nexus.tvnode.channel.TvChannelCrypto.CryptoUnavailableException) {
+            null // honest: pairing unsupported on this TV (no X25519) — never invented
+        }
         pairingSession = session
         return session
     }
