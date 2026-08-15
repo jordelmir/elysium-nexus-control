@@ -52,6 +52,32 @@
 
 ---
 
+## ⬇️ Descarga / Download (v0.9.0)
+
+Descargables públicos reconstruidos a `main` (`7ddaac2`), verificado cada uno por SHA-256:
+<https://github.com/jordelmir/elysium-nexus-control/releases/tag/v0.9.0>
+
+| App | Archivo | SHA-256 |
+|-----|---------|---------|
+| Controller (Android phone) | `ElysiumNexus-UniversalController-v0.7.0-retail-truth-debug.apk` | `06353574554ddc26f7d2b2d7fc931015d578e9fdf2182a7a04e3bd24d11f9365` |
+| TV Node (Android TV / Google TV) | `ElysiumNexus-TVNode-v0.1.0-debug.apk` | `2dc1d6bcf6db0c16ef2f45c64b88bc2325c9201b4afa353f93f3d508cf3b8c13` |
+| Mac Agent (menú bar) | `Elysium-Nexus-Mac.dmg` | `ce8e33f4b135ff319d8984d5a0162700e7a147e92202f1c5db50949f8af312e3` |
+
+```bash
+adb install -r ElysiumNexus-UniversalController-v0.7.0-retail-truth-debug.apk
+adb install -r ElysiumNexus-TVNode-v0.1.0-debug.apk
+open Elysium-Nexus-Mac.dmg
+```
+
+> [!NOTE]
+> Los APK publicados son **debug** firmados con la keystore local, porque la
+> firma de release exige credenciales env verificadas (Regla Comercial Hard #9,
+> fail-closed). Docs anteriores usan la misma política (v0.6.3 publicó
+> `app-debug.apk`). El camino retail de control físico garantizado es el
+> **Elysium Nexus Bridge**; ADB Wi-Fi es `DEVELOPER_ONLY`.
+
+---
+
 ## 🛠️ Build & Verification Toolchain
 
 | Component | Target SDK | AGP Version | Compile SDK | License Verification |
@@ -67,6 +93,11 @@ cd apps/android
 
 # Assemble Release APK (requires release env credentials)
 ./gradlew :app:assembleRelease
+
+# --- TV Node (subyacente en apps/android-tv-node, wrapper propio) ---
+cd apps/android-tv-node
+./gradlew :app:assembleDebug        # TV Node debug APK (0.1.0-tvnode)
+./gradlew :app:testDebugUnitTest    # JVM tests del TV Node (99 esperados tras slice 5)
 ```
 
 ---
