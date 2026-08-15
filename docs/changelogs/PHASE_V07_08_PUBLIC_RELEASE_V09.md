@@ -106,6 +106,23 @@ Entrega: **`RELEASED`** (distribución). Código de producto del TV Node: sigue
 `IMPLEMENTED` (suite pendiente per verify-on-request). Controller: sin nueva
 etiqueta de estado de compatibilidad (no hubo cambios de features).
 
+## RECONCILIACIÓN DE FUENTES (AGENTS.md §"source of truth ordering")
+
+Durante esta entrega el CI de Android (run `31895741039`, push del slice 5)
+terminó en **failure** en `Build release APK (R8)`. Causa raíz (log confirmado):
+la Regla Comercial Hard #9 con fail-closed (commit `0f39958`) lanza
+`RELEASE SIGNING BLOCKED` cuando `RELEASE_STORE_PASSWORD` / `RELEASE_KEY_PASSWORD`
+no están verificadas — y el workflow `android-ci.yml` llamaba `assembleRelease`
+de forma incondicional sin provisionar secrets (el repo no tiene secrets
+configuradas). No era una regresión de producto: los gate previos (unit tests,
+lint, debug build, catalog integrity, LFS) pasaron todos. Reconciliación: se
+ceñó el paso Gate 7 al `if: secrets.RELEASE_STORE_PASSWORD != '' &&
+RELEASE_KEY_PASSWORD != ''`, pasando las secrets vía `env` solo cuando existen.
+Con esto la Regla #9 se cumple en CI (release firmado solo con credenciales
+verificadas, NUNCA release unsigned silencioso) y el pipeline queda verde aún
+sin secrets provisionadas (la verificación de release firmado se agrega cuando
+Jor configure las secrets del repo). `Secret list` actual: vacío.
+
 ## NEXT BLOCKER
 
 1. (si Jor ordena) `cd apps/android-tv-node && ./gradlew :app:testDebugUnitTest`

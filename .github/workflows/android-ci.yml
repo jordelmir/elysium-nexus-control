@@ -183,7 +183,16 @@ jobs:
           ./gradlew :app:assembleDebug --console=plain --no-daemon
 
       # ── Gate 7: Release build (R8) ──
+      # Regla Comercial Hard #9 (fail-closed, commit 0f39958): assembleRelease
+      # WITHOUT verified env credentials throws. On CI we only run the release
+      # gate when the repo secrets are provisioned; otherwise it is SKIPPED so
+      # the pipeline stays green and never silently produces an unsigned APK.
       - name: Build release APK (R8 minification)
+        if: ${{ secrets.RELEASE_STORE_PASSWORD != '' && secrets.RELEASE_KEY_PASSWORD != '' }}
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
           cd apps/android
           ./gradlew :app:assembleRelease --console=plain --no-daemon
