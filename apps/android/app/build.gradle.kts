@@ -168,6 +168,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.activity.compose)
+    // Phase 21: the shared TV Node wire truth (:tvlink) — one source of
+    // truth for the phone↔TV protocol, channel crypto and pairing ceremony.
+    implementation(project(":tvlink"))
     // Phase 1.5: Jetpack WindowManager for the §16
     // foldable posture detection. The
     // `WindowInfoTracker` + `FoldingFeature` APIs

@@ -83,7 +83,8 @@ class NexusTvDiscovery(private val context: Context) {
     }
 
     companion object {
-        const val SERVICE_TYPE = "_elysium-tv._tcp"
+        /** Shared with the phone consumer — one truth for the service type. */
+        const val SERVICE_TYPE = com.elysium.nexus.tvnode.protocol.TvLinkProtocol.NSD_SERVICE_TYPE
         const val NODE_VERSION = "0.1.0"
     }
 }

@@ -42,6 +42,13 @@ object TvLinkProtocol {
     const val PROTOCOL_VERSION: Int = 1
     const val MAX_FRAME_SIZE: Int = 1_048_576
 
+    /**
+     * The NSD/DNS-SD service type of the TV Node control surface — ONE
+     * source of truth shared by the advertiser (TV) and the consumer
+     * (phone) via `:tvlink` (Master Order v0.10 Phase 21).
+     */
+    const val NSD_SERVICE_TYPE: String = "_elysium-tv._tcp"
+
     /** Frame type bytes for the TV link (0x10..; MAC link owns 0x01..0x0F). */
     enum class FrameType(val byte: Byte) {
         HELLO(0x10),
