@@ -4,6 +4,7 @@ import com.elysium.nexus.tvnode.canonical.DeviceId
 import com.elysium.nexus.tvnode.canonical.Direction
 import com.elysium.nexus.tvnode.canonical.UniversalAction
 import com.elysium.nexus.tvnode.channel.TvChannelCrypto
+import com.elysium.nexus.tvnode.transport.PairingConfirm
 import com.elysium.nexus.tvnode.protocol.TvLinkProtocol
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -15,6 +16,8 @@ import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+
+private fun dummyConfirm() = PairingConfirm("123456", "0".repeat(32))
 
 /**
  * TvLinkTransportTest — the real phone↔TV wire over loopback (PR2 slice 4).
@@ -35,13 +38,13 @@ class TvLinkTransportTest {
         val outcome = AtomicReference<TvLinkServer.Outcome>()
 
         val serverSocket = ServerSocket(0, 8, java.net.InetAddress.getLoopbackAddress())
-        val server = TvLinkServer(EchoDispatcher())
+        val server = TvLinkServer(EchoDispatcher(), AllowAllPairingGate())
         val serverThread = Thread {
             val accepted = serverSocket.accept()
             outcome.set(server.handle(accepted))
         }.apply { isDaemon = true; start() }
 
-        val client = TvLinkClient(connectionId)
+        val client = TvLinkClient(connectionId, dummyConfirm())
         Socket(java.net.InetAddress.getLoopbackAddress(), serverSocket.localPort).use { socket ->
             client.connect(socket) as TvLinkClient.Result.Established
             client.close(socket)
@@ -57,13 +60,13 @@ class TvLinkTransportTest {
     @Test
     fun `action envelopes round-trip encrypted with mirrored channel keys`() {
         val serverSocket = ServerSocket(0, 8, java.net.InetAddress.getLoopbackAddress())
-        val server = TvLinkServer(EchoDispatcher())
+        val server = TvLinkServer(EchoDispatcher(), AllowAllPairingGate())
         val outcome = AtomicReference<TvLinkServer.Outcome>()
         val serverThread = Thread {
             outcome.set(server.handle(serverSocket.accept()))
         }.apply { isDaemon = true; start() }
 
-        val client = TvLinkClient(connectionId)
+        val client = TvLinkClient(connectionId, dummyConfirm())
         Socket(java.net.InetAddress.getLoopbackAddress(), serverSocket.localPort).use { socket ->
             client.connect(socket) as TvLinkClient.Result.Established
             val action = UniversalAction.Navigate(DeviceId(deviceId), Direction.Up)
@@ -95,13 +98,13 @@ class TvLinkTransportTest {
     @Test
     fun `envelope with a foreign connectionId is rejected and the link tears down`() {
         val serverSocket = ServerSocket(0, 8, java.net.InetAddress.getLoopbackAddress())
-        val server = TvLinkServer(EchoDispatcher())
+        val server = TvLinkServer(EchoDispatcher(), AllowAllPairingGate())
         val outcome = AtomicReference<TvLinkServer.Outcome>()
         val serverThread = Thread {
             outcome.set(server.handle(serverSocket.accept()))
         }.apply { isDaemon = true; start() }
 
-        val client = TvLinkClient(connectionId)
+        val client = TvLinkClient(connectionId, dummyConfirm())
         Socket(java.net.InetAddress.getLoopbackAddress(), serverSocket.localPort).use { socket ->
             client.connect(socket) as TvLinkClient.Result.Established
             val envelope = TvLinkProtocol.TvEnvelope(
@@ -149,12 +152,12 @@ class TvLinkTransportTest {
                 latch.countDown()
                 return captured.get()!!.second
             }
-        })
+        }, AllowAllPairingGate())
         val serverThread = Thread {
             server.handle(serverSocket.accept())
         }.apply { isDaemon = true; start() }
 
-        val client = TvLinkClient(connectionId)
+        val client = TvLinkClient(connectionId, dummyConfirm())
         val action = UniversalAction.VolumeUp(DeviceId(deviceId))
         val envelope = TvLinkProtocol.TvEnvelope(
             protocolVersion = TvLinkProtocol.PROTOCOL_VERSION,

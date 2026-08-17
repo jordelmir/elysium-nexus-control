@@ -21,7 +21,7 @@ import java.security.SecureRandom
  */
 class TvLinkServer(
     private val dispatcher: TvActionDispatcher,
-    private val pairingGate: PairingGate? = null,
+    private val pairingGate: PairingGate,
     private val rng: SecureRandom = SecureRandom()
 ) {
     sealed class Outcome {
@@ -91,11 +91,15 @@ class TvLinkServer(
         get() = TvChannelCrypto.channelAd(TvChannelCrypto.NonceDomain.TV_TO_PHONE)
 
     /**
-     * PR2 slice 5 (§10): after the AEAD possession proof, when a pairing gate
-     * is configured the server demands ONE more sealed frame: PAIR_CONFIRM.
+     * PR2 slice 5 (§10 + Master Order v0.10 Phase 16): after the AEAD
+     * possession proof, the server demands ONE more sealed frame: PAIR_CONFIRM.
      * Only a peer holding the derived channel keys can craft it (it decrypts
      * under the RX key), so the pairing code + QR nonce inside are
      * authenticated end-to-end before CHANNEL_READY is ever emitted.
+     *
+     * The `pairingGate` is MANDATORY (non-null constructor): no production
+     * server can accidentally open without authorization. An allow-all gate
+     * exists ONLY in the test/debug source sets, never in production.
      *
      * Fail-closed on silence : a gated server waits a bounded [PAIR_CONFIRM_TIMEOUT]
      * for the frame; a peer that never proves the code times out and is torn
@@ -107,11 +111,10 @@ class TvLinkServer(
         handshake: TvLinkHandshake,
         keys: TvChannelCrypto.ChannelKeys
     ): PairingGate.Verdict {
-        val gate = pairingGate ?: return PairingGate.Verdict.Authorized
         // Bounded wait: fail-closed on silence, never a half-open hang (§10).
         socket.soTimeout = PAIR_CONFIRM_TIMEOUT
         return try {
-            stepPairingConfirm(stream, handshake, keys, gate)
+            stepPairingConfirm(stream, handshake, keys, pairingGate)
         } finally {
             socket.soTimeout = 0
         }
@@ -139,7 +142,7 @@ class TvLinkServer(
         }
         val confirm = PairingConfirm.parse(plain)
             ?: return PairingGate.Verdict.Denied("PAIR_CONFIRM payload malformed")
-        return gate.authorize(handshake.peerFingerprint, confirm)
+        return gate.authorize(handshake.peerIdentity, confirm)
     }
 
     private fun failAction(stream: TvFrameStream, message: String): Outcome {

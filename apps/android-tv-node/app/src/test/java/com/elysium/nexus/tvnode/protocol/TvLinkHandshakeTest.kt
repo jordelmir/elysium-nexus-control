@@ -124,6 +124,19 @@ class TvLinkHandshakeTest {
     }
 
     @Test
+    fun `full peer identity is 64 hex - the durable pin key`() {
+        val tv = TvLinkHandshake()
+        val phoneMirror = PhoneMirror(connectionId = 11L)
+        tv.onFrame(TvLinkProtocol.FrameType.HELLO, phoneMirror.buildHello()) as TvLinkHandshake.Result.Send
+        assertEquals(64, tv.peerIdentity.length)
+        assertTrue(tv.peerIdentity.all { it in '0'..'9' || it in 'a'..'f' })
+        assertEquals(
+            TvChannelCrypto.fullFingerprintOf(phoneMirror.phonePublicKeyBytes),
+            tv.peerIdentity
+        )
+    }
+
+    @Test
     fun `challenge echo proves data flows through the sealed channel`() {
         val tv = TvLinkHandshake()
         val phoneMirror = PhoneMirror(connectionId = 9L)
@@ -148,6 +161,8 @@ class TvLinkHandshakeTest {
 
         val channelKeys: TvChannelCrypto.ChannelKeys
             get() = derive()
+
+        val phonePublicKeyBytes: ByteArray get() = myKeyPair.publicKeyBytes
 
         fun buildHello(): ByteArray {
             val buf = ByteArray(8 + 32)

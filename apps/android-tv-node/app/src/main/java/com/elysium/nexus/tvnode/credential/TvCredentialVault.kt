@@ -12,8 +12,13 @@ import com.elysium.nexus.tvnode.channel.TvChannelCrypto
  * Android Keystore (an AEAD-wrapped blob); the JVM tests use an in-memory
  * twin so the vault contract itself is unit-verifiable without Robolectric.
  *
+ * Master Order v0.10 Phase 14 (identity): the pin key is the FULL SHA-256
+ * peer identity (64 hex, 256 bits) — NEVER the 8-hex short fingerprint,
+ * which is display-only. Phase 17 (fail-closed): callers MUST honor the
+ * [VaultResult] — an Error/NotFound means DENY, never proceed.
+ *
  * Realistic scope for THIS slice (transport + mirror + parity):
- *   - `pinPeerFingerprint`: durable public-key pinning (§10 certificate/
+ *   - `pinPeerIdentity`: durable public-key pinning (§10 certificate/
  *     public-key pinning). The QR shows the TV fingerprint; after pairing the
  *     phone stores it and the TV stores the phone's — subsequent sessions
  *     MUST match or the link refuses to establish.
@@ -22,14 +27,14 @@ import com.elysium.nexus.tvnode.channel.TvChannelCrypto
  *     continuity / revocation.
  */
 interface TvCredentialVault {
-    /** Durably store a peer's 8-hex public-key fingerprint as pinned. */
-    fun pinPeerAndCheckFingerprint(fingerprint: String): VaultResult
+    /** Durably store a peer's full SHA-256 identity (64 hex) as pinned. */
+    fun pinPeerIdentity(peerIdentity: String): VaultResult
 
     /** Forget a peer's pin (revocation path, §10). */
-    fun unpinPeer(fingerprint: String): VaultResult
+    fun unpinPeer(peerIdentity: String): VaultResult
 
-    /** True if the fingerprint was previously pinned by [pinPeerAndCheckFingerprint]. */
-    fun isPeerPinned(fingerprint: String): Boolean
+    /** True if the identity was previously pinned by [pinPeerIdentity]. */
+    fun isPeerIdentityPinned(peerIdentity: String): Boolean
 
     /**
      * Persist wrapped channel credentials. The caller supplies the channel
@@ -52,8 +57,21 @@ interface TvCredentialVault {
     }
 
     companion object {
+        /** True only when the operation landed durably (Stored, or already in the desired state). */
         fun isOk(r: VaultResult): Boolean = r is VaultResult.Stored ||
-            r is VaultResult.AlreadyPinned ||
-            r is VaultResult.NotFound
+            r is VaultResult.AlreadyPinned
+
+        /**
+         * Phase 14 contract: the pin identity is the FULL 64-hex SHA-256.
+         * Anything shorter (e.g. the 8-hex display fingerprint) is refused.
+         */
+        fun requireFullPeerIdentity(peerIdentity: String) {
+            require(peerIdentity.length == 64) {
+                "peer identity must be the full 64-hex SHA-256 (got length ${peerIdentity.length})"
+            }
+            require(peerIdentity.all { it in '0'..'9' || it in 'a'..'f' }) {
+                "peer identity must be lowercase hex"
+            }
+        }
     }
 }

@@ -31,8 +31,8 @@ class PairingGateTest {
         override fun nowMillis(): Long = now
     }
 
-    private fun fingerprintOfKey(pair: TvChannelCrypto.KeyPair): String =
-        TvChannelCrypto.fingerprintOf(pair.publicKeyBytes)
+    private fun identityOfKey(pair: TvChannelCrypto.KeyPair): String =
+        TvChannelCrypto.fullFingerprintOf(pair.publicKeyBytes)
 
     private fun newSession(
         clock: FakeClock,
@@ -52,9 +52,9 @@ class PairingGateTest {
 
     @Test
     fun `pairing confirm encodes and parses back exactly`() {
-        val confirm = PairingConfirm(code = "123456", nonce = "0123456789abcdef")
+        val confirm = PairingConfirm(code = "123456", nonce = "0123456789abcdef0123456789abcdef")
         val encoded = confirm.encode()
-        assertEquals(1 + 6 + 16, encoded.size)
+        assertEquals(1 + 6 + 32, encoded.size)
         val parsed = PairingConfirm.parse(encoded)
         assertNotNull(parsed)
         assertEquals(confirm.code, parsed!!.code)
@@ -64,10 +64,10 @@ class PairingGateTest {
     @Test
     fun `malformed pairing confirm payloads are rejected`() {
         assertNull(PairingConfirm.parse(ByteArray(0)))
-        assertNull(PairingConfirm.parse(ByteArray(1 + 6 + 16) { 0 })) // non-blank but invalid nonce chars
-        assertNull(PairingConfirm.parse(ByteArray(1 + 5 + 16) { '0'.code.toByte() })) // short code
+        assertNull(PairingConfirm.parse(ByteArray(1 + 6 + 32) { 0 })) // non-blank but invalid nonce chars
+        assertNull(PairingConfirm.parse(ByteArray(1 + 5 + 32) { '0'.code.toByte() })) // short code
         val badNonce = byteArrayOf(6, '1'.code.toByte(), '2'.code.toByte(), '3'.code.toByte(), '4'.code.toByte(),
-            '5'.code.toByte(), '6'.code.toByte()) + "zzzzzzzzzzzzzzzz".toByteArray(Charsets.UTF_8)
+            '5'.code.toByte(), '6'.code.toByte()) + ("z".repeat(32)).toByteArray(Charsets.UTF_8)
         assertNull(PairingConfirm.parse(badNonce))
     }
 
@@ -79,10 +79,10 @@ class PairingGateTest {
     fun `already pinned peer is authorized without a code - reconnect path`() {
         val vault = InMemoryTvCredentialVault()
         val phone = TvChannelCrypto.generateKeyPair()
-        vault.pinPeerAndCheckFingerprint(fingerprintOfKey(phone))
+        vault.pinPeerIdentity(identityOfKey(phone))
         val gate = CodeConfirmPairingGate(vault, session = null) // no active session
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm = null)
+        val verdict = gate.authorize(identityOfKey(phone), confirm = null)
         assertEquals(PairingGate.Verdict.Authorized::class, verdict::class)
     }
 
@@ -98,9 +98,9 @@ class PairingGateTest {
         val qr = session.qrPayload()!!
         val confirm = PairingConfirm(displayed.value, qr.nonce.value)
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm)
+        val verdict = gate.authorize(identityOfKey(phone), confirm)
         assertEquals(PairingGate.Verdict.Authorized::class, verdict::class)
-        assertTrue("correct pairing must pin the peer durably", vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue("correct pairing must pin the peer durably", vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     @Test
@@ -114,11 +114,11 @@ class PairingGateTest {
         val qr = session.qrPayload()!!
         val confirm = PairingConfirm(code = "999999", nonce = qr.nonce.value)
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm)
+        val verdict = gate.authorize(identityOfKey(phone), confirm)
         assertEquals(PairingGate.Verdict.Denied::class, verdict::class)
         val denied = verdict as PairingGate.Verdict.Denied
         assertTrue(denied.reason.contains("pairing code rejected", ignoreCase = true))
-        assertTrue(!vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue(!vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     @Test
@@ -130,13 +130,13 @@ class PairingGateTest {
         val gate = CodeConfirmPairingGate(vault, session)
 
         val displayed = session.displayCode()!!
-        val confirm = PairingConfirm(displayed.value, "ffffffffffffffff") // NOT this session's nonce
+        val confirm = PairingConfirm(displayed.value, "f".repeat(32)) // NOT this session's nonce
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm)
+        val verdict = gate.authorize(identityOfKey(phone), confirm)
         assertEquals(PairingGate.Verdict.Denied::class, verdict::class)
         val denied = verdict as PairingGate.Verdict.Denied
         assertTrue(denied.reason.contains("nonce mismatch", ignoreCase = true))
-        assertTrue(!vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue(!vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     @Test
@@ -148,10 +148,10 @@ class PairingGateTest {
         val phone = TvChannelCrypto.generateKeyPair()
         val gate = CodeConfirmPairingGate(vault, session)
 
-        val confirm = PairingConfirm("123456", "0000000000000000")
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm)
+        val confirm = PairingConfirm("123456", "0".repeat(32))
+        val verdict = gate.authorize(identityOfKey(phone), confirm)
         assertEquals(PairingGate.Verdict.Denied::class, verdict::class)
-        assertTrue(!vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue(!vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     @Test
@@ -160,9 +160,9 @@ class PairingGateTest {
         val phone = TvChannelCrypto.generateKeyPair()
         val gate = CodeConfirmPairingGate(vault, session = null)
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), PairingConfirm("123456", "0000000000000000"))
+        val verdict = gate.authorize(identityOfKey(phone), PairingConfirm("123456", "0".repeat(32)))
         assertEquals(PairingGate.Verdict.Denied::class, verdict::class)
-        assertTrue(!vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue(!vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     @Test
@@ -173,9 +173,9 @@ class PairingGateTest {
         val phone = TvChannelCrypto.generateKeyPair()
         val gate = CodeConfirmPairingGate(vault, session)
 
-        val verdict = gate.authorize(fingerprintOfKey(phone), confirm = null)
+        val verdict = gate.authorize(identityOfKey(phone), confirm = null)
         assertEquals(PairingGate.Verdict.Denied::class, verdict::class)
-        assertTrue(!vault.isPeerPinned(fingerprintOfKey(phone)))
+        assertTrue(!vault.isPeerIdentityPinned(identityOfKey(phone)))
     }
 
     // ------------------------------------------------------------------
@@ -228,7 +228,7 @@ class PairingGateTest {
         assertEquals(TvLinkServer.Outcome.Clean(1), outcome.get())
         assertTrue(
             "peer (phone) must be pinned after a real pairing",
-            vault.isPeerPinned(TvChannelCrypto.fingerprintOf(client.myPublicKeyBytes))
+            vault.isPeerIdentityPinned(TvChannelCrypto.fullFingerprintOf(client.myPublicKeyBytes))
         )
     }
 
@@ -263,7 +263,7 @@ class PairingGateTest {
             "server must refuse a peer that proves the wrong code (got $o)",
             o is TvLinkServer.Outcome.Failed
         )
-        assertTrue(!vault.isPeerPinned(client.myPublicKeyBytes.let { TvChannelCrypto.fingerprintOf(it) }))
+        assertTrue(!vault.isPeerIdentityPinned(client.myPublicKeyBytes.let { TvChannelCrypto.fullFingerprintOf(it) }))
     }
 
     private fun EchoDispatcher(): TvActionDispatcher = object : TvActionDispatcher {

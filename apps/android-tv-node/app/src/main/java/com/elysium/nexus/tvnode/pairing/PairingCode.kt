@@ -53,11 +53,12 @@ class PairingCode private constructor(val value: String) {
  * PairingNonce — the ephemeral single-use nonce exchanged during pairing.
  * Binds the QR payload to this exact pairing attempt; a truncated nonce is
  * rejected outright (anti-replay: an old nonce can never replay a session).
+ * 128 bits minimum (32 hex) — Master Order v0.10 Phase 14.
  */
 class PairingNonce private constructor(val value: String) {
 
     init {
-        require(VALID.matches(value)) { "Pairing nonce must be 16 hex chars." }
+        require(VALID.matches(value)) { "Pairing nonce must be 32 hex chars." }
     }
 
     /** Wrapper equality: two nonces with the same hex value ARE equal. */
@@ -69,10 +70,10 @@ class PairingNonce private constructor(val value: String) {
 
     companion object {
         private val random = SecureRandom()
-        private val VALID = Regex("^[0-9a-f]{16}$")
+        private val VALID = Regex("^[0-9a-f]{32}$")
 
         fun generate(): PairingNonce {
-            val bytes = ByteArray(8)
+            val bytes = ByteArray(16)
             random.nextBytes(bytes)
             return PairingNonce(bytes.joinToString("") { "%02x".format(it) })
         }

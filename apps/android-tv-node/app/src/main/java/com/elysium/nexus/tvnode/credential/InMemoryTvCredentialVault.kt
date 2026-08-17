@@ -17,20 +17,21 @@ class InMemoryTvCredentialVault : TvCredentialVault {
     private val pins = ConcurrentHashMap.newKeySet<String>()
     private val byConnection = ConcurrentHashMap<Long, TvChannelCrypto.ChannelKeys>()
 
-    override fun pinPeerAndCheckFingerprint(fingerprint: String): TvCredentialVault.VaultResult {
-        if (isPeerPinned(fingerprint)) return TvCredentialVault.VaultResult.AlreadyPinned
-        pins.add(fingerprint)
+    override fun pinPeerIdentity(peerIdentity: String): TvCredentialVault.VaultResult {
+        TvCredentialVault.requireFullPeerIdentity(peerIdentity)
+        if (isPeerIdentityPinned(peerIdentity)) return TvCredentialVault.VaultResult.AlreadyPinned
+        pins.add(peerIdentity)
         return TvCredentialVault.VaultResult.Stored
     }
 
-    override fun unpinPeer(fingerprint: String): TvCredentialVault.VaultResult =
-        if (pins.remove(fingerprint)) {
+    override fun unpinPeer(peerIdentity: String): TvCredentialVault.VaultResult =
+        if (pins.remove(peerIdentity)) {
             TvCredentialVault.VaultResult.Stored
         } else {
             TvCredentialVault.VaultResult.NotFound
         }
 
-    override fun isPeerPinned(fingerprint: String): Boolean = pins.contains(fingerprint)
+    override fun isPeerIdentityPinned(peerIdentity: String): Boolean = pins.contains(peerIdentity)
 
     override fun saveChannelCredential(
         connectionId: Long,
