@@ -45,5 +45,8 @@ android {
 }
 
 dependencies {
+    // zxing-core is a pure-Java QR encoder used by the shared pairing UX
+    // (QrPairingRenderer lives in the shared `pairing` package).
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
 }

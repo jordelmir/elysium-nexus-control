@@ -29,11 +29,67 @@ class TvNodeApp : Application() {
 
     private var discovery: NexusTvDiscovery? = null
 
+    private var discoveryRegistered = false
+
     private var listener: TvLinkListener? = null
+
+    private var connectivityCallback: android.net.ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
         startControlSurface()
+        monitorConnectivity()
+    }
+
+    /**
+     * Phase 24 — lifecycle wiring: react to connectivity changes with the
+     * pure decisions of [TvNodeLifecycleController]. Thin Android glue only.
+     */
+    private fun monitorConnectivity() {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) = reconcileSurface()
+            override fun onLost(network: android.net.Network) = reconcileSurface()
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            connectivityCallback = callback
+        } catch (e: Exception) {
+            // No network callback registered: the surface keeps whatever state
+            // it reached at boot — honest degradation, never a fake re-register.
+            connectivityCallback = null
+        }
+    }
+
+    /** Applies the lifecycle verdict against the current surface state. */
+    private fun reconcileSurface() {
+        val networkAvailable = runCatching {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            cm.activeNetwork != null
+        }.getOrDefault(false)
+        when (TvNodeLifecycleController.decide(
+            listenerBound = listener != null,
+            networkAvailable = networkAvailable,
+            discoveryRegistered = discoveryRegistered
+        )) {
+            TvNodeLifecycleController.Verdict.ReRegisterDiscovery -> {
+                val port = listener?.boundPort ?: return
+                startDiscovery(port)
+            }
+            TvNodeLifecycleController.Verdict.StopDiscovery -> stopDiscovery()
+            TvNodeLifecycleController.Verdict.Noop -> Unit
+        }
+    }
+
+    private fun startDiscovery(port: Int) {
+        if (discoveryRegistered) return
+        val d = discovery ?: NexusTvDiscovery(this).also { discovery = it }
+        if (d.start(port)) discoveryRegistered = true
+    }
+
+    private fun stopDiscovery() {
+        discovery?.stop()
+        discoveryRegistered = false
     }
 
     /**
@@ -54,7 +110,7 @@ class TvNodeApp : Application() {
         if (state !is TvLinkListener.State.Bound) return
         listener = l
         // P0-12: advertise only the REAL bound port; never a made-up one.
-        discovery = NexusTvDiscovery(this).also { it.start(l.boundPort) }
+        startDiscovery(l.boundPort)
     }
 
     fun controlPort(): Int = listener?.boundPort ?: 0
