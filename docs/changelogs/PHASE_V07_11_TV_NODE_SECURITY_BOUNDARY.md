@@ -73,4 +73,4 @@
 
 ## Commits
 
-- `39f3c69` (to be created): `feat(tv-node): v0.10 phases 14/16/17/18 — full 64-hex peer identity, 128-bit nonces, mandatory pairing gate, fail-closed vault`
+- `12a6b96`: `feat(tv-node): v0.10 phases 14/16/17/18 — full 64-hex peer identity, 128-bit nonces, mandatory pairing gate, fail-closed vault`
