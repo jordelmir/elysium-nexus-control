@@ -1,6 +1,7 @@
 # PHASE V07-14 — FINAL TRUTH GATE + Evidence Store + One Policy Engine + Legal Ledger + Capability Grants
 
 Branch: `fix/v0.10-truth-convergence` · Fecha: 2026-08-17
+Commit: `74f54f2`
 Alcance: Master Order v0.10, fases 2, 3, 10, 12, 23 + Final Commercial Truth Gate (instalado como gate CI permanente).
 
 ## Qué se entrega
