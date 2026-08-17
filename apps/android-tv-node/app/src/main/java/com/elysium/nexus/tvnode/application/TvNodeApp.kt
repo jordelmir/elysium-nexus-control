@@ -4,16 +4,22 @@ import android.app.Application
 import android.view.KeyEvent
 import com.elysium.nexus.tvnode.BuildConfig
 import com.elysium.nexus.tvnode.accessibility.NexusAccessibilityService
+import com.elysium.nexus.tvnode.canonical.UniversalAction
+import com.elysium.nexus.tvnode.credential.AndroidKeyStoreTvCredentialVault
+import com.elysium.nexus.tvnode.credential.TvCredentialVault
 import com.elysium.nexus.tvnode.discovery.NexusTvDiscovery
 import com.elysium.nexus.tvnode.identity.NexusTvIdentityProvider
 import com.elysium.nexus.tvnode.ime.NexusTvIme
 import com.elysium.nexus.tvnode.media.NotificationMediaObserver
 import com.elysium.nexus.tvnode.pairing.PairingSession
+import com.elysium.nexus.tvnode.protocol.TvLinkProtocol
+import com.elysium.nexus.tvnode.transport.TvActionDispatcher
+import com.elysium.nexus.tvnode.transport.TvLinkListener
 
 /**
  * TvNodeApp — app-level holder wiring the granted system services to the
- * observation surface. This is where the phone/tv pairing session would
- * drive reachable commands.
+ * observation surface. Owns the production control listener: vault-backed
+ * pairing gate + real bound port, advertised AFTER binding (P0-12).
  */
 class TvNodeApp : Application() {
 
@@ -23,13 +29,35 @@ class TvNodeApp : Application() {
 
     private var discovery: NexusTvDiscovery? = null
 
+    private var listener: TvLinkListener? = null
+
     override fun onCreate() {
         super.onCreate()
-        // Advertise _elysium-tv._tcp while the node process lives.
-        // NSD is the local-discovery lane (PR2, §9); nothing sensitive is
-        // ever advertised.
-        discovery = NexusTvDiscovery(this).also { it.start() }
+        startControlSurface()
     }
+
+    /**
+     * Bind the control listener, then advertise the REAL bound port. If the
+     * durable Keystore vault cannot be provisioned, the surface stays down
+     * (fail-closed: no listener, no advertisement — never a soft in-memory
+     * fallback that would hand out unpersisted pins).
+     */
+    private fun startControlSurface() {
+        val vault = try {
+            AndroidKeyStoreTvCredentialVault(this)
+        } catch (e: Exception) {
+            return // no durable vault → no control surface (honest, fail-closed)
+        }
+        val gate = SessionAwarePairingGate(vault) { pairingSession }
+        val l = TvLinkListener(HonestUnsupportedDispatcher(), { gate })
+        val state = l.start()
+        if (state !is TvLinkListener.State.Bound) return
+        listener = l
+        // P0-12: advertise only the REAL bound port; never a made-up one.
+        discovery = NexusTvDiscovery(this).also { it.start(l.boundPort) }
+    }
+
+    fun controlPort(): Int = listener?.boundPort ?: 0
 
     var accessibility: NexusAccessibilityService? = null
         private set
@@ -103,6 +131,23 @@ class TvNodeApp : Application() {
 
     fun refreshMediaSessions() {
         // Re-query active sessions through the observer.
+    }
+
+    /**
+     * Baseline dispatcher until the accessibility/volume executor lands:
+     * every action is answered UNSUPPORTED — never a made-up success
+     * (TV-FABRIC.4: a fake EXECUTED is forbidden).
+     */
+    private class HonestUnsupportedDispatcher : TvActionDispatcher {
+        override fun dispatch(
+            envelope: TvLinkProtocol.TvEnvelope,
+            action: UniversalAction?
+        ): TvLinkProtocol.TvResponseBody =
+            TvLinkProtocol.TvResponseBody(
+                state = TvLinkProtocol.TvResponseState.UNSUPPORTED,
+                answerToMessageId = envelope.messageId,
+                detail = "no executor wired yet — never a fake success"
+            )
     }
 
     companion object {
