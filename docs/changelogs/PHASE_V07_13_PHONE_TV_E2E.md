@@ -69,4 +69,4 @@ have created exactly the "two truth engines" the audit forbids. Instead:
 
 ## Commits
 
-- Hash recorded in the follow-up doc commit.
+- `bf4a9c4`: `feat(controller): v0.10 phase 21 — phone↔TV E2E via shared :tvlink wire truth (P0-4): TvNodePhoneLink + NSD consumer, one NSD_SERVICE_TYPE constant; E2E test pairs + commands a real TvLinkServer over the wire (2/2); controller compile+lint green, tv-node 99/99`
