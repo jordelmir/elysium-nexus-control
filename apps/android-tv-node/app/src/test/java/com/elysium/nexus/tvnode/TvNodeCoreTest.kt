@@ -1,6 +1,6 @@
 package com.elysium.nexus.tvnode
 
-import com.elysium.nexus.tvnode.access.TvAccessLevel
+import com.elysium.nexus.tvnode.access.TvCapabilityGrants
 import com.elysium.nexus.tvnode.observe.TvActionExecutor
 import com.elysium.nexus.tvnode.observe.TvEffector
 import com.elysium.nexus.tvnode.observe.TvObservationEngine
@@ -130,11 +130,16 @@ class VolumeActionInterpreterTest {
 
 class TvActionExecutorTest {
 
+    private fun grantedGrants() = TvCapabilityGrants(
+        volumeObservable = true,
+        volumeExecutable = true
+    )
+
     @Test
     fun `executor fires once and confirms only when the TV shows a real delta`() {
         val engine = MutableEngine()
         val effector = RaiserEffector(engine)
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val executor = TvActionExecutor(engine, effector, grantedGrants())
 
         // before=5 → fire → after=6: the TV responded with a real delta.
         engine.current = vol(5)
@@ -154,7 +159,7 @@ class TvActionExecutorTest {
     fun `executor stays unverified when the TV shows no delta after firing`() {
         val engine = MutableEngine()
         val effector = FakeEffector() // fires but never moves the state
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val executor = TvActionExecutor(engine, effector, grantedGrants())
 
         engine.current = vol(5)
         val unverified = executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
@@ -164,11 +169,11 @@ class TvActionExecutorTest {
     }
 
     @Test
-    fun `executor refuses below enhanced access without touching the effector`() {
+    fun `executor refuses without the volume-execution grant`() {
         val engine = MutableEngine()
         engine.current = vol(5)
         val effector = FakeEffector()
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.STANDARD)
+        val executor = TvActionExecutor(engine, effector, TvCapabilityGrants())
         assertEquals(
             VolumeActionInterpreter.Verdict.Refused,
             executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
@@ -181,7 +186,7 @@ class TvActionExecutorTest {
         val engine = MutableEngine()
         engine.current = vol(5, fixed = true)
         val effector = FakeEffector()
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val executor = TvActionExecutor(engine, effector, grantedGrants())
         assertEquals(
             VolumeActionInterpreter.Verdict.Unsupported,
             executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
@@ -194,7 +199,7 @@ class TvActionExecutorTest {
         val engine = MutableEngine()
         engine.current = vol(5)
         val effector = FakeEffector(success = false)
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val executor = TvActionExecutor(engine, effector, grantedGrants())
         assertEquals(
             VolumeActionInterpreter.Verdict.Unverified,
             executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
@@ -207,7 +212,7 @@ class TvActionExecutorTest {
         val engine = MutableEngine()
         engine.current = null
         val effector = FakeEffector()
-        val executor = TvActionExecutor(engine, effector, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val executor = TvActionExecutor(engine, effector, grantedGrants())
         assertEquals(
             VolumeActionInterpreter.Verdict.Unverified,
             executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)

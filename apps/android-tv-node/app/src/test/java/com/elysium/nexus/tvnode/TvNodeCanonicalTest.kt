@@ -1,7 +1,7 @@
 package com.elysium.nexus.tvnode
 
 import com.elysium.nexus.tvnode.access.CapabilityManifestBuilder
-import com.elysium.nexus.tvnode.access.TvAccessLevel
+import com.elysium.nexus.tvnode.access.TvCapabilityGrants
 import com.elysium.nexus.tvnode.canonical.ActionResult
 import com.elysium.nexus.tvnode.canonical.Capability
 import com.elysium.nexus.tvnode.canonical.Direction
@@ -71,16 +71,45 @@ class TvNodeCanonicalTest {
             hdmiCec = false, volumeFixed = false, canRequestFilterKeyEvents = true,
             isAccessibilityEnabled = true, hasBluetooth = true, manager = "test"
         )
-        val manifest = CapabilityManifestBuilder.build(api33, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val granted = TvCapabilityGrants(
+            accessibilityGranted = true,
+            volumeObservable = true,
+            volumeExecutable = true,
+            keyFilteringObservable = true
+        )
+        val manifest = CapabilityManifestBuilder.build(api33, granted)
         assertTrue(manifest.globalTvActions)         // API 33+: GLOBAL_ACTION_* available
         assertTrue(manifest.keyFilteringObservable)  // canRequestFilterKeyEvents = true
         assertTrue(manifest.volumeObservable)
 
         val api30 = api33.copy(apiLevel = 30, platform = "Android-11", canRequestFilterKeyEvents = false)
-        val degraded = CapabilityManifestBuilder.build(api30, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val degraded = CapabilityManifestBuilder.build(api30, granted)
         assertTrue(!degraded.globalTvActions)
         assertTrue(!degraded.keyFilteringObservable)
         assertTrue(degraded.volumeObservable)
+    }
+
+    @Test
+    fun `capability surface is composed of independent grants`() {
+        // A TV with media control but NO accessibility grant must NOT show
+        // global keys — grants are independent, never a ladder.
+        val facts = DeviceFacts(
+            manufacturer = "universal", model = "test", device = "abs", product = "test",
+            apiLevel = 34, platform = "Android-14", isTv = true, leanback = true,
+            hdmiCec = false, volumeFixed = false, canRequestFilterKeyEvents = true,
+            isAccessibilityEnabled = false, hasBluetooth = true, manager = "test"
+        )
+        val mediaOnly = TvCapabilityGrants(
+            mediaTransportGranted = true,
+            notificationListenerGranted = true
+        )
+        val manifest = CapabilityManifestBuilder.build(
+            facts, mediaOnly, isMediaSessionActive = true, isNotificationListenerGranted = true
+        )
+        assertTrue(manifest.mediaSessionPresent)
+        assertTrue(manifest.notificationListenerGranted)
+        assertTrue(!manifest.globalTvActions)
+        assertTrue(!manifest.imeAvailable)
     }
 
     @Test
@@ -91,7 +120,9 @@ class TvNodeCanonicalTest {
             hdmiCec = false, volumeFixed = true, canRequestFilterKeyEvents = false,
             isAccessibilityEnabled = false, hasBluetooth = true, manager = "test"
         )
-        val manifest = CapabilityManifestBuilder.build(facts, TvAccessLevel.ENHANCED_USER_GRANTED)
+        val manifest = CapabilityManifestBuilder.build(
+            facts, TvCapabilityGrants(volumeObservable = true, volumeFixed = true)
+        )
         assertTrue(!manifest.muteObservable)
     }
 }

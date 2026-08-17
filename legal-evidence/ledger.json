@@ -1,0 +1,53 @@
+{
+  "ledgerVersion": 1,
+  "entries": [
+    {
+      "id": "probonopd-notification",
+      "title": "probonopd/irdb — pre-use notification & attribution obligations",
+      "status": "DOCUMENTED",
+      "artifactPath": "ir-data/sources/lock/probonopd-irdb.lock.json",
+      "artifactSha256": null,
+      "obligations": [
+        "Pre-use notification to the license steward before commercial use",
+        "Attribution notice in THIRD_PARTY_NOTICES.md section 2.A",
+        "Hardware test copy availability under the Elysium Nexus Commercial Program guidelines"
+      ],
+      "notes": "Attribution shipped in THIRD_PARTY_NOTICES.md; pre-use notification still requires the steward channel confirmation — see legal-review-status entry."
+    },
+    {
+      "id": "flipper-file-provenance",
+      "title": "Flipper-IRDB signal provenance (CC0-1.0 epoch)",
+      "status": "SATISFIED",
+      "artifactPath": "ir-data/sources/lock/flipper-irdb.lock.json",
+      "artifactSha256": null,
+      "obligations": [
+        "All imported signals pinned to commits post-dating 2319685 (CC0-1.0 grant epoch)"
+      ],
+      "notes": "Provenance lock verified by tools/ir-data/verify_source_locks.py in CI."
+    },
+    {
+      "id": "hardware-copy-obligation",
+      "title": "Retail hardware test copy obligation (retail truth program)",
+      "status": "DOCUMENTED",
+      "artifactPath": "docs/licensing/RETAIL_HARDWARE_COPY_POLICY.md",
+      "artifactSha256": null,
+      "obligations": [
+        "One physical test unit per retailer SKU family available for independent verification",
+        "Test units registered with serialized evidence IDs before any RETAIL_MATRIX_VERIFIED claim"
+      ],
+      "notes": "Policy documented; physical units are an external hardware dependency (see V010_STATUS.md Phase 35+)."
+    },
+    {
+      "id": "legal-review-status",
+      "title": "Overall legal review state for third-party material",
+      "status": "REVIEW_REQUIRED",
+      "artifactPath": "ir-data/sources.lock.json",
+      "artifactSha256": null,
+      "obligations": [
+        "Third-party IRDB material cleared for commercial distribution",
+        "probonopd pre-use notification delivered and confirmed"
+      ],
+      "notes": "BLOCKED-for-release until a licensed counsel/principal signs REVIEW_REQUIRED -> DOCUMENTED/SATISFIED. Release gate: PRODUCTION_APPROVED requires this entry SATISFIED or BLOCKED exemption."
+    }
+  ]
+}

@@ -51,8 +51,9 @@ object ClaimPromotionEngine {
     /**
      * Explicit partial order — the ONLY way statuses are compared.
      * Enum ordinal comparison is forbidden as security/commercial policy.
+     * Public contract for the declarative policy cross-check (Phase 3).
      */
-    private val STATUS_ORDER = listOf(
+    val CLAIM_LADDER = listOf(
         DerivedClaimStatus.SOURCE_IMPORTED,
         DerivedClaimStatus.STRUCTURAL_VALID,
         DerivedClaimStatus.RUNTIME_EXECUTABLE,
@@ -64,7 +65,7 @@ object ClaimPromotionEngine {
     )
 
     private fun orderIndex(status: DerivedClaimStatus): Int {
-        val idx = STATUS_ORDER.indexOf(status)
+        val idx = CLAIM_LADDER.indexOf(status)
         require(idx >= 0) { "status $status not in partial order" }
         return idx
     }

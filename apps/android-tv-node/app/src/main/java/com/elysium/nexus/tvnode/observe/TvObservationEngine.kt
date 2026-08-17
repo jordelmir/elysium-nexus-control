@@ -1,7 +1,7 @@
 package com.elysium.nexus.tvnode.observe
 
 import android.media.AudioManager
-import com.elysium.nexus.tvnode.access.TvAccessLevel
+import com.elysium.nexus.tvnode.access.TvCapabilityGrants
 
 /**
  * TV observation engine — the honest source of "what the TV is really
@@ -134,16 +134,19 @@ object VolumeActionInterpreter {
 class TvActionExecutor(
     private val observations: TvObservationEngine,
     private val effector: TvEffector,
-    private val accessLevel: TvAccessLevel
+    private val grants: TvCapabilityGrants
 ) {
 
     /**
      * Execute a volume direction action. Returns the honest verdict.
      * POWER/INPUT are out of scope here by design (explicit user
      * confirmation gate lives at the phone/pairing layer).
+     *
+     * The volume-execution gate is an INDEPENDENT grant
+     * ([TvCapabilityGrants.volumeExecutable]) — there is no access ladder.
      */
     fun executeVolume(action: VolumeActionInterpreter.VolumeDirectionAction): VolumeActionInterpreter.Verdict {
-        if (accessLevel < TvAccessLevel.ENHANCED_USER_GRANTED) {
+        if (!grants.volumeExecutable) {
             return VolumeActionInterpreter.Verdict.Refused
         }
         val before = observations.observeVolume() ?: return VolumeActionInterpreter.Verdict.Unverified

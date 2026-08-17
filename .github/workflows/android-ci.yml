@@ -186,6 +186,21 @@ jobs:
           pip install --break-system-packages ruff 2>/dev/null || pip install ruff
           ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505,E402
 
+      # ── Gate 3a: Retail claim policy consistency (v0.10 Phase 3, ONE policy) ──
+      - name: Verify retail claim policy consistency
+        run: |
+          python3 tools/ir-data/tv_claim_policy.py --check
+
+      # ── Gate 3b: Legal ledger -> notices freshness (v0.10 Phase 12) ──
+      - name: Verify legal notices are current
+        run: |
+          python3 tools/legal/generate_third_party_notices.py --check
+
+      # ── Gate 3c: Final Commercial Truth Gate (v0.10) ──
+      - name: Run final commercial truth gate
+        run: |
+          python3 tools/truth_engine/final_truth_gate.py
+
       # ── Gate 4: JVM unit tests ──
       - name: Run JVM unit tests
         run: |
