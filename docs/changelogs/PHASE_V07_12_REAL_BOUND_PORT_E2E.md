@@ -69,4 +69,4 @@
 
 ## Commits
 
-- Hash recorded in a follow-up doc commit (PHASE_V07_13 or amend note).
+- `a4def8b`: `feat(tv-node): v0.10 phase 20 — real bound-port control surface (P0-12): TvLinkListener + session-aware gate + discovery advertises only the real port; software E2E over 127.0.0.1; suite 99/99`
