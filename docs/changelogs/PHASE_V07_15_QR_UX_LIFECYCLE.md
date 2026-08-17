@@ -1,6 +1,6 @@
 # PHASE V07-15 — REAL QR UX + TV NODE LIFECYCLE
 
-Branch: `fix/v0.10-truth-convergence` · Fecha: 2026-08-17
+Branch: `fix/v0.10-truth-convergence` · Fecha: 2026-08-17 · Commit: `54abd22`
 Alcance: Master Order v0.10, fases 22 (QR real phone↔TV) y 24 (lifecycle del TV Node).
 
 ## Qué se entrega
