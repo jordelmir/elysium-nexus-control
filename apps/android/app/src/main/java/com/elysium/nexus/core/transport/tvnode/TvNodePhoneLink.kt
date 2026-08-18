@@ -102,10 +102,56 @@ class TvNodePhoneLink(
         c?.close(s)
     }
 
+    /**
+     * Phase 25 — honest volume probe over the shared wire: asks the TV Node
+     * for a real AudioManager snapshot via `OBSERVE_VOLUME`, parses the
+     * canonical detail (`vol=<raw>/<max>,muted=<b>`). Returns null when the
+     * link is down, the TV has no observation engine, or the answer is not
+     * EXECUTED — never an invented reading.
+     */
+    fun observeVolume(sequenceNumber: Long): VolumeProbe? {
+        val c = requireNotNull(client) { "link not established" }
+        val s = requireNotNull(socket)
+        val envelope = TvLinkProtocol.TvEnvelope(
+            protocolVersion = TvLinkProtocol.PROTOCOL_VERSION,
+            messageId = sequenceNumber,
+            connectionId = connectionId,
+            deviceId = c.serverIdentity!!.fingerprint,
+            action = TvLinkProtocol.TvWireAction(TvLinkProtocol.TvActionCode.OBSERVE_VOLUME),
+            timestampMillis = System.currentTimeMillis(),
+            deadlineMillis = System.currentTimeMillis() + DEADLINE_MILLIS,
+            sequenceNumber = sequenceNumber,
+            capabilityContext = "android-controller",
+            authMetadata = c.serverIdentity!!.fingerprint
+        )
+        val response = c.sendAction(envelope)
+            ?: return null
+        if (response.state != TvLinkProtocol.TvResponseState.EXECUTED) {
+            return null // UNSUPPORTED → no observation lane (honest)
+        }
+        val vol = Regex("""vol=(\d+)/(\d+),muted=(true|false)""").find(response.detail)
+            ?: return null // malformed → fail-closed, nothing invented
+        val (raw, max, muted) = vol.destructured
+        return VolumeProbe(
+            rawVolume = raw.toInt(),
+            maxVolume = max.toInt(),
+            isMuted = muted == "true"
+        )
+    }
+
     companion object {
         const val DEADLINE_MILLIS = 2_000L
 
         /** Random namespace connection id (mirrors the TV Node client default). */
         val DEFAULT_CONNECTION_ID_NS: Long = SecureRandom().nextLong().let { if (it < 0) -it else it }
     }
+}
+
+/** Phase 25 — a real, timestamped volume reading produced by the TV Node. */
+data class VolumeProbe(
+    val rawVolume: Int,
+    val maxVolume: Int,
+    val isMuted: Boolean
+) {
+    val level: Float get() = if (maxVolume > 0) rawVolume.toFloat() / maxVolume.toFloat() else 0f
 }

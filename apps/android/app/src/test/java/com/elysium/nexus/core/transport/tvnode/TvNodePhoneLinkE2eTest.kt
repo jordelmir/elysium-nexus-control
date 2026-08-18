@@ -8,6 +8,9 @@ import com.elysium.nexus.tvnode.credential.InMemoryTvCredentialVault
 import com.elysium.nexus.tvnode.pairing.PairingClock
 import com.elysium.nexus.tvnode.pairing.PairingNonce
 import com.elysium.nexus.tvnode.pairing.PairingSession
+import com.elysium.nexus.tvnode.transport.ObservationCapableDispatcher
+import com.elysium.nexus.tvnode.canonical.TvObservationEngine
+import com.elysium.nexus.tvnode.canonical.VolumeObservation
 import com.elysium.nexus.tvnode.protocol.TvLinkProtocol
 import com.elysium.nexus.tvnode.transport.CodeConfirmPairingGate
 import com.elysium.nexus.tvnode.transport.PairingConfirm
@@ -128,6 +131,86 @@ class TvNodePhoneLinkE2eTest {
             "the phone's full 64-hex identity must be durably pinned",
             vault.isPeerIdentityPinned(phoneIdentity)
         )
+    }
+
+    @Test
+    fun `phone observes real tv volume over the wire - phase 25 oracle lane`() {
+        val clock = FakeClock()
+        val vault = InMemoryTvCredentialVault()
+        val session = PairingSession.create(
+            clock = clock,
+            nonce = PairingNonce.of(NONCE),
+            deviceId = "tv-test-obs",
+            protocolVersion = 1,
+            ttlMillis = 60_000,
+            maxCodeAttempts = 5
+        )
+        val displayedCode = session.displayCode()!!.value
+
+        // The TV Node answers OBSERVE_VOLUME through its observation lane
+        // with a real snapshot (no fake executor involved).
+        val observationEngine = object : TvObservationEngine {
+            override fun observeVolume(): VolumeObservation? = VolumeObservation(
+                rawVolume = 12,
+                maxVolume = 50,
+                level = 0.24f,
+                isMuted = false,
+                isVolumeFixed = false
+            )
+
+            override fun isMediaSessionActive(): Boolean = false
+        }
+        val serverOutcome = java.util.concurrent.atomic.AtomicReference<TvLinkServer.Outcome?>()
+        val serverSocket = ServerSocket(0, 8, InetAddress.getLoopbackAddress())
+        val serverThread = Thread {
+            serverOutcome.set(
+                TvLinkServer(
+                    dispatcher = ObservationCapableDispatcher(
+                        observe = { observationEngine },
+                        delegate = object : TvActionDispatcher {
+                            override fun dispatch(
+                                envelope: TvLinkProtocol.TvEnvelope,
+                                action: UniversalAction?
+                            ): TvLinkProtocol.TvResponseBody =
+                                TvLinkProtocol.TvResponseBody(
+                                    TvLinkProtocol.TvResponseState.UNSUPPORTED,
+                                    envelope.messageId,
+                                    "no executor"
+                                )
+                        }
+                    ),
+                    pairingGate = CodeConfirmPairingGate(vault, session)
+                ).handle(serverSocket.accept())
+            )
+        }.apply { isDaemon = true; start() }
+
+        val phone = TvNodePhoneLink(CONNECTION_ID)
+        try {
+            val result = phone.connect(
+                host = "127.0.0.1",
+                port = serverSocket.localPort,
+                confirm = PairingConfirm(displayedCode, NONCE)
+            )
+            assertTrue(
+                "phone must establish over the real wire, got $result",
+                result is TvNodePhoneLink.ConnectResult.Established
+            )
+
+            val probe = phone.observeVolume(sequenceNumber = 1)
+            assertNotNull("phone must receive the real volume snapshot", probe)
+            assertEquals(12, probe!!.rawVolume)
+            assertEquals(50, probe.maxVolume)
+            assertEquals(false, probe.isMuted)
+            assertEquals(0.24f, probe.level)
+        } finally {
+            phone.close()
+            serverSocket.close()
+        }
+        serverThread.join(2_000)
+
+        val outcome = serverOutcome.get()
+        assertTrue("server must finish clean, got $outcome", outcome is TvLinkServer.Outcome.Clean)
+        assertEquals(1, (outcome as TvLinkServer.Outcome.Clean).servedActions)
     }
 
     @Test

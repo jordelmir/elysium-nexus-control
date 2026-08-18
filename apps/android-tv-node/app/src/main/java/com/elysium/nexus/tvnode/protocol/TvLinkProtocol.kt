@@ -128,6 +128,8 @@ object TvLinkProtocol {
         TEXT_COMMIT(0x1B),
         SEARCH(0x1C),
         OPEN_APP(0x1D),
+        /** Volume state probe for the software-only IR oracle (Phase 25). */
+        OBSERVE_VOLUME(0x1E),
         CUSTOM(0x7F);
 
         companion object {
@@ -435,6 +437,9 @@ object TvLinkProtocol {
         TvActionCode.TEXT_COMMIT -> null
         TvActionCode.SEARCH -> null
         TvActionCode.OPEN_APP -> null
+        // Phase 25: not a UniversalAction — a probe the dispatcher answers
+        // through the observation lane; never silently decoded to an effect.
+        TvActionCode.OBSERVE_VOLUME -> null
         TvActionCode.CUSTOM -> decodeCustom(w, targetDeviceId)
     }
 

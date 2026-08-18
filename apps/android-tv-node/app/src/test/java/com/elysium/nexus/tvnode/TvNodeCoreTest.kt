@@ -3,9 +3,9 @@ package com.elysium.nexus.tvnode
 import com.elysium.nexus.tvnode.access.TvCapabilityGrants
 import com.elysium.nexus.tvnode.observe.TvActionExecutor
 import com.elysium.nexus.tvnode.observe.TvEffector
-import com.elysium.nexus.tvnode.observe.TvObservationEngine
+import com.elysium.nexus.tvnode.canonical.TvObservationEngine
 import com.elysium.nexus.tvnode.observe.VolumeActionInterpreter
-import com.elysium.nexus.tvnode.observe.VolumeObservation
+import com.elysium.nexus.tvnode.canonical.VolumeObservation
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger

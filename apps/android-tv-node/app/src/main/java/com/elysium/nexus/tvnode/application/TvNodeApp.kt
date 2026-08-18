@@ -11,6 +11,8 @@ import com.elysium.nexus.tvnode.discovery.NexusTvDiscovery
 import com.elysium.nexus.tvnode.identity.NexusTvIdentityProvider
 import com.elysium.nexus.tvnode.ime.NexusTvIme
 import com.elysium.nexus.tvnode.media.NotificationMediaObserver
+import com.elysium.nexus.tvnode.observe.AndroidAudioObservationEngine
+import com.elysium.nexus.tvnode.transport.ObservationCapableDispatcher
 import com.elysium.nexus.tvnode.pairing.PairingSession
 import com.elysium.nexus.tvnode.protocol.TvLinkProtocol
 import com.elysium.nexus.tvnode.transport.TvActionDispatcher
@@ -105,7 +107,15 @@ class TvNodeApp : Application() {
             return // no durable vault → no control surface (honest, fail-closed)
         }
         val gate = SessionAwarePairingGate(vault) { pairingSession }
-        val l = TvLinkListener(HonestUnsupportedDispatcher(), { gate })
+        // Phase 25: honest observation lane — never a made-up volume.
+        val observation = AndroidAudioObservationEngine(this)
+        val l = TvLinkListener(
+            ObservationCapableDispatcher(
+                observe = { observation },
+                delegate = HonestUnsupportedDispatcher()
+            ),
+            { gate }
+        )
         val state = l.start()
         if (state !is TvLinkListener.State.Bound) return
         listener = l

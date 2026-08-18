@@ -182,24 +182,10 @@ class TvLinkServer(
                         )
                     }
                     val action = TvLinkProtocol.decodeAction(envelope.action, envelope.deviceId)
-                    if (action == null) {
-                        // Forward-compat code the TV cannot build (TEXT_COMMIT,
-                        // SEARCH, OPEN_APP): answer UNSUPPORTED, never drop.
-                        val unsupported = TvLinkProtocol.TvResponseBody(
-                            TvLinkProtocol.TvResponseState.UNSUPPORTED,
-                            envelope.messageId,
-                            "action code ${envelope.action.code} not supported"
-                        )
-                        stream.send(
-                            TvLinkProtocol.FrameType.RESPONSE,
-                            keys.encryptToPeer(
-                                TvLinkProtocol.encodeResponseBody(unsupported),
-                                adTvToPhone
-                            )
-                        )
-                        served++
-                        continue
-                    }
+                    // The dispatcher OWNS the answer for every code, including
+                    // forward-compat codes the local tree cannot build and
+                    // probes like OBSERVE_VOLUME (Phase 25 oracle lane). A
+                    // plain executor answers UNSUPPORTED — never a silent drop.
                     val response = dispatcher.dispatch(envelope, action)
                     stream.send(
                         TvLinkProtocol.FrameType.RESPONSE,

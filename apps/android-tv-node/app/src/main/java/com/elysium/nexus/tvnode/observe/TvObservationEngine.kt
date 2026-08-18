@@ -1,43 +1,11 @@
 package com.elysium.nexus.tvnode.observe
 
-import android.media.AudioManager
 import com.elysium.nexus.tvnode.access.TvCapabilityGrants
+import com.elysium.nexus.tvnode.canonical.TvObservationEngine
+import com.elysium.nexus.tvnode.canonical.VolumeObservation
 
 /**
- * TV observation engine — the honest source of "what the TV is really
- * doing" for the IR oracle (TV-FABRIC.3) and for action evidence.
- *
- * Every observation is timestamped and classified. The oracle's
- * challenge protocol (snapshot → candidate IR → re-observe → reversal)
- * only ever consumes observations produced here; a "confirmed"
- * code_set correlation is NEVER claimed from a snapshot alone.
- */
-data class VolumeObservation(
-    val rawVolume: Int,
-    val maxVolume: Int,
-    val level: Float,
-    val isMuted: Boolean,
-    val isVolumeFixed: Boolean,
-    val timestampNs: Long = System.nanoTime()
-) {
-    val canMute: Boolean get() = !isVolumeFixed
-
-    companion object {
-        fun from(manager: AudioManager): VolumeObservation? {
-            val max = runCatching { manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
-            val raw = runCatching { manager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
-            return VolumeObservation(
-                rawVolume = raw,
-                maxVolume = max,
-                level = if (max > 0) raw.toFloat() / max.toFloat() else 0f,
-                isMuted = runCatching { manager.isStreamMute(AudioManager.STREAM_MUSIC) }.getOrDefault(false),
-                isVolumeFixed = manager.isVolumeFixed
-            )
-        }
-    }
-}
-
-/** Key event observed on the TV (via AccessibilityService key filtering). */
+ * Key event observed on the TV (via AccessibilityService key filtering). */
 data class KeyObservation(
     val keyCode: Int,
     val action: Int, // KeyEvent.ACTION_DOWN / ACTION_UP
@@ -51,16 +19,6 @@ data class ForegroundAppObservation(
     val isLauncher: Boolean,
     val timestampNs: Long = System.nanoTime()
 )
-
-/**
- * Observation-only contract. Implementations must never mutate state;
- * the executor reads THROUGH this engine and demands before/after
- * evidence before ever returning a confirmed verdict.
- */
-interface TvObservationEngine {
-    fun observeVolume(): VolumeObservation?
-    fun isMediaSessionActive(): Boolean
-}
 
 /**
  * Effector seam — the single place real key/touch effects are issued
