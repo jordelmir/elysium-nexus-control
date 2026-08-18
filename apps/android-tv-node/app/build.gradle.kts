@@ -16,6 +16,28 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // Phase 33 — TV Node release signing with an INDEPENDENT long-term
+        // identity: TV Node never reuses the Controller keystore. Verified
+        // env credentials only; the guard below fails the build otherwise.
+        // NOTE: declared BEFORE buildTypes — AGP resolves buildTypes eagerly,
+        // and `signingConfigs.findByName("release")` inside buildTypes returns
+        // null if this container is declared after (root cause of the
+        // app-release-unsigned.apk regression found on 2026-08-17).
+        create("release") {
+            val storePass = System.getenv("TV_NODE_RELEASE_STORE_PASSWORD")
+            val keyPass = System.getenv("TV_NODE_RELEASE_KEY_PASSWORD")
+            val alias = System.getenv("TV_NODE_RELEASE_KEY_ALIAS") ?: "elysium-nexus-tvnode"
+            val ksFile = file("../tv-node-release.jks")
+            if (ksFile.exists() && !storePass.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = ksFile
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -28,23 +50,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-    }
-    signingConfigs {
-        // Phase 33 — TV Node release signing with an INDEPENDENT long-term
-        // identity: TV Node never reuses the Controller keystore. Verified
-        // env credentials only; the guard below fails the build otherwise.
-        create("release") {
-            val storePass = System.getenv("TV_NODE_RELEASE_STORE_PASSWORD")
-            val keyPass = System.getenv("TV_NODE_RELEASE_KEY_PASSWORD")
-            val alias = System.getenv("TV_NODE_RELEASE_KEY_ALIAS") ?: "elysium-nexus-tvnode"
-            val ksFile = file("../tv-node-release.jks")
-            if (ksFile.exists() && !storePass.isNullOrBlank() && !keyPass.isNullOrBlank()) {
-                storeFile = ksFile
-                storePassword = storePass
-                keyAlias = alias
-                keyPassword = keyPass
-            }
         }
     }
 

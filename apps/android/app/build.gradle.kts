@@ -80,6 +80,14 @@ android {
                 !release.storePassword.isNullOrEmpty() &&
                 !release.keyPassword.isNullOrEmpty()
             if (!hasCredentials) {
+                logger.lifecycle(
+                    "RELEASE DIAG: storeFile=${release?.storeFile?.absolutePath ?: "null"}" +
+                        " exists=${release?.storeFile?.exists()}" +
+                        " storePassLen=${release?.storePassword?.length ?: 0}" +
+                        " keyPassLen=${release?.keyPassword?.length ?: 0}" +
+                        " envStore=${System.getenv("RELEASE_STORE_PASSWORD")?.length ?: 0}" +
+                        " envKey=${System.getenv("RELEASE_KEY_PASSWORD")?.length ?: 0}"
+                )
                 throw GradleException(
                     "RELEASE SIGNING BLOCKED (fail closed): expected ../release.jks + " +
                         "RELEASE_STORE_PASSWORD / RELEASE_KEY_PASSWORD verified env vars. " +

@@ -61,3 +61,9 @@ __pycache__/
 *.db-wal
 
 # V0.6.1: catalog DB versioned via Git LFS (ir_catalog.db tracked in .gitattributes)
+
+# Release signing material (generated 2026-08-17)
+secrets/
+apps/android/release.jks
+apps/android-tv-node/tv-node-release.jks
+*.jks.*
