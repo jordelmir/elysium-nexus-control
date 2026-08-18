@@ -58,17 +58,21 @@ de `storeFile`/longitudes de password (nunca valores) cuando va a bloquear.
 ## Credenciales Supabase — hallazgos de la verificación local (P0-19)
 
 - Las 3 credenciales entregadas están en `/.env` (gitignored, `chmod 600`), nunca impresas.
-- `SUPABASE_SECRET_KEY` (service-role): **LIVE** — REST `/rest/v1/` responde 200.
-- `SUPABASE_PUBLISHABLE_KEY` y `SUPABASE_ANON_KEY` (clásico): **401** contra `/rest/v1/`.
-  Interpretación: las keys anon/publishable del `.env` no verifican contra el gateway actual
-  (posible rotación reciente en el dashboard o key revocada). **Bloqueante para cualquier uso
-  del APK vía publishable.**
-- Management API con `sb_secret_`: 401 (no es una credencial de Management API — esperado).
-- **Pendiente externo (Jor)**: rotar la service-role — la key fue entregada por chat y debe
-  considerarse expuesta. Un solo paso: crear `SB_ACCESS_TOKEN` (dashboard → Account → Access
-  Tokens) → `tools/supabase/rotate_service_role.py` rota todo automáticamente (fail-closed,
-  revoca la vieja, actualiza `.env`, registra el evento). Y verificar/regenerar las keys
-  publishable/anon en el dashboard para desbloquear el APK.
+- **CORRECCIÓN 2026-08-17 (segunda pasada de Jor: "yo no las roté")**: el 401 anterior de
+  `publishable`/`anon` contra `/rest/v1/` era un **falso positivo de la ruta**: el endpoint
+  raíz sin tabla exige service-role (`{"hint":"Only secret API keys can be used for this endpoint."}`).
+- Verificación concluyente en `/auth/v1/token?grant_type=password` (con credenciales de prueba):
+  anon JWT clásico → `400 invalid_credentials` y `sb_publishable_` → `400 invalid_credentials`.
+  400 en vez de 401 = la **KEY AUTENTICA** correctamente; el 400 es de las credenciales falsas.
+- Estado real: **las 4 credenciales (.env) son válidas contra el proyecto**. No hay rotación
+  de plataforma; no hay key rota.
+- Pendiente de mitigación (buena práctica, no urgente): las keys viajaron por chat; rotación
+  con `tools/supabase/rotate_service_role.py` sigue disponible cuando Jor provea `SB_ACCESS_TOKEN`.
+- Pendiente para catálogo remoto vía REST/APK: password del rol `postgres` para
+  `SUPABASE_DB_URL` (Jor la entregó como placeholder `[YOUR-PASSWORD]`).
+- Spec OpenAPI del proyecto (`.rest` schema): expone **solo `POST /rpc/rls_auto_enable`** —
+  cero tablas públicas. Coherente con la estrategia RLS-first (Fase 36): el catálogo remoto
+  consumible por el APK no existe aún como tablas expuestas; es trabajo posterior, no un defecto.
 
 ## Archivos tocados
 
