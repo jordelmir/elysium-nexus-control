@@ -1,0 +1,55 @@
+{
+  "policyVersion": "retail-core-policy-v1",
+  "policySemanticsVersion": 1,
+  "description": "Single declarative authority for retail claim truth (Master Order v0.10 Phase 3). Both the Kotlin runtime engines and the Python catalog/claim gates MUST derive every result from this document. No other copy of these values is authoritative.",
+  "applicableDeviceTypes": ["TV"],
+  "coreActions": {
+    "TV": [
+      "POWER_TOGGLE",
+      "VOLUME_UP",
+      "VOLUME_DOWN",
+      "MUTE",
+      "INPUT_SELECT",
+      "UP",
+      "DOWN",
+      "LEFT",
+      "RIGHT",
+      "OK",
+      "HOME",
+      "BACK"
+    ]
+  },
+  "claimLadder": [
+    "SOURCE_IMPORTED",
+    "STRUCTURAL_VALID",
+    "RUNTIME_EXECUTABLE",
+    "OPTICAL_TX_VERIFIED",
+    "INDEPENDENT_DECODE_VERIFIED",
+    "REAL_DEVICE_VERIFIED",
+    "HIL_VERIFIED",
+    "RETAIL_MATRIX_VERIFIED"
+  ],
+  "rules": {
+    "noDefaultStatus": true,
+    "claimDerivedFromEvidenceOnly": true,
+    "coreCompleteRule": "all core actions satisfied",
+    "regressionDominates": true,
+    "regressionCountIsComputed": true,
+    "hilRequiresDualPathArtifacts": true,
+    "researchFeedsNotProductionEligible": true,
+    "commercialClaimsRequireProductionEligibleFeed": true
+  },
+  "maturityScale": [
+    "CONCEPT",
+    "DESIGNED",
+    "IMPLEMENTED",
+    "UNIT_VERIFIED",
+    "INTEGRATION_VERIFIED",
+    "ON_DEVICE_VERIFIED",
+    "REAL_DEVICE_VERIFIED",
+    "HIL_VERIFIED",
+    "DEVICE_MATRIX_VERIFIED",
+    "RETAIL_MATRIX_VERIFIED",
+    "PRODUCTION_APPROVED"
+  ]
+}

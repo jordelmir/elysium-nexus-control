@@ -310,3 +310,31 @@ sealed class ActionResult {
     /** The action failed after the attempt. */
     data class Failed(val detail: String) : ActionResult()
 }
+
+/**
+ * Phase 13 — ONE shared evidence authority for causality proofs.
+ *
+ * Produced by the software-only IR oracle (Phase 25) on the controller and
+ * persisted via the controller's appendix ledger (Phase 26); consumed by the
+ * catalogue promotion engine. Owning both sides of the wire with a single
+ * type is what makes a cross-version evidence claim meaningful: the fields
+ * here are the immutable, hash-locked record of a real before→change→reversal
+ * experiment on a physical TV.
+ */
+data class EvidenceEvent(
+    val eventId: String,
+    val tvDeviceId: String,
+    val actionKey: String,
+    val signalId: String,
+    val inverseSignalId: String,
+    val physicalSha256: String,
+    val carrierHz: Int,
+    val catalogBuildId: String,
+    val source: String,
+    val trialsTotal: Int,
+    val trialsOk: Int,
+    val beforeRawVolume: Int,
+    val afterRawVolume: Int,
+    val restoredRawVolume: Int,
+    val timestampMillis: Long
+)

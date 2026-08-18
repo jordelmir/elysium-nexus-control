@@ -48,7 +48,7 @@ def main():
     cursor = conn.cursor()
 
     query = """
-    SELECT
+    SELECT DISTINCT
         s.id AS signal_id,
         cs.id AS code_set_id,
         b.display_name AS brand_name,
@@ -70,10 +70,16 @@ def main():
     LEFT JOIN protocol_definitions pd ON pv.protocol_id = pd.id
     """
 
+    cursor.execute("SELECT COUNT(*) FROM command_bindings")
+    total_bindings = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(DISTINCT signal_id) FROM command_bindings")
+    unique_signals_bound = cursor.fetchone()[0]
+
     cursor.execute(query)
     rows = cursor.fetchall()
 
-    total_signals = len(rows)
+    unique_signals_audited = len(rows)
     raw_executable = 0
     parametric_executable = 0
     experimental_lab_only = 0
@@ -118,9 +124,11 @@ def main():
         )
 
     report = {
-        "version": "0.7.0-retail-truth",
+        "version": "0.10.0-truth-convergence",
         "catalogDbPath": os.path.relpath(DB_PATH, REPO_ROOT),
-        "totalSignalsAudited": total_signals,
+        "uniqueSignalsAudited": unique_signals_audited,
+        "bindingsAudited": total_bindings,
+        "uniqueSignalsBound": unique_signals_bound,
         "classification": {
             "RAW_EXECUTABLE": raw_executable,
             "PARAMETRIC_EXECUTABLE": parametric_executable,
@@ -137,7 +145,8 @@ def main():
         json.dump(report, f, indent=2)
 
     print(f"✅ Runtime Executable Report generated: {OUTPUT_REPORT_PATH}")
-    print(f"   Total Signals: {total_signals}")
+    print(f"   Unique Signals Audited: {unique_signals_audited}")
+    print(f"   Command Bindings Audited: {total_bindings}")
     print(f"   Parametric Executable: {parametric_executable}")
     print(f"   Raw Executable: {raw_executable}")
     print(f"   Experimental (Lab Only): {experimental_lab_only}")

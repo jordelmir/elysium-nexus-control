@@ -65,13 +65,21 @@ class TvLinkHandshake(
     var peerPublicKeyBytes: ByteArray = ByteArray(0)
         private set
 
-    /** 8-hex SHA-256 fingerprint of the peer's X25519 public key (§10 pinning). */
-    val peerFingerprint: String
+    /**
+     * Full SHA-256 peer identity (64 hex, 256 bits) of the peer's X25519
+     * public key — the durable authentication identity (Master Order v0.10
+     * Phase 14: never authorize on the short fingerprint).
+     */
+    val peerIdentity: String
         get() = if (peerPublicKeyBytes.size == 32) {
-            TvChannelCrypto.fingerprintOf(peerPublicKeyBytes)
+            TvChannelCrypto.fullFingerprintOf(peerPublicKeyBytes)
         } else {
             ""
         }
+
+    /** 8-hex SHA-256 fingerprint — DISPLAY-ONLY (QR/shortcode), never for authorization. */
+    val peerFingerprint: String
+        get() = TvChannelCrypto.fingerprintOf(peerPublicKeyBytes)
 
     /** Directional channel keys — ONLY after ESTABLISHED; null before (fail-closed). */
     val channelKeys: TvChannelCrypto.ChannelKeys?

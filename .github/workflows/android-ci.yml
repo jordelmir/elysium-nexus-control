@@ -56,8 +56,10 @@ jobs:
             exit 1
           fi
           # .env.example is the placeholder template — exempt (placeholders only).
+          # Phase 29: NO blind docs/* or *.md exclusion — gitleaks below covers
+          # the full tree + history with explicit allowlists.
           if git grep -nE 'sb_secret_[A-Za-z0-9_-]{12,}|sb_publishable_[A-Za-z0-9]{12,}|SUPABASE_SERVICE_ROLE_KEY=.{30,}' \
-            -- . ':!.env.example' ':!docs/*' ':!*.md' 2>/dev/null; then
+            -- . ':!.env.example' 2>/dev/null; then
             echo "FATAL: live Supabase credential pattern found in tracked code" >&2
             exit 1
           fi
@@ -78,6 +80,27 @@ jobs:
             echo "  magic: $magic" >&2
             exit 1
           fi
+
+      # ── Gate 0b (Phase 29): gitleaks full-tree + git-history scan ──
+      # No blind docs/* or *.md exclusion: secrets pasted into a changelog
+      # fail exactly like secrets in source. Placeholders are allowlisted
+      # explicitly in .gitleaks.toml. fetch-depth: 0 gives full history.
+      - name: Secret scanning (gitleaks, full tree + history)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          # 1) working-tree scan (no staged data leaks)
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --no-banner --redact || {
+            echo "FATAL: gitleaks found a secret in the working tree" >&2
+            exit 1
+          }
+          # 2) full git history scan (no historical leak)
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --log-opts="--all" --no-banner --redact || {
+            echo "FATAL: gitleaks found a secret in git history" >&2
+            exit 1
+          }
+          echo "gitleaks: PASS (tree + history, zero findings)"
 
       - name: Git LFS sanity (fsck)
         run: |
@@ -185,6 +208,21 @@ jobs:
         run: |
           pip install --break-system-packages ruff 2>/dev/null || pip install ruff
           ruff check tools/ir-data/*.py --select E,F,W --ignore E501,W505,E402
+
+      # ── Gate 3a: Retail claim policy consistency (v0.10 Phase 3, ONE policy) ──
+      - name: Verify retail claim policy consistency
+        run: |
+          python3 tools/ir-data/tv_claim_policy.py --check
+
+      # ── Gate 3b: Legal ledger -> notices freshness (v0.10 Phase 12) ──
+      - name: Verify legal notices are current
+        run: |
+          python3 tools/legal/generate_third_party_notices.py --check
+
+      # ── Gate 3c: Final Commercial Truth Gate (v0.10) ──
+      - name: Run final commercial truth gate
+        run: |
+          python3 tools/truth_engine/final_truth_gate.py
 
       # ── Gate 4: JVM unit tests ──
       - name: Run JVM unit tests

@@ -2,6 +2,8 @@ package com.elysium.nexus.tvnode.observe
 
 import android.content.Context
 import android.media.AudioManager
+import com.elysium.nexus.tvnode.canonical.TvObservationEngine
+import com.elysium.nexus.tvnode.canonical.VolumeObservation
 
 /**
  * Real Android observer — reads the TV state through public APIs.
@@ -13,7 +15,15 @@ class AndroidVolumeObserver(context: Context) : TvObservationEngine {
 
     override fun observeVolume(): VolumeObservation? {
         val manager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
-        return VolumeObservation.from(manager)
+        val max = runCatching { manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        val raw = runCatching { manager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        return VolumeObservation(
+            rawVolume = raw,
+            maxVolume = max,
+            level = if (max > 0) raw.toFloat() / max.toFloat() else 0f,
+            isMuted = runCatching { manager.isStreamMute(AudioManager.STREAM_MUSIC) }.getOrDefault(false),
+            isVolumeFixed = manager.isVolumeFixed
+        )
     }
 
     override fun isMediaSessionActive(): Boolean {

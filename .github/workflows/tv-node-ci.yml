@@ -1,0 +1,197 @@
+name: TV Node CI
+
+# Elysium Nexus — TV Node dedicated pipeline (Master Order v0.10 Phase 31).
+#
+# The TV Node NEVER travels "as a passenger" inside the Controller CI: it is
+# the security boundary (TCP transport, X25519/HKDF/ChaCha20-Poly1305 channel,
+# pairing gate, Keystore vault, OBSERVE_VOLUME oracle lane) and must be
+# verified on every push with its own gates:
+#
+#   secret guard → JVM unit tests (incl. crypto golden vectors, protocol
+#   framing, pairing fuzz/property tests, E2E TCP) → lint → debug build
+#   → test count report → (release job, fail-closed per Phase 33).
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - "apps/android-tv-node/**"
+      - ".github/workflows/tv-node-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tvnode-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+jobs:
+  build:
+    name: TV Node build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      # ── Gate 0: leaked-secret guard (same philosophy as Controller CI) ──
+      # Phase 29: never a blind docs/*.md exclusion — full tree.
+      - name: Guard against tracked secrets / .env
+        run: |
+          set -euo pipefail
+          tracked_env=$(git ls-files | grep -E '(^|/)\.env$' || true)
+          if [ -n "$tracked_env" ]; then
+            echo "FATAL: tracked .env file(s) present:" >&2
+            echo "$tracked_env" >&2
+            exit 1
+          fi
+          if git grep -nE 'sb_secret_[A-Za-z0-9_-]{12,}|sb_publishable_[A-Za-z0-9]{12,}|SUPABASE_SERVICE_ROLE_KEY=.{30,}' \
+            -- . ':!.env.example' 2>/dev/null; then
+            echo "FATAL: live Supabase credential pattern found in tracked code" >&2
+            exit 1
+          fi
+          echo "secret-guard: PASS"
+
+      - name: Force LFS pull
+        run: |
+          git lfs install
+          git lfs pull
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x apps/android-tv-node/gradlew
+
+      # ── Gate 1: JVM unit tests ──
+      # Includes the security-boundary suites: channel crypto golden vectors,
+      # protocol TCP framing, TxFrameStream fuzz-ish boundary tests, pairing
+      # clock/nonce/code property tests, CodeConfirmPairingGate, vault, and
+      # the real loopback TvLinkServer/TvLinkClient E2E tests.
+      - name: Run TV Node JVM unit tests
+        run: |
+          cd apps/android-tv-node
+          ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+
+      # ── Gate 2: Lint (abort on error) ──
+      - name: Lint (abort on error)
+        run: |
+          cd apps/android-tv-node
+          ./gradlew :app:lintDebug --console=plain --no-daemon
+
+      # ── Gate 3: Debug build ──
+      - name: Build debug APK
+        run: |
+          cd apps/android-tv-node
+          ./gradlew :app:assembleDebug --console=plain --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvnode-debug
+          path: apps/android-tv-node/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvnode-test-results
+          path: apps/android-tv-node/app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report test count
+        if: always()
+        run: |
+          cd apps/android-tv-node
+          total=$(find app/build/test-results -name "*.xml" -exec grep -oE 'tests="[0-9]+"' {} \; | awk -F'"' '{sum+=$2} END {print sum}')
+          echo "Total TV Node tests: $total"
+
+  # ── Release job (Phase 33: TV Node release signing, fail-closed) ──
+  # Same philosophy as the Controller: assembleRelease WITHOUT verified
+  # credentials throws (Gradle taskGraph guard). Steps are gated on the env
+  # context so the pipeline stays green and NO unsigned release ever exists.
+  release:
+    name: TV Node release APK (R8 + signed)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TV_NODE_RELEASE_STORE_PASSWORD: ${{ secrets.TV_NODE_RELEASE_STORE_PASSWORD }}
+      TV_NODE_RELEASE_KEY_PASSWORD: ${{ secrets.TV_NODE_RELEASE_KEY_PASSWORD }}
+      TV_NODE_RELEASE_KEY_ALIAS: ${{ secrets.TV_NODE_RELEASE_KEY_ALIAS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Force LFS pull
+        run: |
+          git lfs install
+          git lfs pull
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x apps/android-tv-node/gradlew
+
+      - name: Build TV Node release APK (R8, signed)
+        if: ${{ env.TV_NODE_RELEASE_STORE_PASSWORD != '' && env.TV_NODE_RELEASE_KEY_PASSWORD != '' }}
+        run: |
+          cd apps/android-tv-node
+          ./gradlew :app:assembleRelease --console=plain --no-daemon
+
+      - name: Verify release signature (apksigner)
+        if: ${{ env.TV_NODE_RELEASE_STORE_PASSWORD != '' && env.TV_NODE_RELEASE_KEY_PASSWORD != '' }}
+        run: |
+          APK=apps/android-tv-node/app/build/outputs/apk/release/app-release.apk
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"; then
+            echo "TV Node release signature: VERIFIED"
+          else
+            echo "FATAL: TV Node release APK is not properly signed" >&2
+            exit 1
+          fi
+
+      - name: Upload TV Node release APK
+        if: ${{ env.TV_NODE_RELEASE_STORE_PASSWORD != '' && env.TV_NODE_RELEASE_KEY_PASSWORD != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvnode-release
+          path: apps/android-tv-node/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

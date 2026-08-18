@@ -4,11 +4,14 @@ import com.elysium.nexus.fabric.infrared.database.model.PhysicalTestEvidence
 import com.elysium.nexus.fabric.infrared.database.model.RetailerSku
 
 /**
- * Phase 20 — Claim Promotion Engine & Phase 21 — Retail Coverage Engine
+ * Phase 20 — Claim Promotion Engine & Phase 21 — Retail Coverage Engine.
  *
- * Computes evidence-derived claims and retail coverage percentages.
- * Zero false claims: "100% CORE VERIFIED" is returned ONLY when activeSkuCount == coreVerifiedCount
- * AND pendingCount == 0 AND regressionCount == 0.
+ * Master Order v0.10 (TRUTH CONVERGENCE, Phases 4/5/6):
+ * - Claim status is DERIVED from recorded physical evidence, never written.
+ * - CORE is a complete per-action matrix (CoreActionPolicy), never a single action.
+ * - A regression on ANY CORE action invalidates 100% claims; regressionCount is
+ *   COMPUTED from evidence, never hardcoded.
+ * - Status comparisons use an explicit partial order, never enum ordinals.
  */
 object ClaimPromotionEngine {
 
@@ -23,6 +26,17 @@ object ClaimPromotionEngine {
         RETAIL_MATRIX_VERIFIED
     }
 
+    data class DerivationResult(
+        val status: DerivedClaimStatus,
+        val hasRegression: Boolean
+    )
+
+    data class CoreMatrixResult(
+        val actionResults: Map<String, CoreActionResult>,
+        val isCoreComplete: Boolean,
+        val hasRegression: Boolean
+    )
+
     data class RetailCoverageResult(
         val retailerName: String,
         val activeSkuCount: Int,
@@ -35,30 +49,99 @@ object ClaimPromotionEngine {
     )
 
     /**
-     * Derives claim status strictly from recorded physical test evidence.
+     * Explicit partial order — the ONLY way statuses are compared.
+     * Enum ordinal comparison is forbidden as security/commercial policy.
+     * Public contract for the declarative policy cross-check (Phase 3).
      */
-    fun deriveClaimStatus(evidenceList: List<PhysicalTestEvidence>): DerivedClaimStatus {
-        if (evidenceList.isEmpty()) return DerivedClaimStatus.STRUCTURAL_VALID
+    val CLAIM_LADDER = listOf(
+        DerivedClaimStatus.SOURCE_IMPORTED,
+        DerivedClaimStatus.STRUCTURAL_VALID,
+        DerivedClaimStatus.RUNTIME_EXECUTABLE,
+        DerivedClaimStatus.OPTICAL_TX_VERIFIED,
+        DerivedClaimStatus.INDEPENDENT_DECODE_VERIFIED,
+        DerivedClaimStatus.REAL_DEVICE_VERIFIED,
+        DerivedClaimStatus.HIL_VERIFIED,
+        DerivedClaimStatus.RETAIL_MATRIX_VERIFIED
+    )
 
-        val hasHil = evidenceList.any { it.status == "HIL_VERIFIED" }
-        if (hasHil) return DerivedClaimStatus.HIL_VERIFIED
+    private fun orderIndex(status: DerivedClaimStatus): Int {
+        val idx = CLAIM_LADDER.indexOf(status)
+        require(idx >= 0) { "status $status not in partial order" }
+        return idx
+    }
 
-        val hasRealDevice = evidenceList.any { it.status == "REAL_DEVICE_VERIFIED" }
-        if (hasRealDevice) return DerivedClaimStatus.REAL_DEVICE_VERIFIED
+    fun isAtLeast(status: DerivedClaimStatus, minimum: DerivedClaimStatus): Boolean =
+        orderIndex(status) >= orderIndex(minimum)
 
-        val hasTxVerified = evidenceList.any { it.status == "OPTICAL_TX_VERIFIED" }
-        if (hasTxVerified) return DerivedClaimStatus.OPTICAL_TX_VERIFIED
+    /**
+     * Derives per-action CORE results for a device from its evidence list.
+     *
+     * Fail-closed: a REGRESSION/FAILED result for an action dominates any passing
+     * evidence for that same action.
+     */
+    fun deriveCoreMatrix(
+        evidenceList: List<PhysicalTestEvidence>,
+        policy: Set<String> = CoreActionPolicy.TV_CORE_ACTIONS
+    ): CoreMatrixResult {
+        val byAction = evidenceList.groupBy { it.actionKey }
+        var hasRegression = false
 
-        return DerivedClaimStatus.RUNTIME_EXECUTABLE
+        val results = policy.associateWith { actionKey ->
+            val actionEvidence = byAction[actionKey].orEmpty()
+            when {
+                actionEvidence.isEmpty() -> CoreActionResult.PENDING
+                actionEvidence.any { it.status.isFailure } -> {
+                    hasRegression = true
+                    CoreActionResult.REGRESSION
+                }
+                actionEvidence.any { it.status.isPass } -> CoreActionResult.PASS
+                else -> CoreActionResult.PENDING
+            }
+        }
+
+        return CoreMatrixResult(
+            actionResults = results,
+            isCoreComplete = results.values.all { it.isSatisfied },
+            hasRegression = hasRegression
+        )
     }
 
     /**
-     * Computes mathematical retail coverage for a specific retailer's SKU matrix.
+     * Derives claim status strictly from recorded physical test evidence.
+     * A regression anywhere in the evidence set is surfaced explicitly.
+     */
+    fun deriveClaimStatus(evidenceList: List<PhysicalTestEvidence>): DerivationResult {
+        if (evidenceList.isEmpty()) {
+            return DerivationResult(DerivedClaimStatus.STRUCTURAL_VALID, hasRegression = false)
+        }
+        val hasRegression = evidenceList.any { it.status.isFailure }
+        val hasHil = evidenceList.any { it.status == com.elysium.nexus.fabric.infrared.database.model.PhysicalEvidenceStatus.HIL_VERIFIED }
+        if (hasHil) return DerivationResult(DerivedClaimStatus.HIL_VERIFIED, hasRegression)
+
+        val hasRealDevice = evidenceList.any { it.status == com.elysium.nexus.fabric.infrared.database.model.PhysicalEvidenceStatus.REAL_DEVICE_OBSERVED }
+        if (hasRealDevice) return DerivationResult(DerivedClaimStatus.REAL_DEVICE_VERIFIED, hasRegression)
+
+        val hasDecode = evidenceList.any { it.status == com.elysium.nexus.fabric.infrared.database.model.PhysicalEvidenceStatus.INDEPENDENT_DECODE_VERIFIED }
+        if (hasDecode) return DerivationResult(DerivedClaimStatus.INDEPENDENT_DECODE_VERIFIED, hasRegression)
+
+        val hasTx = evidenceList.any { it.status == com.elysium.nexus.fabric.infrared.database.model.PhysicalEvidenceStatus.ON_DEVICE_TRANSMITTED }
+        if (hasTx) return DerivationResult(DerivedClaimStatus.OPTICAL_TX_VERIFIED, hasRegression)
+
+        return DerivationResult(DerivedClaimStatus.RUNTIME_EXECUTABLE, hasRegression)
+    }
+
+    /**
+     * Computes mathematical retail coverage for a retailer's SKU matrix.
+     *
+     * A SKU counts as CORE verified ONLY when its complete core matrix passes.
+     * regressions are counted from evidence: any REGRESSION/FAILED on a CORE
+     * action of a known model increments regressionCount and blocks 100%.
      */
     fun computeRetailCoverage(
         retailerName: String,
         activeSkus: List<RetailerSku>,
-        evidenceMap: Map<String, List<PhysicalTestEvidence>>
+        evidenceMap: Map<String, List<PhysicalTestEvidence>>,
+        policy: Set<String> = CoreActionPolicy.TV_CORE_ACTIONS
     ): RetailCoverageResult {
         val totalActive = activeSkus.size
         if (totalActive == 0) {
@@ -77,24 +160,28 @@ object ClaimPromotionEngine {
         var knownModelCount = 0
         var coreVerifiedCount = 0
         var pendingCount = 0
+        var regressionCount = 0
 
         for (sku in activeSkus) {
-            if (!sku.deviceModelId.isNullOrBlank()) {
-                knownModelCount++
-                val evidence = evidenceMap[sku.deviceModelId] ?: emptyList()
-                val status = deriveClaimStatus(evidence)
-                if (status >= DerivedClaimStatus.REAL_DEVICE_VERIFIED) {
-                    coreVerifiedCount++
-                } else {
-                    pendingCount++
-                }
+            if (sku.deviceModelId.isNullOrBlank()) {
+                pendingCount++
+                continue
+            }
+            knownModelCount++
+            val evidence = evidenceMap[sku.deviceModelId].orEmpty()
+            val matrix = deriveCoreMatrix(evidence, policy)
+            if (matrix.isCoreComplete && !matrix.hasRegression) {
+                coreVerifiedCount++
+            } else if (matrix.hasRegression) {
+                regressionCount++
             } else {
                 pendingCount++
             }
         }
 
         val percentage = (coreVerifiedCount.toDouble() / totalActive.toDouble()) * 100.0
-        val is100Verified = (totalActive == coreVerifiedCount) && (pendingCount == 0)
+        val is100Verified =
+            (totalActive == coreVerifiedCount) && (pendingCount == 0) && (regressionCount == 0)
 
         return RetailCoverageResult(
             retailerName = retailerName,
@@ -102,7 +189,7 @@ object ClaimPromotionEngine {
             knownModelCount = knownModelCount,
             coreVerifiedCount = coreVerifiedCount,
             pendingCount = pendingCount,
-            regressionCount = 0,
+            regressionCount = regressionCount,
             coveragePercentage = percentage,
             is100PercentCoreVerified = is100Verified
         )

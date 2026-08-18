@@ -1,7 +1,9 @@
-# Third-Party Open Source & Asset Notices — Elysium Nexus OS v0.7
+# Third-Party Open Source & Asset Notices — Elysium Nexus OS v0.10
 
 This document provides attribution and legal compliance notices for third-party open source datasets,
 protocol specifications, and curated signals incorporated into Elysium Nexus OS.
+Generated from the Legal Evidence Ledger (`legal-evidence/ledger.json`) by
+`tools/legal/generate_third_party_notices.py`. Legal status is decided ONLY in the ledger — never here.
 
 ---
 
@@ -25,13 +27,26 @@ protocol specifications, and curated signals incorporated into Elysium Nexus OS.
 ### A. probonopd/irdb License
 Elysium Nexus OS incorporates signal structures from the open-source `irdb` project.
 - **Attribution Notice**: Signal data structures derived from `probonopd/irdb` are included pursuant to the IRDB License.
-- **Commercial Obligations**: Pre-use notification and hardware test copy availability provisions are satisfied under Elysium Nexus Commercial Program guidelines.
+- **Commercial Obligations**: Pre-use notification and hardware test copy availability provisions are governed by the legal evidence ledger entry `probonopd-notification`.
 
 ### B. Flipper-IRDB (CC0-1.0)
-- **Provenance Lock**: All imported signals from Flipper-IRDB are pinned to verified commits post-dating `2319685` (CC0-1.0 grant epoch).
+- **Provenance Lock**: All imported signals from Flipper-IRDB are pinned to verified commits post-dating `2319685` (CC0-1.0 grant epoch). Ledger: `flipper-file-provenance` (SATISFIED).
 
 ### C. SmartIR (MIT License)
 - **Brand Protection**: The "SmartIR" trademark is used solely for source attribution and does not imply endorsement of Elysium Nexus OS products.
 
 ---
-*Generated automatically by Phase 34 Supply Chain Audit Tool.*
+
+## 3. Legal Evidence Ledger (Master Order v0.10 Phase 12)
+
+| Ledger Entry | Status | Artifact Path | Obligations |
+| :--- | :--- | :--- | :--- |
+| `probonopd-notification` | :blue_book: `DOCUMENTED` | `ir-data/sources/lock/probonopd-irdb.lock.json` | Pre-use notification to the license steward before commercial use; Attribution notice in THIRD_PARTY_NOTICES.md section 2.A; Hardware test copy availability under the Elysium Nexus Commercial Program guidelines |
+| `flipper-file-provenance` | :white_check_mark: `SATISFIED` | `ir-data/sources/lock/flipper-irdb.lock.json` | All imported signals pinned to commits post-dating 2319685 (CC0-1.0 grant epoch) |
+| `hardware-copy-obligation` | :blue_book: `DOCUMENTED` | `docs/licensing/RETAIL_HARDWARE_COPY_POLICY.md` | One physical test unit per retailer SKU family available for independent verification; Test units registered with serialized evidence IDs before any RETAIL_MATRIX_VERIFIED claim |
+| `legal-review-status` | :warning: `REVIEW_REQUIRED` | `ir-data/sources.lock.json` | Third-party IRDB material cleared for commercial distribution; probonopd pre-use notification delivered and confirmed |
+
+**Pre-release review required**: `legal-review-status` — PRODUCTION_APPROVED requires them SATISFIED or BLOCKED exemption.
+
+---
+*Generated automatically by tools/legal/generate_third_party_notices.py (Master Order v0.10 Phase 12).*

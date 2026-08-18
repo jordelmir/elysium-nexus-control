@@ -176,10 +176,23 @@ object TvChannelCrypto {
     fun channelAd(domain: NonceDomain, protocolVersion: Int = 1): ByteArray =
         "elysium-tv-link-v$protocolVersion|domain=${domain.name}".toByteArray(Charsets.UTF_8)
 
-    /** SHA-256 fingerprint (8 hex) of a public-key blob — what QR pinning shows (§10). */
-    fun fingerprintOf(publicKeyBytes: ByteArray): String {
+    /**
+     * Short visual fingerprint (8 hex = 32 bits) of a public-key blob — what
+     * the QR pinning DISPLAYS to a human (§10). DISPLAY-ONLY: never used as a
+     * durable authentication identity (Master Order v0.10 Phase 14 — short
+     * fingerprint may be display-only).
+     */
+    fun fingerprintOf(publicKeyBytes: ByteArray): String =
+        fullFingerprintOf(publicKeyBytes).take(8)
+
+    /**
+     * Full SHA-256 fingerprint (64 hex = 256 bits) of a public-key blob —
+     * the DURABLE peer identity (Master Order v0.10 Phase 14). Authorization
+     * and vault pinning key exclusively on this full identity.
+     */
+    fun fullFingerprintOf(publicKeyBytes: ByteArray): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(publicKeyBytes)
-        return digest.joinToString("") { "%02x".format(it) }.take(8)
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private fun computeSharedSecret(myKeyPair: KeyPair, theirPublicKeyBytes: ByteArray): ByteArray {

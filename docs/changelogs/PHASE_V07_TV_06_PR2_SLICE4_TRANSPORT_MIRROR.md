@@ -3,11 +3,10 @@
 > Date: 2026-08-15. Maturity BEFORE: `UNIT_VERIFIED` (protocolo §11 + handshake
 > 4 pasos + channel autenticado, 73 tests verdes, pero nada atravesaba un
 > socket real: las keys se pasaban por llamada directa).
-> Maturity AFTER: `IMPLEMENTED → UNIT_VERIFIED pendiente`: transporte TCP real
-> + mirror phone (`LinkSide.PHONE`) + credencial vault — código y tests
-> escritos, suite PENDIENTE de ejecución (verify-on-request, Jor). Nota de
-> honestidad: NO se corrido gradle en esta entrega; la promoción de estado
-> real se decide cuando la suite corra.
+> Maturity AFTER: **`UNIT_VERIFIED`** — suite completa del TV Node ejecutada
+> (voc. `fix/v0.10-truth-convergence`, orden del auditor v0.10 Phase 19): 95/95
+> tests, 0 failures, `lintDebug` 0 errores, `assembleDebug` green. Transporte
+> TCP real + mirror phone + credential vault con verificación JVM completa.
 > Order: `docs/architecture/MASTER_ORDER_SOFTWARE_FIRST.md` §11 (envelope,
 > framing, response states, semantic actions), §10 (Android Keystore,
 > pinning, connection IDs, anti-replay, fail-closed), §61 PR2 slicing

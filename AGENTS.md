@@ -51,6 +51,17 @@ No other vocabulary (such as "universal", "compatible with all TVs", "100% suppo
 - **Service-role / secret keys bypass RLS — NEVER in an APK, never in committed files or workflows.** Owner-only local scripts.
 - CI Gate 0 (`android-ci.yml`) fails closed if `.env` is tracked or a live credential pattern appears in tracked files.
 - If chat/shared logs exposed a key: **rotate it** in the Supabase dashboard before use.
+- Remote state (verified 2026-08-17): DB reachable from this Mac only via the **IPv4 pooler**
+  `aws-0-us-east-1.pooler.supabase.com:6543` (role `postgres.trccikkcmdqnutwfjrbf`; the
+  `db.<ref>.supabase.co` host is IPv6-only here). `public` has **0 business tables**; the
+  only function is `rls_auto_enable`, an event trigger that enables RLS on every new
+  `public` table (RLS at birth — do not fight it, design policies with it). `.env`
+  `SUPABASE_DB_URL` already points to the pooler.
+- Integrations (2026-08-17): Supabase **MCP server** configured globally in
+  `~/.config/opencode/opencode.jsonc` (remote, project-ref scoped, OAuth completed via
+  `opencode mcp auth supabase`); **agent skills** installed at
+  `.agents/skills/supabase` and `.agents/skills/supabase-postgres-best-practices`.
+  The MCP becomes available to an opencode session only after restarting opencode.
 - Direct Postgres (`SUPABASE_DB_URL`) password is owner-provided, never committed.
 
 ## Repository layout (from §6)

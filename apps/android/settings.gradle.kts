@@ -26,3 +26,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "elysium-nexus-controller"
 include(":app")
+include(":tvlink")

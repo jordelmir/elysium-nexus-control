@@ -1,6 +1,7 @@
 package com.elysium.nexus.tvnode.credential
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -14,10 +15,11 @@ import javax.crypto.spec.GCMParameterSpec
  * §10 "Credential storage: Android Keystore; Encryption: modern AEAD").
  *
  * The order mandates that credentials live behind the Android Keystore, not
- * as a plaintext Room blob. The peer 8-hex fingerprints and, per
+ * as a plaintext Room blob. The peer full SHA-256 identities (64 hex) and, per
  * connectionId, the derived channel credential are wrapped with AES-GCM under
- * AES keys generated inside the Keystore — the wrapping key never leaves the
- * secure hardware, and nothing is persisted in plaintext.
+ * AES-256 keys generated inside the Keystore — the wrapping key never leaves
+ * the secure hardware (security level MEASURED at runtime, never assumed),
+ * and nothing is persisted in plaintext.
  *
  * Maturity: `IMPLEMENTED`. The cryptographic premise is only verifiable on a
  * device/emulator; the JVM contract tests run against
@@ -34,24 +36,25 @@ class AndroidKeyStoreTvCredentialVault(context: Context) : TvCredentialVault {
     // Peer pinning (certificate/public-key pinning, §10)
     // ------------------------------------------------------------------
 
-    override fun pinPeerAndCheckFingerprint(fingerprint: String): TvCredentialVault.VaultResult =
+    override fun pinPeerIdentity(peerIdentity: String): TvCredentialVault.VaultResult =
         guard {
-            if (isPeerPinned(fingerprint)) {
+            TvCredentialVault.requireFullPeerIdentity(peerIdentity)
+            if (isPeerIdentityPinned(peerIdentity)) {
                 TvCredentialVault.VaultResult.AlreadyPinned
             } else {
                 prefs.edit()
                     .putString(
-                        KEY_FINGERPRINT_PREFIX + fingerprint,
-                        storeCiphertext(wrap(fingerprint.toByteArray(Charsets.UTF_8)))
+                        KEY_IDENTITY_PREFIX + peerIdentity,
+                        storeCiphertext(wrap(peerIdentity.toByteArray(Charsets.UTF_8)))
                     )
                     .apply()
                 TvCredentialVault.VaultResult.Stored
             }
         }
 
-    override fun unpinPeer(fingerprint: String): TvCredentialVault.VaultResult =
+    override fun unpinPeer(peerIdentity: String): TvCredentialVault.VaultResult =
         guard {
-            val key = KEY_FINGERPRINT_PREFIX + fingerprint
+            val key = KEY_IDENTITY_PREFIX + peerIdentity
             if (!prefs.contains(key)) {
                 TvCredentialVault.VaultResult.NotFound
             } else {
@@ -60,12 +63,12 @@ class AndroidKeyStoreTvCredentialVault(context: Context) : TvCredentialVault {
             }
         }
 
-    override fun isPeerPinned(fingerprint: String): Boolean =
+    override fun isPeerIdentityPinned(peerIdentity: String): Boolean =
         guard {
-            val encoded = prefs.getString(KEY_FINGERPRINT_PREFIX + fingerprint, null)
+            val encoded = prefs.getString(KEY_IDENTITY_PREFIX + peerIdentity, null)
                 ?: return@guard false
             val plain = unwrap(readCiphertext(encoded))
-            String(plain, Charsets.UTF_8) == fingerprint
+            String(plain, Charsets.UTF_8) == peerIdentity
         }
 
     // ------------------------------------------------------------------
@@ -121,9 +124,37 @@ class AndroidKeyStoreTvCredentialVault(context: Context) : TvCredentialVault {
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
                 .build()
         )
         generator.generateKey()
+    }
+
+    /**
+     * Reports the measured Android Keystore security level of the wrapping
+     * key (TRUSTED_ENVIRONMENT / STRONGBOX / SOFTWARE) — never assumed.
+     * Hardware backing is only claimed when measured at runtime
+     * (Master Order v0.10 Phase 18).
+     */
+    fun wrappingKeySecurityLevel(): String =
+        guard {
+            val secretKey = keyStore.getKey(WRAPPING_KEY_ALIAS, null)
+                ?: return@guard "UNPROVISIONED"
+            if (secretKey !is javax.crypto.SecretKey) return@guard "UNKNOWN"
+            val factory = javax.crypto.SecretKeyFactory.getInstance(secretKey.algorithm, ANDROID_KEYSTORE)
+            val keyInfo = factory.getKeySpec(secretKey, android.security.keystore.KeyInfo::class.java)
+                as android.security.keystore.KeyInfo
+            securityLevelName(keyInfo)
+        }
+
+    private fun securityLevelName(keyInfo: android.security.keystore.KeyInfo): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return "UNKNOWN"
+        return when (keyInfo.securityLevel) {
+            android.security.keystore.KeyProperties.SECURITY_LEVEL_SOFTWARE -> "SOFTWARE"
+            android.security.keystore.KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> "TRUSTED_ENVIRONMENT"
+            android.security.keystore.KeyProperties.SECURITY_LEVEL_STRONGBOX -> "STRONGBOX"
+            else -> "LEVEL_${keyInfo.securityLevel}"
+        }
     }
 
     private fun wrap(plain: ByteArray): ByteArray {
@@ -203,7 +234,7 @@ class AndroidKeyStoreTvCredentialVault(context: Context) : TvCredentialVault {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val PREFS_NAME = "tvnode_credential_vault"
-        private const val KEY_FINGERPRINT_PREFIX = "pin:"
+        private const val KEY_IDENTITY_PREFIX = "pin:"
         private const val KEY_CREDENTIAL_PREFIX = "cred:"
         private const val WRAPPING_KEY_ALIAS = "tvnode-credential-wrap"
         private const val IV_SIZE = 12

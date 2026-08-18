@@ -4,16 +4,24 @@ import android.app.Application
 import android.view.KeyEvent
 import com.elysium.nexus.tvnode.BuildConfig
 import com.elysium.nexus.tvnode.accessibility.NexusAccessibilityService
+import com.elysium.nexus.tvnode.canonical.UniversalAction
+import com.elysium.nexus.tvnode.credential.AndroidKeyStoreTvCredentialVault
+import com.elysium.nexus.tvnode.credential.TvCredentialVault
 import com.elysium.nexus.tvnode.discovery.NexusTvDiscovery
 import com.elysium.nexus.tvnode.identity.NexusTvIdentityProvider
 import com.elysium.nexus.tvnode.ime.NexusTvIme
 import com.elysium.nexus.tvnode.media.NotificationMediaObserver
+import com.elysium.nexus.tvnode.observe.AndroidAudioObservationEngine
+import com.elysium.nexus.tvnode.transport.ObservationCapableDispatcher
 import com.elysium.nexus.tvnode.pairing.PairingSession
+import com.elysium.nexus.tvnode.protocol.TvLinkProtocol
+import com.elysium.nexus.tvnode.transport.TvActionDispatcher
+import com.elysium.nexus.tvnode.transport.TvLinkListener
 
 /**
  * TvNodeApp — app-level holder wiring the granted system services to the
- * observation surface. This is where the phone/tv pairing session would
- * drive reachable commands.
+ * observation surface. Owns the production control listener: vault-backed
+ * pairing gate + real bound port, advertised AFTER binding (P0-12).
  */
 class TvNodeApp : Application() {
 
@@ -23,13 +31,99 @@ class TvNodeApp : Application() {
 
     private var discovery: NexusTvDiscovery? = null
 
+    private var discoveryRegistered = false
+
+    private var listener: TvLinkListener? = null
+
+    private var connectivityCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
     override fun onCreate() {
         super.onCreate()
-        // Advertise _elysium-tv._tcp while the node process lives.
-        // NSD is the local-discovery lane (PR2, §9); nothing sensitive is
-        // ever advertised.
-        discovery = NexusTvDiscovery(this).also { it.start() }
+        startControlSurface()
+        monitorConnectivity()
     }
+
+    /**
+     * Phase 24 — lifecycle wiring: react to connectivity changes with the
+     * pure decisions of [TvNodeLifecycleController]. Thin Android glue only.
+     */
+    private fun monitorConnectivity() {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) = reconcileSurface()
+            override fun onLost(network: android.net.Network) = reconcileSurface()
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            connectivityCallback = callback
+        } catch (e: Exception) {
+            // No network callback registered: the surface keeps whatever state
+            // it reached at boot — honest degradation, never a fake re-register.
+            connectivityCallback = null
+        }
+    }
+
+    /** Applies the lifecycle verdict against the current surface state. */
+    private fun reconcileSurface() {
+        val networkAvailable = runCatching {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            cm.activeNetwork != null
+        }.getOrDefault(false)
+        when (TvNodeLifecycleController.decide(
+            listenerBound = listener != null,
+            networkAvailable = networkAvailable,
+            discoveryRegistered = discoveryRegistered
+        )) {
+            TvNodeLifecycleController.Verdict.ReRegisterDiscovery -> {
+                val port = listener?.boundPort ?: return
+                startDiscovery(port)
+            }
+            TvNodeLifecycleController.Verdict.StopDiscovery -> stopDiscovery()
+            TvNodeLifecycleController.Verdict.Noop -> Unit
+        }
+    }
+
+    private fun startDiscovery(port: Int) {
+        if (discoveryRegistered) return
+        val d = discovery ?: NexusTvDiscovery(this).also { discovery = it }
+        if (d.start(port)) discoveryRegistered = true
+    }
+
+    private fun stopDiscovery() {
+        discovery?.stop()
+        discoveryRegistered = false
+    }
+
+    /**
+     * Bind the control listener, then advertise the REAL bound port. If the
+     * durable Keystore vault cannot be provisioned, the surface stays down
+     * (fail-closed: no listener, no advertisement — never a soft in-memory
+     * fallback that would hand out unpersisted pins).
+     */
+    private fun startControlSurface() {
+        val vault = try {
+            AndroidKeyStoreTvCredentialVault(this)
+        } catch (e: Exception) {
+            return // no durable vault → no control surface (honest, fail-closed)
+        }
+        val gate = SessionAwarePairingGate(vault) { pairingSession }
+        // Phase 25: honest observation lane — never a made-up volume.
+        val observation = AndroidAudioObservationEngine(this)
+        val l = TvLinkListener(
+            ObservationCapableDispatcher(
+                observe = { observation },
+                delegate = HonestUnsupportedDispatcher()
+            ),
+            { gate }
+        )
+        val state = l.start()
+        if (state !is TvLinkListener.State.Bound) return
+        listener = l
+        // P0-12: advertise only the REAL bound port; never a made-up one.
+        startDiscovery(l.boundPort)
+    }
+
+    fun controlPort(): Int = listener?.boundPort ?: 0
 
     var accessibility: NexusAccessibilityService? = null
         private set
@@ -103,6 +197,23 @@ class TvNodeApp : Application() {
 
     fun refreshMediaSessions() {
         // Re-query active sessions through the observer.
+    }
+
+    /**
+     * Baseline dispatcher until the accessibility/volume executor lands:
+     * every action is answered UNSUPPORTED — never a made-up success
+     * (TV-FABRIC.4: a fake EXECUTED is forbidden).
+     */
+    private class HonestUnsupportedDispatcher : TvActionDispatcher {
+        override fun dispatch(
+            envelope: TvLinkProtocol.TvEnvelope,
+            action: UniversalAction?
+        ): TvLinkProtocol.TvResponseBody =
+            TvLinkProtocol.TvResponseBody(
+                state = TvLinkProtocol.TvResponseState.UNSUPPORTED,
+                answerToMessageId = envelope.messageId,
+                detail = "no executor wired yet — never a fake success"
+            )
     }
 
     companion object {

@@ -42,11 +42,11 @@ class CodeConfirmPairingGate(
 ) : PairingGate {
 
     override fun authorize(
-        peerFingerprint: String,
+        peerIdentity: String,
         confirm: PairingConfirm?
     ): PairingGate.Verdict {
         // 1. Known pinned peer → authorized without a code (reconnect).
-        if (vault.isPeerPinned(peerFingerprint)) {
+        if (vault.isPeerIdentityPinned(peerIdentity)) {
             return PairingGate.Verdict.Authorized
         }
 
@@ -67,8 +67,22 @@ class CodeConfirmPairingGate(
             return PairingGate.Verdict.Denied("pairing code rejected (state=$state)")
         }
 
-        // 3. First successful pairing: pin the peer durably.
-        vault.pinPeerAndCheckFingerprint(peerFingerprint)
-        return PairingGate.Verdict.Authorized
+        // 3. First successful pairing: pin the peer durably. FAIL-CLOSED:
+        //    the vault result MUST be Stored (or AlreadyPinned) — a failed
+        //    durable pin means DENY, never authorize with an unpersisted pin
+        //    (Master Order v0.10 Phase 17).
+        val pinResult = try {
+            vault.pinPeerIdentity(peerIdentity)
+        } catch (e: Exception) {
+            return PairingGate.Verdict.Denied("durable pin failed: ${e.message}")
+        }
+        return when (pinResult) {
+            is TvCredentialVault.VaultResult.Stored -> PairingGate.Verdict.Authorized
+            is TvCredentialVault.VaultResult.AlreadyPinned -> PairingGate.Verdict.Authorized
+            is TvCredentialVault.VaultResult.NotFound ->
+                PairingGate.Verdict.Denied("durable pin not created")
+            is TvCredentialVault.VaultResult.Error ->
+                PairingGate.Verdict.Denied("durable pin failed: ${pinResult.reason}")
+        }
     }
 }

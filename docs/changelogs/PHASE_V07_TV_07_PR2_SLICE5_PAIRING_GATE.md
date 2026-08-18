@@ -3,12 +3,13 @@
 > Date: 2026-08-15. Maturity BEFORE: `IMPLEMENTED` (transporte TCP real + mirror
 > phone + vault Keystore — 15 tests transport/vault nuevos en slice 4, suite
 > PENDIENTE de ejecución por verify-on-request de Jor).
-> Maturity AFTER: `IMPLEMENTED → UNIT_VERIFIED pendiente`: gate de pairing
-> escribió el hueco de autenticación real del vertical — el wire ahora prueba
-> QUE el peer vio el QR y sabe el código de la pantalla, y PINNEA su fingerprint
-> de forma durable en el vault antes de emitir CHANNEL_READY. Código + tests
-> escritos; suite PENDIENTE de ejecución (NUNCA se corrió gradle en esta
-> entrega — la promoción de estado se decide cuando la suite corra).
+> Maturity AFTER: **`UNIT_VERIFIED`** — suite completa del TV Node ejecutada
+> (voc. `fix/v0.10-truth-convergence`, orden del auditor v0.10 Phase 19): 95/95
+> tests, 0 failures, `lintDebug` 0 errores, `assembleDebug` green. El gate de
+> pairing escribió el hueco de autenticación real del vertical — el wire
+> prueba QUE el peer vio el QR y sabe el código de la pantalla, y PINNEA su
+> fingerprint de forma durable en el vault antes de emitir CHANNEL_READY —
+> y esa premisa criptográfica quedó verificada por la suite.
 > Order: `docs/architecture/MASTER_ORDER_SOFTWARE_FIRST.md` **§10** ("Unknown
 > peer: REJECT", "Malformed frame: REJECT", "certificate/public-key pinning",
 > "No unauthenticated 0.0.0.0 production control port", "session expiration,

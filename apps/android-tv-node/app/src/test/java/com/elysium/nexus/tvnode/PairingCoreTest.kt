@@ -33,7 +33,7 @@ class PairingSessionTest {
 
     @Test
     fun `QR payload parses back exactly`() {
-        val qr = QrPairingPayload(1, "universal:test:abs", PairingNonce.of("0123456789abcdef"), "a1b2c3d4")
+        val qr = QrPairingPayload(1, "universal:test:abs", PairingNonce.of("0123456789abcdef0123456789abcdef"), "a1b2c3d4")
         val parsed = QrPairingPayload.parse(qr.encode())
         assertEquals(qr, parsed)
     }
@@ -167,10 +167,10 @@ class PairingCodeTest {
 class PairingNonceTest {
 
     @Test
-    fun `nonce is 16 hex chars and unique`() {
+    fun `nonce is 32 hex chars and unique`() {
         val a = PairingNonce.generate()
         val b = PairingNonce.generate()
-        assertTrue(a.value.matches(Regex("^[0-9a-f]{16}$")))
+        assertTrue(a.value.matches(Regex("^[0-9a-f]{32}$")))
         assertNotEquals(a.value, b.value)
     }
 

@@ -9,12 +9,13 @@ package com.elysium.nexus.tvnode.transport
  * knowledge of the on-screen pairing code or the QR nonce, nor that this peer
  * was ever authorized. Before any ACTION is served, the server asks the gate:
  *
- *   1. If the peer's X25519 fingerprint is already pinned in the credential
- *      vault, the peer is a known, previously-paired device → Authorized
- *      without a code (reconnect path, "both sides pin in vault").
+ *   1. If the peer's full SHA-256 identity (256-bit, never the 8-hex
+ *      display fingerprint) is already pinned in the credential vault, the
+ *      peer is a known, previously-paired device → Authorized without a code
+ *      (reconnect path, "both sides pin in vault").
  *   2. Otherwise the peer must produce a valid [PairingConfirm] — the code
  *      shown on the TV PLUS the nonce from the QR it scanned — verified
- *      against the active [PairingSession]; on success the fingerprint is
+ *      against the active [PairingSession]; on success the identity is
  *      pinned (durably) and the channel is authorized.
  *   3. Anything else → Denied, and the server tears the link down
  *      (fail-closed, §10 "Unknown peer: REJECT").
@@ -35,12 +36,14 @@ interface PairingGate {
     /**
      * Authorize an established channel.
      *
-     * @param peerFingerprint the 8-hex SHA-256 fingerprint of the peer's
-     *   X25519 public key (from HELLO) — the durable pin identity (§10).
+     * @param peerIdentity the FULL SHA-256 identity (64 hex, 256 bits) of the
+     *   peer's X25519 public key (from HELLO) — the durable pin identity
+     *   (Master Order v0.10 Phase 14: the 8-hex short fingerprint is
+     *   display-only and NEVER used for authorization).
      * @param confirm the decoded [PairingConfirm] the peer sealed in
      *   PAIR_CONFIRM, or null if it sent none.
      */
-    fun authorize(peerFingerprint: String, confirm: PairingConfirm?): Verdict
+    fun authorize(peerIdentity: String, confirm: PairingConfirm?): Verdict
 }
 
 /**
@@ -48,11 +51,11 @@ interface PairingGate {
  * PAIR_CONFIRM frame (PR2 slice 5, §10).
  *
  * Contents:
- *   u8 codeLen | code.utf8 | nonce.utf8 (16 hex chars)
+ *   u8 codeLen | code.utf8 | nonce.utf8 (32 hex chars)
  *
  * - code: the 6-digit code shown on the TV screen — proves the human typed
  *   what the TV displayed (single-use, session-scoped).
- * - nonce: the 16-hex QR nonce the phone scanned — proves THIS pairing
+ * - nonce: the 32-hex QR nonce the phone scanned — proves THIS pairing
  *   attempt, binding the confirm to the exact QR shown (anti-replay: a
  *   stale nonce can never confirm a later attempt).
  *
@@ -65,7 +68,7 @@ data class PairingConfirm(
 ) {
     init {
         require(CODE.matches(code)) { "code must be 6 decimal digits" }
-        require(NONCE.matches(nonce)) { "nonce must be 16 hex chars" }
+        require(NONCE.matches(nonce)) { "nonce must be 32 hex chars" }
     }
 
     fun encode(): ByteArray {
@@ -80,20 +83,20 @@ data class PairingConfirm(
 
     companion object {
         private val CODE = Regex("^\\d{6}$")
-        private val NONCE = Regex("^[0-9a-f]{16}$")
+        private val NONCE = Regex("^[0-9a-f]{32}$")
 
         /** Strict parser: malformed payload → null (fail-closed reject). */
         fun parse(encoded: ByteArray): PairingConfirm? {
-            if (encoded.size < 1 + 6 + 16) return null
+            if (encoded.size < 1 + 6 + 32) return null
             val codeLen = encoded[0].toInt() and 0xFF
             if (codeLen != 6) return null
-            if (encoded.size != 1 + codeLen + 16) return null
+            if (encoded.size != 1 + codeLen + 32) return null
             val code = String(encoded, 1, codeLen, Charsets.UTF_8)
-            val nonce = String(encoded, 1 + codeLen, 16, Charsets.UTF_8)
+            val nonce = String(encoded, 1 + codeLen, 32, Charsets.UTF_8)
             if (!CODE.matches(code) || !NONCE.matches(nonce)) return null
             return PairingConfirm(code, nonce)
         }
 
-        const val FIXED_NONCE_LEN = 16
+        const val FIXED_NONCE_LEN = 32
     }
 }
