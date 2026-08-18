@@ -1,6 +1,6 @@
 # PHASE V07_17 — SOFTWARE-ONLY IR ORACLE + PERSISTED LOCAL EVIDENCE
 
-**Commit de entrega:** `(hash)(hash) — 17 de agosto de 2026.**
+**Commit de entrega:** `ec4d9ab` — 17 de agosto de 2026.
 
 ## Resumen
 
