@@ -73,6 +73,17 @@ de `storeFile`/longitudes de password (nunca valores) cuando va a bloquear.
 - Spec OpenAPI del proyecto (`.rest` schema): expone **solo `POST /rpc/rls_auto_enable`** —
   cero tablas públicas. Coherente con la estrategia RLS-first (Fase 36): el catálogo remoto
   consumible por el APK no existe aún como tablas expuestas; es trabajo posterior, no un defecto.
+- **Conexión Postgres directa (2026-08-17, con password entregada por Jor)**: `db.trccikk…`
+  no tiene ruta IPv4 en este Mac (IPv6-only, "No route to host"); conecta por el **pooler
+  público** `aws-0-us-east-1.pooler.supabase.com:6543` con rol `postgres.trccikk…` (mismo
+  password). Verificado: `current_user=postgres`, schemas stock (auth/extensions/graphql/
+  public/realtime/storage/vault), **cero tablas en `public`**, única función
+  `rls_auto_enable` = event trigger que habilita RLS automáticamente en toda tabla nueva de
+  `public` (RLS de nacimiento, estrategia confirmada en vivo).
+- `.env`: `SUPABASE_DB_URL` actualizada al endpoint pooler funcional (gitignored).
+- Password de la DB entregada por chat → recomendar rotación de la DB password en el
+  dashboard (Database → Reset password) junto con la rotación de API keys, cuando Jor provea
+  credenciales nuevas.
 
 ## Archivos tocados
 
