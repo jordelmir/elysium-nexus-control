@@ -56,21 +56,31 @@ verificaciones dirigidas. Fases que exigen hardware físico (35, 40, 41, 38, 39,
 
 | Item | Resultado |
 | --- | --- |
-| Controller `compileDebugKotlin` | ✅ |
-| Controller oracle tests (core.oracle) | ✅ 19/19 |
-| Controller tvnode-phone tests (incl. nuevo E2E OBSERVE_VOLUME) | ✅ 28/28 |
-| TV Node transport/canonical/observe | ✅ |
-| TV Node TvNodeCoreTest (nuevo test Fase 27) | ✅ |
-| TV Node `assembleRelease` sin credenciales | ✅ FALLA como diseñado (fail-closed) |
+| **Controller suite completa** (testDebugUnitTest) | ✅ **1347/1347, 0 failures, 0 errors** (155 suites) |
+| Controller `lintDebug` | ✅ 0 errors |
+| Controller `assembleDebug` | ✅ APK debug |
+| **Controller `assembleRelease` FIRMADO** | ✅ `CN=Elysium Nexus Controller` verificado con apksigner |
+| **TV Node suite completa** (testDebugUnitTest) | ✅ **108/108, 0 failures, 0 errors** |
+| TV Node `lintDebug` | ✅ 0 errors |
+| TV Node `assembleDebug` | ✅ APK debug |
+| **TV Node `assembleRelease` FIRMADO** | ✅ `CN=Elysium Nexus TV Node` verificado con apksigner (fix: signingConfigs antes de buildTypes) |
+| TV Node `assembleRelease` sin credenciales | ✅ FALLA como diseñado (fail-closed, con `RELEASE DIAG`) |
 | `final_truth_gate.py` | ✅ PASS |
 | `tv_claim_policy.py --check` | ✅ OK |
 | `generate_third_party_notices.py --check` | ✅ current |
-| gitleaks tree + `--log-opts=--all` | ✅ 0 + 0 |
-| Fase 32 previa (controller suite completa) | ✅ 1328/1328, tv-node 107/107 |
+| gitleaks tree + `--log-opts=--all` | ✅ 0 + 0 (+ Gate 0b en CI, sin exclusión de docs) |
+| **Supabase keys** | ✅ las 4 credenciales VÁLIDAS (401 anterior = falso positivo de ruta) |
+| **Supabase DB** | ✅ conectada vía pooler IPv4; esquema vacío RLS-first; MCP OAuth ✅ |
+| Keystores | ✅ regenerados PKCS12 single-password + backups gitignoreados |
 
 ## Commits de esta rama (frescos)
 
 ```
+e33ef2a  chore: lock supabase agent-skills versions (skills-lock.json)
+2eea56f  docs: supabase MCP integration (oauth done), pooler-only connectivity, JWKS
+fb42bad  docs: supabase remote state verified via pooler — 0 tables, RLS at birth
+e8b83b0  docs: correct supabase key verdict — all 4 credentials valid
+d6125f8  fix(ph-18): verified signed releases; unsigned tvnode fix; PKCS12 single-password
 56ee48d  feat(ph27-36): play compliance, rotation runbook, gitleaks v2, ...
 d379ea6  chore(ph32): migrate both builds to supported toolchain AGP 8.10.1 ...
 ec4d9ab  feat(ph25-26-13): software-only IR oracle + persisted local evidence ...
@@ -80,13 +90,16 @@ ec4d9ab  feat(ph25-26-13): software-only IR oracle + persisted local evidence ..
 
 ## Bloqueadores que requieren al propietario (Jor)
 
-1. **Rotar service-role de Supabase** (P0-19) → registrar evento en runbook.
-2. **Provisionar `release.jks` + `tv-node-release.jks`** y los 4 env vars de CI →
-   primer release firmado de ambos APKs.
+1. **Rotar service-role de Supabase** (P0-19) y DB password → `SB_ACCESS_TOKEN` +
+   `python3 tools/supabase/rotate_service_role.py` (fail-closed, listo).
+2. **Secrets de CI** (`RELEASE_STORE_PASSWORD`/`RELEASE_KEY_PASSWORD` +
+   `TV_NODE_RELEASE_*`) en GitHub Secrets → primer release firmado generado por CI.
 3. **Reclasificar v0.9.0 (latest, debug) → Prerelease/engineering-preview** (P0-18).
 4. **TV físico** para Fase 35 (E2E TV Node) y comenzar a llenar la evidencia del
    oracle (Fase 26 ya persistirá `REAL_DEVICE_OBSERVED` la primera vez que se
    confirme un par señal↔reversión).
+5. **Regenerar keys publishable/anon en dashboard** si se desea (opcional — las
+   actuales son válidas; rotación recomendada por exposición en chat).
 
 ## Qué NO está reclamado (honestidad)
 
