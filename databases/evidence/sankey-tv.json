@@ -1,0 +1,87 @@
+{
+  "schema": "sankey-evidence-migration/v1",
+  "migratedFrom": "docs/changelogs/PHASE_ULT_13_SANKEY_AND_MODELS.md",
+  "migratedAt": "2026-08-17",
+  "maturity": "IMPLEMENTED",
+  "purpose": "Phase 36 — preserve every known fact about the Sankey physical-TV work in a durable evidence record instead of human memory. NO fact is invented here: each template below is marked with its honest physical-evidence status, and NONE has physical evidence yet.",
+  "hardRule": "NO TEMPLATE-AS-TRUTH. A template is a DESIGN artifact, never compatibility proof. Physical evidence must be captured by the software-only IR oracle (Phase 25/26) or the HIL lab (Phase 39) before any REAL_DEVICE_VERIFIED status can be claimed.",
+  "physicalEvidenceStatusOverall": "NONE_PHYSICAL_EVIDENCE",
+  "templates": [
+    {
+      "templateId": "tv-sankey-generic",
+      "deviceType": "TV",
+      "brand": "Sankey",
+      "description": "Sankey Generic (Smart / LED TV)",
+      "protocol": "NEC",
+      "necAddress": "0x00,0x00",
+      "waveform": "68-entry NEC pulse-distance microseconds (unit-tested structure only)",
+      "physicalReactionObserved": false,
+      "physicalEvidenceFile": null,
+      "evidenceStatus": "NONE_PHYSICAL_EVIDENCE",
+      "verifiedBy": null,
+      "verifiedAt": null
+    },
+    {
+      "templateId": "tv-sankey-smart",
+      "deviceType": "TV",
+      "brand": "Sankey",
+      "description": "Sankey Smart TV (Android OS Series)",
+      "protocol": "NEC",
+      "necAddress": "0x04,0x12",
+      "waveform": "68-entry NEC pulse-distance microseconds (unit-tested structure only)",
+      "physicalReactionObserved": false,
+      "physicalEvidenceFile": null,
+      "evidenceStatus": "NONE_PHYSICAL_EVIDENCE",
+      "verifiedBy": null,
+      "verifiedAt": null
+    },
+    {
+      "templateId": "tv-sankey-uhd",
+      "deviceType": "TV",
+      "brand": "Sankey",
+      "description": "Sankey 4K UHD Smart TV (Series C / S)",
+      "protocol": "NEC",
+      "necAddress": "0x08,0x02",
+      "waveform": "68-entry NEC pulse-distance microseconds (unit-tested structure only)",
+      "physicalReactionObserved": false,
+      "physicalEvidenceFile": null,
+      "evidenceStatus": "NONE_PHYSICAL_EVIDENCE",
+      "verifiedBy": null,
+      "verifiedAt": null
+    },
+    {
+      "templateId": "tv-sankey-curved",
+      "deviceType": "TV",
+      "brand": "Sankey",
+      "description": "Sankey Curved & Frameless LED TV",
+      "protocol": "NEC",
+      "necAddress": "0x40,0x1A",
+      "waveform": "68-entry NEC pulse-distance microseconds (unit-tested structure only)",
+      "physicalReactionObserved": false,
+      "physicalEvidenceFile": null,
+      "evidenceStatus": "NONE_PHYSICAL_EVIDENCE",
+      "verifiedBy": null,
+      "verifiedAt": null
+    },
+    {
+      "templateId": "ac-sankey-generic",
+      "deviceType": "AC",
+      "brand": "Sankey",
+      "description": "Sankey Split Inverter Air Conditioner (stateful temperature + mode + fan encoding)",
+      "protocol": "NEC",
+      "necAddress": "0xC3,0x00",
+      "waveform": "stateful 68-entry NEC encoding (unit-tested structure only)",
+      "physicalReactionObserved": false,
+      "physicalEvidenceFile": null,
+      "evidenceStatus": "NONE_PHYSICAL_EVIDENCE",
+      "verifiedBy": null,
+      "verifiedAt": null
+    }
+  ],
+  "legacyTestEvidence": {
+    "test": "SankeyDeviceCatalogTest (template structure: IDs, protocol types, brand metadata, 68-entry waveform validity)",
+    "scope": "STRUCTURE ONLY — tests validate template shape and waveform topology, never physical reaction",
+    "testStatus": "UNIT_VERIFIED"
+  },
+  "pathToPhysicalEvidence": "Run the Phase 25/26 software-only IR oracle against a real Sankey TV (VOLUME_UP/VOLUME_DOWN/MUTE reversible actions); on Confirmed unanimous trials the EvidenceStore receives REAL_DEVICE_OBSERVED rows and this file is updated with the evidence ids."
+}

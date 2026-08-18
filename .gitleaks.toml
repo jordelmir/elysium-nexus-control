@@ -1,0 +1,58 @@
+# Elysium Nexus — gitleaks configuration (Master Order v0.10 Phase 29).
+#
+# SECRET SCANNING V2: the FULL tracked tree + git history are scanned.
+# There is NO blind docs/* or *.md exclusion — a secret pasted into a
+# changelog must fail the gate exactly like one in source code.
+#
+# Only explicit placeholder allowlists are allowed (paths AND regexes),
+# matching the .env.example template that must stay in the repo.
+
+title = "Elysium Nexus secret scanning (v2 — no blind markdown exclusion)"
+
+[extend]
+useDefault = true
+
+# ── Explicit allowlists only ─────────────────────────────────────────────
+[allowlist]
+description = "Explicit placeholders, test fixtures, and retracted-secret documentation"
+
+# .env.example is the committed TEMPLATE with placeholders — checked by us.
+paths = [
+    '''\.env\.example$''',
+]
+
+regexes = [
+    # Supabase placeholder values used ONLY in the committed template.
+    '''your-supabase-project-ref''',
+    '''your-anon-key-here''',
+    '''your-service-role-key-here''',
+    '''changeme''',
+    '''REPLACE_ME''',
+    '''<placeholder>''',
+    # RETRACTED secret (P0-5, removed from code 2026-08-15): the only
+    # remaining occurrences are changelogs documenting its ELIMINATION.
+    # The live secret value no longer exists anywhere in the tree.
+    '''ELYSIUM_NEXUS_RETAIL_TRUTH_KEY_2026''',
+    # Apple CryptoKit type in real Swift code — a TYPE, not a credential.
+    '''KeyAgreement\.PrivateKey''',
+]
+
+# Test fixtures that intentionally exercise fake/long secrets.
+stopwords = [
+    "fake",
+    "test",
+    "dummy",
+    "example",
+    "sample",
+]
+
+[[rules]]
+id = "elysium-supabase-live"
+description = "Live Supabase service-role / anon credential patterns (project-local)"
+regex = '''sb_secret_[A-Za-z0-9_-]{12,}|sb_publishable_[A-Za-z0-9]{12,}'''
+entropy = 3.5
+
+[[rules]]
+id = "elysium-env-copy"
+description = "A committed .env (non-example) file must never exist"
+regex = '''^\.env$'''

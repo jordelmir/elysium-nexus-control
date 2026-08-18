@@ -219,4 +219,24 @@ class TvActionExecutorTest {
         )
         assertEquals(0, effector.calls.get())
     }
+
+    @Test
+    fun `phase 27 - core volume control works without the accessibility grant`() {
+        // Play compliance (Play Console declaration): Accessibility is an
+        // optional Enhanced route — the CORE control path must keep working
+        // with only the volume-execution grant. No accessibility grant is
+        // ever required for honest volume control.
+        val engine = MutableEngine()
+        engine.current = vol(5)
+        val effector = RaiserEffector(engine)
+        val grantsWithoutAccessibility = TvCapabilityGrants(volumeExecutable = true)
+
+        val executor = TvActionExecutor(engine, effector, grantsWithoutAccessibility)
+        assertEquals(
+            VolumeActionInterpreter.Verdict.Confirmed,
+            executor.executeVolume(VolumeActionInterpreter.VolumeDirectionAction.Up)
+        )
+        assertEquals(1, effector.calls.get())
+        assertEquals(6, engine.current!!.rawVolume)
+    }
 }
