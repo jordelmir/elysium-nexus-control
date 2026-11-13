@@ -1693,7 +1693,13 @@ Known-TV setup median       < 20 s
 LAN action latency p50      < 30 ms
 LAN action latency p95      < 100 ms
 Core retail coverage        = 100%
+Unknown active retail SKU   = 0
+Open CORE regressions       = 0
+Profile migration loss      = 0
+Catalog/runtime variant mismatch = 0
 ```
+
+Measure rather than assume.
 
 ---
 
@@ -1766,7 +1772,59 @@ Do not combine all into one giant unreviewable PR.
 
 ---
 
-## 62. REALITY LEDGER MAINTENANCE
+## 62. OBSERVABILITY
+
+Structured events:
+
+```
+PAIR_STARTED
+PAIR_SUCCESS
+PAIR_FAILED
+TV_NODE_DISCOVERED
+TV_NODE_CONNECTED
+TV_NODE_DISCONNECTED
+ACTION_RECEIVED
+ACTION_EXECUTED
+ACTION_FAILED
+IR_CANDIDATE_SELECTED
+IR_ENCODED
+IR_TX_ACCEPTED
+IR_TX_FAILED
+TV_OBSERVATION
+ORACLE_TRIAL_STARTED
+ORACLE_TRIAL_CONFIRMED
+ORACLE_TRIAL_INCONCLUSIVE
+PROFILE_INSTALLED
+PROFILE_REVALIDATED
+```
+
+---
+
+## 63. IMPLEMENTATION PRIORITY — NOW
+
+**DO NOW, WITH NO NEW HARDWARE:**
+
+A. TV Node skeleton + shared protocol.
+B. Secure discovery/pairing.
+C. CapabilityManifest.
+D. Nexus Accessibility Enhanced Mode.
+E. Nexus TV IME.
+F. TV Observation Engine.
+G. Bluetooth HID TV transport.
+H. Unify IR candidate engine.
+I. Software-only IR Oracle.
+J. Persist DeviceTwin + exact winning IR bindings.
+K. Test real phone + real TVs.
+L. Build 3-TV → 5-TV → 10-TV software matrix.
+
+**DO NOT prioritize yet:**
+
+- new massive external IR scraping
+- new UI decoration
+
+---
+
+## 64. REALITY LEDGER MAINTENANCE
 
 Every phase update must append to `REALITY_LEDGER.md`. Never overwrite.
 Every entry must state the exact **maturity level before** and **after**,
@@ -1774,7 +1832,7 @@ and the **evidence** that justifies the promotion.
 
 ---
 
-## 63. REGRESSION TRACKING
+## 65. REGRESSION TRACKING
 
 Every verified signal has a regression state:
 ```
@@ -1789,7 +1847,7 @@ This is different from `TX_FAILED` (transmitter problem).
 
 ---
 
-## 64. SUPPLY CHAIN NOTICES
+## 66. SUPPLY CHAIN NOTICES
 
 Generate notices for every third-party IR source used in a build.
 File: `THIRD_PARTY_IR_DATA_NOTICES.md` at repository root.
@@ -1803,7 +1861,7 @@ Content per source:
 
 ---
 
-## 65. DEVICE MATRIX FORMAT
+## 67. DEVICE MATRIX FORMAT
 
 Standard format per device:
 
@@ -1842,7 +1900,7 @@ evidence:
 
 ---
 
-## 66. CRYPTO / IDENTITY SUMMARY
+## 68. CRYPTO / IDENTITY SUMMARY
 
 Summary table for the identity/crypto subsystem:
 
@@ -1858,7 +1916,7 @@ Summary table for the identity/crypto subsystem:
 
 ---
 
-## 67. REQUIRED DELIVERABLE FOR EVERY PHASE
+## 69. REQUIRED DELIVERABLE FOR EVERY PHASE
 
 Every agent must finish a phase with:
 
@@ -1882,7 +1940,7 @@ Never simply say: `"Implemented successfully."`
 
 ---
 
-## 68. SOFTWARE-FIRST ACCEPTANCE TEST
+## 70. SOFTWARE-FIRST ACCEPTANCE TEST
 
 Final Phase-A demonstration:
 
@@ -1910,7 +1968,7 @@ This is the **software-only golden vertical**.
 
 ---
 
-## 69. PHYSICAL GOLDEN VERTICAL — FUTURE
+## 71. PHYSICAL GOLDEN VERTICAL — FUTURE
 
 After Nexus Bridge exists:
 
@@ -1932,7 +1990,7 @@ No Internet database involved. This becomes the ultimate IR acquisition loop.
 
 ---
 
-## 70. COMMERCIAL GOLDEN VERTICAL
+## 72. COMMERCIAL GOLDEN VERTICAL
 
 ```
 Retail SKU
@@ -1954,7 +2012,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 71. FINAL RELEASE TRUTH GATE
+## 73. FINAL RELEASE TRUTH GATE
 
 **NO PRODUCTION_APPROVED** until all applicable gates are true:
 
@@ -1991,7 +2049,7 @@ Only then: `RETAIL_MATRIX_VERIFIED`.
 
 ---
 
-## 72. ULTIMATE ARCHITECTURAL PRINCIPLE
+## 74. ULTIMATE ARCHITECTURAL PRINCIPLE
 
 The objective is **NOT**: "make one protocol control everything."
 
@@ -2014,7 +2072,7 @@ UniversalAction + DeviceTwin + Evidence
 
 ---
 
-## 73. FINAL PRODUCT DEFINITION
+## 75. FINAL PRODUCT DEFINITION
 
 Elysium Nexus shall become:
 

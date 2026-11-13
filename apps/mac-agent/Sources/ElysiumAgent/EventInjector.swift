@@ -8,17 +8,25 @@ import Foundation
 import CoreGraphics
 import AppKit
 import Carbon
+import ApplicationServices
 
 final class EventInjector {
     static let shared = EventInjector()
     private let source: CGEventSource?
     private var isLeftMouseDown: Bool = false
     private var isRightMouseDown: Bool = false
+    private let diagnosticsLock = NSLock()
+    private var postedEventCount: UInt64 = 0
+    private var lastPostFailureLogAt = Date.distantPast
+    private var lastClickTime: Date = .distantPast
+    private var lastClickPos: CGPoint = .zero
+    private var clickCount: Int = 1
 
     init() {
         // hidSystemState works across all macOS versions
         // with standard Accessibility permissions.
         self.source = CGEventSource(stateID: .hidSystemState)
+        Log.info("InputInjector: READY eventSourceAvailable=\(self.source != nil) accessibilityTrusted=\(AXIsProcessTrusted()) bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")")
     }
 
     // MARK: - Mouse & Trackpad Movement
@@ -31,7 +39,7 @@ final class EventInjector {
     private let sensitivity: CGFloat = 4.5
 
     func moveBy(dx: Float, dy: Float) {
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("mouseMove", reason: "event_source_unavailable"); return }
         let current = CGEvent(source: nil)?.location ?? .zero
         let screenBounds = CGDisplayBounds(CGMainDisplayID())
         let newPos = CGPoint(
@@ -53,15 +61,16 @@ final class EventInjector {
             mouseType: mouseType,
             mouseCursorPosition: newPos,
             mouseButton: isRightMouseDown ? .right : .left
-        ) else { return }
+        ) else { recordPostFailure("mouseMove", reason: "event_creation_failed"); return }
         
         ev.post(tap: .cghidEventTap)
+        recordPost("mouseMove")
     }
 
     /// Absolute mouse move to normalized coordinates (0.0 to 1.0)
     /// for direct touchscreen control on screen preview.
     func moveTo(normX: Float, normY: Float) {
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("mouseAbsMove", reason: "event_source_unavailable"); return }
         let screenBounds = CGDisplayBounds(CGMainDisplayID())
         let targetX = min(max(0, CGFloat(normX) * screenBounds.width), screenBounds.width - 1)
         let targetY = min(max(0, CGFloat(normY) * screenBounds.height), screenBounds.height - 1)
@@ -81,15 +90,16 @@ final class EventInjector {
             mouseType: mouseType,
             mouseCursorPosition: newPos,
             mouseButton: isRightMouseDown ? .right : .left
-        ) else { return }
+        ) else { recordPostFailure("mouseAbsMove", reason: "event_creation_failed"); return }
 
         ev.post(tap: .cghidEventTap)
+        recordPost("mouseAbsMove")
     }
 
     // MARK: - Mouse Clicks (Left / Right / Middle)
 
     func click(button: MouseButton, state: ButtonState) {
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("mouseButton", reason: "event_source_unavailable"); return }
         let pos = CGEvent(source: nil)?.location ?? .zero
         let cgButton: CGMouseButton
         let eventType: CGEventType
@@ -99,13 +109,25 @@ final class EventInjector {
             cgButton = .left
             isLeftMouseDown = (state == .down)
             eventType = (state == .down) ? .leftMouseDown : .leftMouseUp
+            if state == .down {
+                let now = Date()
+                if now.timeIntervalSince(lastClickTime) < 0.35 && hypot(pos.x - lastClickPos.x, pos.y - lastClickPos.y) < 15 {
+                    clickCount = min(clickCount + 1, 3)
+                } else {
+                    clickCount = 1
+                }
+                lastClickTime = now
+                lastClickPos = pos
+            }
         case .right:
             cgButton = .right
             isRightMouseDown = (state == .down)
             eventType = (state == .down) ? .rightMouseDown : .rightMouseUp
+            clickCount = 1
         case .middle:
             cgButton = .center
             eventType = (state == .down) ? .otherMouseDown : .otherMouseUp
+            clickCount = 1
         }
 
         guard let ev = CGEvent(
@@ -113,15 +135,17 @@ final class EventInjector {
             mouseType: eventType,
             mouseCursorPosition: pos,
             mouseButton: cgButton
-        ) else { return }
+        ) else { recordPostFailure("mouseButton", reason: "event_creation_failed"); return }
         
+        ev.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
         ev.post(tap: .cghidEventTap)
+        recordPost("mouseButton")
     }
 
     // MARK: - Trackpad Smooth Scroll
 
     func scroll(dx: Float, dy: Float) {
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("scroll", reason: "event_source_unavailable"); return }
         let scaledDx = Int32(dx * 3)
         let scaledDy = Int32(dy * 3)
 
@@ -132,9 +156,10 @@ final class EventInjector {
             wheel1: scaledDy,
             wheel2: scaledDx,
             wheel3: 0
-        ) else { return }
+        ) else { recordPostFailure("scroll", reason: "event_creation_failed"); return }
         
         ev.post(tap: .cghidEventTap)
+        recordPost("scroll")
     }
 
     // MARK: - Trackpad Pinch / Zoom
@@ -143,7 +168,7 @@ final class EventInjector {
         guard factor > 0 else { return }
         let delta = Int32((factor - 1.0) * 15)
         guard delta != 0 else { return }
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("pinch", reason: "event_source_unavailable"); return }
 
         guard let ev = CGEvent(
             scrollWheelEvent2Source: src,
@@ -152,16 +177,17 @@ final class EventInjector {
             wheel1: delta,
             wheel2: 0,
             wheel3: 0
-        ) else { return }
+        ) else { recordPostFailure("pinch", reason: "event_creation_failed"); return }
 
         ev.flags = .maskCommand
         ev.post(tap: .cghidEventTap)
+        recordPost("pinch")
     }
 
     // MARK: - Keyboard
 
     func key(action: KeyAction, hidUsage: UInt32, modifiers: Modifiers) {
-        guard let src = source else { return }
+        guard let src = source else { recordPostFailure("key", reason: "event_source_unavailable"); return }
         let keyDown = (action == .down || action == .repeat)
 
         var flags: CGEventFlags = []
@@ -171,10 +197,38 @@ final class EventInjector {
         if modifiers.contains(.command) { flags.insert(.maskCommand) }
 
         let keycode = hidUsageToKeycode(hidUsage: hidUsage)
-        guard let ev = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(keycode), keyDown: keyDown) else { return }
+        guard let ev = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(keycode), keyDown: keyDown) else {
+            recordPostFailure("key", reason: "event_creation_failed")
+            return
+        }
         
         ev.flags = flags
         ev.post(tap: .cghidEventTap)
+        recordPost("key")
+    }
+
+    /// Inserts user-submitted UTF-8 text through macOS keyboard events.
+    /// The Nexus DataChannel bounds this to 512 UTF-16 code units.
+    func typeText(_ text: String) {
+        let units = Array(text.utf16)
+        guard !units.isEmpty, units.count <= 512,
+              let src = source,
+              !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\t" }) else {
+            recordPostFailure("text", reason: "invalid_text_or_event_source_unavailable")
+            return
+        }
+        guard let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
+              let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false) else {
+            recordPostFailure("text", reason: "event_creation_failed")
+            return
+        }
+        units.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+        }
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        recordPost("text")
     }
 
     // MARK: - Media Keys
@@ -197,7 +251,30 @@ final class EventInjector {
             data1: (keyCode << 16) | ((keyDown ? 0x0A : 0x0B) << 8),
             data2: -1
         )
-        event?.cgEvent?.post(tap: .cghidEventTap)
+        guard let cgEvent = event?.cgEvent else { recordPostFailure("media", reason: "event_creation_failed"); return }
+        cgEvent.post(tap: .cghidEventTap)
+        recordPost("media")
+    }
+
+    private func recordPost(_ type: String) {
+        diagnosticsLock.lock()
+        postedEventCount += 1
+        let count = postedEventCount
+        diagnosticsLock.unlock()
+        if count == 1 || count % 120 == 0 {
+            Log.info("InputInjector: POST_METRICS posted=\(count) lastType=\(type) accessibilityTrusted=\(AXIsProcessTrusted())")
+        }
+    }
+
+    private func recordPostFailure(_ type: String, reason: String) {
+        diagnosticsLock.lock()
+        let now = Date()
+        let shouldLog = now.timeIntervalSince(lastPostFailureLogAt) >= 5
+        if shouldLog { lastPostFailureLogAt = now }
+        diagnosticsLock.unlock()
+        if shouldLog {
+            Log.error("InputInjector: POST_FAILED type=\(type) reason=\(reason) accessibilityTrusted=\(AXIsProcessTrusted())")
+        }
     }
 
     // MARK: - Enums & Helpers

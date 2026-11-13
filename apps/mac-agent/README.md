@@ -1,8 +1,26 @@
-# Elysium Nexus — Mac Agent
+# Elysium Nexus Control — Mac
 
 A small menu-bar app for macOS that lets the
 [Elysium Nexus Android app](../android/) control
 your Mac over the local network.
+
+## Unified Mac app
+
+The Nexus Mac app also contains the ScreenMirror receiver and studio in the
+same application process. Nexus retains Android pairing, Mac input control,
+and Mac-to-Android screen frames on TCP 7878. ScreenMirror receives Android
+video over its Bonjour signaling endpoint and WebRTC, and provides capture,
+compositing, and HEVC recording. The two directions use distinct channels so
+they do not compete for the Nexus listener.
+
+`./build.sh build` creates a Nexus `.app` with `WebRTC.framework` embedded.
+Android-to-Mac discovery currently requires the ScreenMirror Android service
+and a reachable local network. Cross-network relay is not configured.
+The Nexus dashboard also opens Vanguard Fabric's Console and Node panels from
+the same app. Console includes remote desktop, jobs, resources, workspace,
+terminal, agents, security, trusted peers, and observability. Fabric Node starts
+its own 49494 transport; Nexus remains the only owner of its Android 7878
+listener. These services have not yet been validated across two physical Macs.
 
 The agent runs in the menu bar. When the Android
 phone pairs with it, every gesture on the phone
@@ -21,7 +39,7 @@ open ".build/Elysium Nexus.app"
 
 # 3. Grant Accessibility (one-time)
 #    System Settings → Privacy & Security → Accessibility
-#    → add "Elysium Nexus Mac Agent" and toggle ON
+#    → add "Elysium Nexus Control" and toggle ON
 
 # 4. On the Android phone, tap "Mac / PC" on the Hub,
 #    wait for the scan, tap your Mac in the list,
@@ -87,6 +105,10 @@ ChaCha20-Poly1305 sealed; the on-wire payload is
   domain-separated salt + info.
 - **6-digit PIN** confirmed by the user on the
   phone before the channel opens.
+- **Interactive System Notifications** via `UNUserNotificationCenter`
+  displaying connection state, stream status, and one-tap session disconnect.
+- **Native Double-Click & Drag Selection** via `mouseEventClickState` (1..3)
+  and dedicated selection lock.
 - **No remote access by default** — the agent only
   listens on the LAN. A future release will add
   optional relay with end-to-end encryption.
@@ -139,14 +161,16 @@ To verify the protocol from a script, use
 
 ```
 Sources/ElysiumAgent/
-├── main.swift                  # Entry point
-├── Protocol.swift              # Frame format
-├── Crypto.swift                # X25519 + ChaCha20
-├── BonjourAdvertiser.swift     # mDNS service
-├── TCPServer.swift             # Network framework listener
-├── ConnectionHandler.swift      # Per-conn state machine
-├── EventInjector.swift         # CGEvent posting
-├── StatusBarController.swift   # Menu-bar UI
-├── PINWindow.swift              # SwiftUI pairing window
-└── PermissionManager.swift     # Accessibility check
+├── main.swift                   # Entry point
+├── Protocol.swift               # Frame format & wire codec
+├── Crypto.swift                 # X25519 + ChaCha20 + HKDF
+├── BonjourAdvertiser.swift      # mDNS service advertisement
+├── TCPServer.swift              # Network framework listener (port 7878)
+├── ConnectionHandler.swift       # Per-conn state machine & notification hooks
+├── EventInjector.swift          # CGEvent posting with click-state tracking
+├── ScreenCaptureService.swift   # CGDisplayStream 1080p frame streamer
+├── MacNotificationManager.swift # Interactive UNUserNotificationCenter notifications
+├── StatusBarController.swift    # Menu-bar UI & active connection state
+├── PINWindow.swift               # SwiftUI pairing window
+└── PermissionManager.swift      # Accessibility & Screen Recording checks
 ```

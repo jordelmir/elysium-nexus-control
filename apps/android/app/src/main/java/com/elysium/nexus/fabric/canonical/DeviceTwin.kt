@@ -132,7 +132,6 @@ enum class DeviceType {
     SensorEnergy,
     SensorPresence,
     MediaPlayer,
-    Television,
     Projector,
     Speaker,
     Soundbar,

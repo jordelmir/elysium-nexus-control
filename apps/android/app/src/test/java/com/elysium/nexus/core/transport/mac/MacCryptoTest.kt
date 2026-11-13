@@ -61,6 +61,31 @@ class MacCryptoTest {
     }
 
     @Test
+    fun `Mac screen frame is decrypted to JPEG bytes before rendering`() {
+        val android = MacCrypto.generateKeyPair()
+        val mac = MacCrypto.generateKeyPair()
+        val androidKey = MacCrypto.deriveChannelKey(android, mac.publicKeyBytes)
+        val macKey = MacCrypto.deriveChannelKey(mac, android.publicKeyBytes)
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0x01, 0x02, 0xFF.toByte(), 0xD9.toByte())
+
+        val encryptedFramePayload = macKey.encrypt(jpeg)
+
+        assertArrayEquals(jpeg, MacScreenFrameDecoder.decrypt(encryptedFramePayload, androidKey))
+    }
+
+    @Test(expected = MacCrypto.CryptoUnavailableException::class)
+    fun `screen frame with invalid authentication tag is rejected`() {
+        val android = MacCrypto.generateKeyPair()
+        val mac = MacCrypto.generateKeyPair()
+        val androidKey = MacCrypto.deriveChannelKey(android, mac.publicKeyBytes)
+        val macKey = MacCrypto.deriveChannelKey(mac, android.publicKeyBytes)
+        val encrypted = macKey.encrypt(byteArrayOf(0xFF.toByte(), 0xD8.toByte()))
+        encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 0x01).toByte()
+
+        MacScreenFrameDecoder.decrypt(encrypted, androidKey)
+    }
+
+    @Test
     fun `each encrypt uses a fresh nonce`() {
         val alice = MacCrypto.generateKeyPair()
         val bob = MacCrypto.generateKeyPair()

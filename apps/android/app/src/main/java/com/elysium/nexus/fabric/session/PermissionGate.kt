@@ -85,6 +85,7 @@ object PermissionGate {
         Protocol.VendorRest -> setOf(INTERNET)
         Protocol.VendorWebSocket -> setOf(INTERNET)
         Protocol.ElysiumLink -> setOf(INTERNET)
+        Protocol.TvNode -> setOf(INTERNET)
 
         Protocol.Unknown -> emptySet()
     }

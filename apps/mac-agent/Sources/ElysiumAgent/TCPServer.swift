@@ -50,20 +50,12 @@ final class TCPServer {
         let port = NWEndpoint.Port(rawValue: self.port)!
         let listener = try NWListener(using: parameters, on: port)
         self.listener = listener
-        listener.stateUpdateHandler = { newState in
-            switch newState {
-            case .ready:
-                Log.info("TCP: listener ready on port \(self.port)")
-            case .failed(let error):
-                Log.error("TCP: listener failed: \(error)")
-            case .cancelled:
-                Log.info("TCP: listener cancelled")
-            default:
-                break
-            }
-        }
         listener.newConnectionHandler = { [weak self] connection in
-            guard let self = self else { return }
+            guard let self = self else {
+                Log.error("TCP: accepted connection dropped because server owner was released")
+                return
+            }
+            Log.info("TCP: accepted peer endpoint=\(String(describing: connection.endpoint))")
             let handler = ConnectionHandler(
                 connection: connection,
                 keyPair: self.keyPair,
@@ -77,7 +69,26 @@ final class TCPServer {
             self.lock.unlock()
             handler.start()
         }
-        listener.start(queue: .global())
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            listener.stateUpdateHandler = { newState in
+                switch newState {
+                case .ready:
+                    Log.info("TCP: listener ready on port \(self.port)")
+                    listener.stateUpdateHandler = nil
+                    continuation.resume()
+                case .failed(let error):
+                    Log.error("TCP: listener failed on port \(self.port): \(error)")
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: error)
+                case .cancelled:
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: CancellationError())
+                default:
+                    break
+                }
+            }
+            listener.start(queue: DispatchQueue(label: "com.elysium.nexus.listener"))
+        }
     }
 
     func stop() {

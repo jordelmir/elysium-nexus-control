@@ -37,20 +37,20 @@ data class PairingCode(
 /**
  * Result of a pairing attempt.
  */
-sealed class PairingResult {
+sealed class TvNodePairingResult {
     data class Success(
         val deviceId: DeviceId,
         val sessionToken: String,
         val certificatePins: List<String>
-    ) : PairingResult()
+    ) : TvNodePairingResult()
 
     data class PinRequired(
         val pinMessage: String
-    ) : PairingResult()
+    ) : TvNodePairingResult()
 
     data class Error(
         val reason: String
-    ) : PairingResult()
+    ) : TvNodePairingResult()
 }
 
 /**
@@ -102,12 +102,12 @@ class TvNodePairingEngine {
      *
      * @param tvPublicKey the TV Node's public key (from QR or protocol)
      * @param tvSignature the TV Node's signature over the session challenge
-     * @return a [PairingResult]
+     * @return a [TvNodePairingResult]
      */
     fun completePairing(
         tvPublicKey: ByteArray,
         tvSignature: ByteArray
-    ): PairingResult {
+    ): TvNodePairingResult {
         // Cryptographic verification happens here once the TV Node side exists
         // For now, return success with a provisional device ID
         val deviceId = DeviceId(UUID.randomUUID().toString())
@@ -115,7 +115,7 @@ class TvNodePairingEngine {
             ByteArray(32).also { secureRandom.nextBytes(it) },
             Base64.NO_WRAP
         )
-        return PairingResult.Success(
+        return TvNodePairingResult.Success(
             deviceId = deviceId,
             sessionToken = sessionToken,
             certificatePins = emptyList()

@@ -490,10 +490,25 @@ class MacTransport {
             MacProtocol.FrameType.HEARTBEAT,
             MacProtocol.FrameType.GOODBYE -> Unit
             MacProtocol.FrameType.SCREEN_FRAME -> {
-                // JPEG bytes from the Mac. Emit to
-                // the screen frame flow for the UI
-                // to render. NOT encrypted for perf.
-                _screenFrames.tryEmit(frame.payload)
+                // The Mac encrypts every JPEG frame with the paired channel
+                // key before framing it. Treating this as plaintext made the
+                // socket look healthy while BitmapFactory silently rejected
+                // every frame.
+                val key = channelKey ?: run {
+                    Log.w(TAG, "Dropping screen frame without an active paired key")
+                    return
+                }
+                runCatching { MacScreenFrameDecoder.decrypt(frame.payload, key) }
+                    .onSuccess { jpeg ->
+                        if (jpeg.isEmpty()) {
+                            Log.w(TAG, "Dropping empty decrypted screen frame")
+                        } else {
+                            _screenFrames.tryEmit(jpeg)
+                        }
+                    }
+                    .onFailure { error ->
+                        Log.e(TAG, "Dropping screen frame that failed channel authentication", error)
+                    }
             }
             else -> {
                 Log.d(TAG, "Received ${frame.type} (${frame.payload.size} B)")

@@ -73,8 +73,18 @@ enum FrameType: UInt8 {
     // Android can request start/stop via
     // SCREEN_REQUEST.
     case screenRequest = 0x0D  // client → server: 1 byte (0=stop, 1=start, 2=quality)
-    case screenFrame   = 0x0E  // server → client: JPEG bytes (unencrypted for perf)
+    case screenFrame   = 0x0E  // server → client: encrypted JPEG bytes (ChaCha20-Poly1305)
     case mouseAbsMove  = 0x0F  // client → server: 8 bytes (float32 normX, float32 normY)
+    case screenStatus  = 0x10  // server to client: encrypted capture status byte
+    case textInput     = 0x11  // global DataChannel only: UTF-8 text (max 512 UTF-16 units)
+}
+
+enum ScreenCaptureStatus: UInt8 {
+    case streaming = 0x01
+    case permissionRequired = 0x02
+    case captureFailed = 0x03
+    case stopped = 0x04
+    case alreadyStreaming = 0x05
 }
 
 enum MouseButton: UInt8 {

@@ -36,9 +36,17 @@ final class ConnectionHandler {
     private let keyPair: Curve25519.KeyAgreement.PrivateKey
     private let state: AgentState
     private let onClose: ((ConnectionHandler) -> Void)?
+    private let sessionID = String(UUID().uuidString.prefix(8))
     private var state_: State = .awaitingHello
     private var receiveBuffer = Data()
     private var pinWindow: PINWindow?
+    private let diagnosticsLock = NSLock()
+    private var receivedFramesByType: [String: UInt64] = [:]
+    private var decodedInputEvents: UInt64 = 0
+    private var rejectedInputEvents: UInt64 = 0
+    private var screenFramesSent: UInt64 = 0
+    private var screenBytesSent: UInt64 = 0
+    private var diagnosticsLastLogAt = Date.distantPast
 
     init(connection: NWConnection, keyPair: Curve25519.KeyAgreement.PrivateKey, state: AgentState, onClose: ((ConnectionHandler) -> Void)? = nil) {
         self.connection = connection
@@ -48,19 +56,19 @@ final class ConnectionHandler {
     }
 
     func start() {
-        Log.info("Conn: new connection from \(String(describing: connection.endpoint))")
+        Log.info("Conn[\(sessionID)]: accepted endpoint=\(String(describing: connection.endpoint))")
         connection.stateUpdateHandler = { [weak self] newState in
             guard let self = self else { return }
             switch newState {
             case .ready:
-                Log.info("Conn: TCP ready")
+                Log.info("Conn[\(self.sessionID)]: TCP ready")
                 self.transition(to: .awaitingHello)
                 self.scheduleReceive()
             case .failed(let error):
-                Log.error("Conn: failed: \(error)")
+                Log.error("Conn[\(self.sessionID)]: connection failed: \(error)")
                 self.transition(to: .closed)
             case .cancelled:
-                Log.info("Conn: cancelled")
+                Log.info("Conn[\(self.sessionID)]: cancelled")
                 self.transition(to: .closed)
             default:
                 break
@@ -74,7 +82,7 @@ final class ConnectionHandler {
     private func send(_ data: Data) {
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
-                Log.error("Conn: send failed: \(error)")
+                Log.error("Conn[\(self.sessionID)]: send failed bytes=\(data.count) error=\(error)")
             }
         })
     }
@@ -87,7 +95,7 @@ final class ConnectionHandler {
                 self.drainFrames()
             }
             if let error = error {
-                Log.error("Conn: receive error: \(error)")
+                Log.error("Conn[\(self.sessionID)]: receive error: \(error)")
                 self.transition(to: .closed)
                 return
             }
@@ -113,23 +121,41 @@ final class ConnectionHandler {
         state_ = newState
         switch newState {
         case .awaitingPin(let pin, let digits):
-            Log.info("Conn: awaiting pin (\(digits)/6 received)")
+            Log.info("Conn[\(sessionID)]: pairing awaiting user PIN digitsReceived=\(digits); PIN redacted")
             Task { @MainActor in
                 self.state.status = .pairing
                 self.state.currentPin = pin
             }
             if digits == 0 {
                 showPinWindow(pin: pin)
+                MacNotificationManager.shared.notify(
+                    id: "nexus_pin",
+                    title: "⚡ Elysium Nexus — Emparejamiento",
+                    subtitle: "PIN: \(pin)",
+                    body: "Introduce este código de 6 dígitos en tu teléfono Android."
+                )
             }
         case .ready:
-            Log.info("Conn: READY (channel open)")
+            Log.info("Conn[\(sessionID)]: pairing READY encrypted channel active")
+            MacNotificationManager.shared.notify(
+                id: "nexus_connected",
+                title: "🟢 Elysium Nexus — Conectado",
+                subtitle: "Dispositivo Android Conectado",
+                body: "Control de mouse, teclado y pantalla activo.",
+                category: "NEXUS_REMOTE_SESSION"
+            )
             Task { @MainActor in
                 self.state.status = .connected
                 self.state.currentPin = nil
                 self.state.lastEventDescription = "Conectado"
             }
         case .closed:
-            Log.info("Conn: closed")
+            Log.info("Conn[\(sessionID)]: closed")
+            MacNotificationManager.shared.notify(
+                id: "nexus_connected",
+                title: "🔴 Elysium Nexus — Desconectado",
+                body: "La sesión remota con Android ha finalizado."
+            )
             ScreenCaptureService.shared.stop()
             connection.cancel()
             onClose?(self)
@@ -146,8 +172,10 @@ final class ConnectionHandler {
     }
 
     private func handle(_ frame: Frame) {
+        recordReceivedFrame(frame.type)
         switch (state_, frame.type) {
         case (.awaitingHello, .hello), (.sendingHelloAck, .hello):
+            Log.info("Conn[\(sessionID)]: received HELLO bytes=\(frame.payload.count)")
             guard frame.payload.count == 32 else {
                 Log.error("Conn: HELLO payload must be 32 bytes, got \(frame.payload.count)")
                 transition(to: .closed)
@@ -166,6 +194,7 @@ final class ConnectionHandler {
             let ourPubKey = self.keyPair.publicKey.rawRepresentation
             let helloAck = FrameEncoder.encode(.helloAck, payload: ourPubKey)
             self.send(helloAck)
+            Log.info("Conn[\(sessionID)]: sent HELLO_ACK publicKeyBytes=\(ourPubKey.count)")
 
             // Derive the channel key (server side).
             let key = ChannelCipher.deriveKey(myPrivate: keyPair, theirPublic: theirPubKey)
@@ -173,18 +202,11 @@ final class ConnectionHandler {
             let counter = NonceCounter()
             nonceCounter = counter
 
-            if isLocalLoopback() {
-                Log.info("Conn: USB-C direct connection auto-approved instantly (zero-PIN mode)")
-                let okPayload = Data([0x01]) // 1 = ok
-                let enc = ChannelCipher.seal(okPayload, key: key)
-                send(FrameEncoder.encode(.pairOk, payload: enc))
-                transition(to: .ready(channelKey: key, nonceCounter: counter))
-            } else {
-                let pin = generatePin()
-                Log.info("Conn: generated pairing PIN: \(pin)")
-                generatedPin = pin
-                transition(to: .awaitingPin(generatedPin: pin, digitsReceived: 0))
-            }
+            let route = isLocalLoopback() ? "adb-reverse" : "network"
+            let pin = generatePin()
+            Log.info("Conn[\(sessionID)]: PIN generated for route=\(route) and displayed; value redacted")
+            generatedPin = pin
+            transition(to: .awaitingPin(generatedPin: pin, digitsReceived: 0))
         case (.awaitingPin(let pin, let count), .pinDigit):
             guard let key = awaitingPinKey, let counter = nonceCounter else {
                 Log.error("Conn: PIN_DIGIT received but no key set")
@@ -201,15 +223,6 @@ final class ConnectionHandler {
                     return
                 }
                 let receivedDigit = plain[0]
-                // USB-C Auto-Trust Bypass: If digit is 0xFF or local loopback connection, auto-approve instantly
-                if receivedDigit == 0xFF || isLocalLoopback() {
-                    Log.info("Conn: USB-C direct connection auto-approved (zero-PIN mode)")
-                    let okPayload = Data([0x01]) // 1 = ok
-                    let enc = ChannelCipher.seal(okPayload, key: key)
-                    send(FrameEncoder.encode(.pairOk, payload: enc))
-                    transition(to: .ready(channelKey: key, nonceCounter: counter))
-                    return
-                }
                 let pinChar = pin[pin.index(pin.startIndex, offsetBy: count)]
                 let expectedDigit = UInt8(pinChar.wholeNumberValue ?? 0)
                 if receivedDigit == expectedDigit {
@@ -221,12 +234,13 @@ final class ConnectionHandler {
                         let okPayload = Data([0x01]) // 1 = ok
                         let enc = ChannelCipher.seal(okPayload, key: key)
                         send(FrameEncoder.encode(.pairOk, payload: enc))
+                        Log.info("Conn[\(sessionID)]: PIN accepted")
                         transition(to: .ready(channelKey: key, nonceCounter: counter))
                     } else {
                         transition(to: .awaitingPin(generatedPin: pin, digitsReceived: nextCount))
                     }
                 } else {
-                    Log.warn("Conn: PIN digit \(count+1) mismatch (expected \(expectedDigit), got \(receivedDigit))")
+                    Log.warn("Conn[\(sessionID)]: PIN rejected; digit mismatch index=\(count+1); values redacted")
                     let okPayload = Data([0x00]) // 0 = fail
                     let enc = ChannelCipher.seal(okPayload, key: key)
                     send(FrameEncoder.encode(.pairOk, payload: enc))
@@ -238,60 +252,142 @@ final class ConnectionHandler {
             }
         case (.ready(let key, let counter), .mouseMove):
             if let payload = decodeMouseMove(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "mouseMove", accepted: true)
                 EventInjector.shared.moveBy(dx: payload.0, dy: payload.1)
+            } else {
+                recordInputDecode(type: "mouseMove", accepted: false)
             }
         case (.ready(let key, let counter), .mouseAbsMove):
             if let payload = decodeMouseAbsMove(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "mouseAbsMove", accepted: true)
                 EventInjector.shared.moveTo(normX: payload.0, normY: payload.1)
+            } else {
+                recordInputDecode(type: "mouseAbsMove", accepted: false)
             }
         case (.ready(let key, let counter), .mouseButton):
             if let payload = decodeMouseButton(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "mouseButton", accepted: true)
                 EventInjector.shared.click(button: payload.0, state: payload.1)
+            } else {
+                recordInputDecode(type: "mouseButton", accepted: false)
             }
         case (.ready(let key, let counter), .scroll):
             if let payload = decodeScroll(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "scroll", accepted: true)
                 EventInjector.shared.scroll(dx: payload.0, dy: payload.1)
+            } else {
+                recordInputDecode(type: "scroll", accepted: false)
             }
         case (.ready(let key, let counter), .key):
             if let payload = decodeKey(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "key", accepted: true)
                 EventInjector.shared.key(action: payload.0, hidUsage: payload.1, modifiers: payload.2)
             }
         case (.ready(let key, let counter), .pinch):
             if let payload = decodePinch(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "pinch", accepted: true)
                 EventInjector.shared.pinch(factor: payload)
+            } else {
+                recordInputDecode(type: "pinch", accepted: false)
             }
         case (.ready(let key, let counter), .media):
             if let keyCode = decodeMedia(frame.payload, key: key, counter: counter) {
+                recordInputDecode(type: "media", accepted: true)
                 if let media = EventInjector.MediaKey(rawValue: Int(keyCode)) {
                     EventInjector.shared.media(media)
                 }
+            } else {
+                recordInputDecode(type: "media", accepted: false)
             }
         case (.ready(let key, _), .screenRequest):
-            // Android requests screen capture start/stop.
-            if let plain = try? ChannelCipher.open(frame.payload, key: key),
-               plain.count >= 1 {
-                let cmd = plain[0]
-                if cmd == 0x01 {
-                    // Start screen capture. Stream
-                    // JPEG frames directly over the
-                    // NWConnection.
-                    Log.info("Conn: screen capture START requested")
-                    ScreenCaptureService.shared.start { [weak self] frameData in
-                        self?.send(frameData)
-                    }
-                } else if cmd == 0x00 {
-                    Log.info("Conn: screen capture STOP requested")
-                    ScreenCaptureService.shared.stop()
-                } else if cmd == 0x02 && plain.count >= 2 {
-                    // Quality adjustment (0-100 → 0.0-1.0).
-                    let q = CGFloat(plain[1]) / 100.0
-                    ScreenCaptureService.shared.setQuality(q)
-                }
+            guard let plain = try? ChannelCipher.open(frame.payload, key: key),
+                  let command = plain.first else {
+                Log.warn("Conn[\(sessionID)]: SCREEN_REQUEST authentication or payload validation failed bytes=\(frame.payload.count)")
+                return
+            }
+            switch command {
+            case 0x01:
+                Log.info("Conn[\(sessionID)]: screen capture START requested")
+                MacNotificationManager.shared.notify(
+                    id: "nexus_screen",
+                    title: "📺 Elysium Nexus — Pantalla en vivo",
+                    subtitle: "Transmisión iniciada",
+                    body: "Transmitiendo pantalla a Android en tiempo real.",
+                    category: "NEXUS_REMOTE_SESSION"
+                )
+                let result = ScreenCaptureService.shared.start(send: { [weak self] jpegPayload in
+                    guard let self else { return }
+                    self.recordScreenFrameSent(bytes: jpegPayload.count)
+                    let encryptedPayload = ChannelCipher.seal(jpegPayload, key: key)
+                    self.send(FrameEncoder.encode(.screenFrame, payload: encryptedPayload))
+                }, status: { [weak self] status in
+                    self?.sendScreenStatus(status, key: key)
+                })
+                sendScreenStatus(result, key: key)
+            case 0x00:
+                Log.info("Conn[\(sessionID)]: screen capture STOP requested")
+                MacNotificationManager.shared.notify(
+                    id: "nexus_screen",
+                    title: "⏸ Elysium Nexus — Pantalla pausada",
+                    body: "La transmisión de pantalla hacia Android se ha detenido."
+                )
+                ScreenCaptureService.shared.stop()
+                sendScreenStatus(.stopped, key: key)
+            case 0x02 where plain.count >= 2:
+                let quality = CGFloat(plain[1]) / 100.0
+                Log.info("Conn[\(sessionID)]: screen quality requested percent=\(plain[1])")
+                ScreenCaptureService.shared.setQuality(quality)
+            default:
+                Log.warn("Conn[\(sessionID)]: unsupported SCREEN_REQUEST command=\(command)")
             }
         case (.ready, .heartbeat), (.ready, .goodbye):
             break // No-op
         default:
             Log.warn("Conn: unexpected frame \(frame.type) in state \(state_)")
+        }
+    }
+
+    private func sendScreenStatus(_ status: ScreenCaptureStatus, key: SymmetricKey) {
+        let encrypted = ChannelCipher.seal(Data([status.rawValue]), key: key)
+        send(FrameEncoder.encode(.screenStatus, payload: encrypted))
+        Log.info("Conn[\(sessionID)]: screen status sent status=\(status)")
+    }
+
+    private func recordReceivedFrame(_ type: FrameType) {
+        diagnosticsLock.lock()
+        let name = String(describing: type)
+        receivedFramesByType[name, default: 0] += 1
+        let now = Date()
+        let shouldLog = now.timeIntervalSince(diagnosticsLastLogAt) >= 5
+        let snapshot = shouldLog ? receivedFramesByType : [:]
+        if shouldLog { diagnosticsLastLogAt = now }
+        diagnosticsLock.unlock()
+        if shouldLog {
+            let summary = snapshot.keys.sorted().map { "\($0)=\(snapshot[$0] ?? 0)" }.joined(separator: ",")
+            Log.info("Conn[\(sessionID)]: RX_METRICS frameCounts={\(summary)} last=\(name)")
+        }
+    }
+
+    private func recordInputDecode(type: String, accepted: Bool) {
+        diagnosticsLock.lock()
+        if accepted { decodedInputEvents += 1 } else { rejectedInputEvents += 1 }
+        let decoded = decodedInputEvents
+        let rejected = rejectedInputEvents
+        diagnosticsLock.unlock()
+        if decoded + rejected == 1 || (decoded + rejected) % 120 == 0 {
+            Log.info("Conn[\(sessionID)]: INPUT_METRICS decoded=\(decoded) rejected=\(rejected) lastType=\(type) lastResult=\(accepted ? "accepted" : "rejected")")
+        }
+    }
+
+    private func recordScreenFrameSent(bytes: Int) {
+        diagnosticsLock.lock()
+        screenFramesSent += 1
+        screenBytesSent += UInt64(max(0, bytes))
+        let count = screenFramesSent
+        let totalBytes = screenBytesSent
+        diagnosticsLock.unlock()
+        if count == 1 || count % 120 == 0 {
+            Log.info("Conn[\(sessionID)]: SCREEN_TX_METRICS frames=\(count) lastJpegBytes=\(bytes) totalJpegBytes=\(totalBytes)")
         }
     }
 
@@ -429,4 +525,5 @@ final class ConnectionHandler {
         }
         return true
     }
+
 }

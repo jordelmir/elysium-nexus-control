@@ -1,116 +1,111 @@
 import Foundation
 
-/**
- * ADB Bridge Daemon — Automatic USB ADB Reverse Port Forwarder.
- *
- * Continuously monitors for connected Android devices via USB (`adb devices`).
- * When an Android phone (e.g. Honor Magic V2) is detected via USB-C, it automatically
- * executes `adb reverse tcp:7878 tcp:7878` to bridge the phone's loopback connection
- * to the Mac agent daemon.
- *
- * This enables 100% Zero-Touch operation:
- * - User turns on Mac
- * - Mac boots and elysium-agent starts at login
- * - User plugs in USB-C cable from Android phone to Mac
- * - ADBBridgeDaemon automatically runs `adb reverse tcp:7878 tcp:7878`
- * - User opens APK on Android phone
- * - Screen sharing and control surface fire IMMEDIATELY with ZERO manual terminal commands!
- */
+/// Keeps an ADB reverse route for every authorized Android transport.
+///
+/// `adb reverse` without `-s <serial>` fails as soon as more than one device is
+/// attached. A failed first attempt must also be retried: USB debugging may be
+/// authorized after the app has already started.
 public final class ADBBridgeDaemon {
-    private var timer: Timer?
+    private let queue = DispatchQueue(label: "com.elysium.adb-daemon", qos: .utility)
+    private var timer: DispatchSourceTimer?
     private var isRunning = false
-    private let queue = DispatchQueue(label: "com.elysium.adb-daemon", qos: .background)
-    private var lastDeviceCount = -1
+    private var bridgedSerials = Set<String>()
+    private var lastNoAdbWarningAt: Date?
 
     public static let shared = ADBBridgeDaemon()
 
     private init() {}
 
     public func start() {
-        guard !isRunning else { return }
-        isRunning = true
-        Log.info("ADBBridgeDaemon — Starting automatic USB ADB reverse monitoring...")
+        queue.async { [weak self] in
+            guard let self, !self.isRunning else { return }
+            self.isRunning = true
+            Log.info("ADBBridgeDaemon: monitoring authorized Android devices for USB/Wi-Fi reverse routes")
+            self.checkAndBridgeADB()
 
-        // Run check immediately, then poll every 3 seconds
-        checkAndBridgeADB()
-
-        DispatchQueue.main.async { [weak self] in
-            self?.timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-                self?.queue.async {
-                    self?.checkAndBridgeADB()
-                }
-            }
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now() + .seconds(3), repeating: .seconds(3), leeway: .milliseconds(500))
+            timer.setEventHandler { [weak self] in self?.checkAndBridgeADB() }
+            self.timer = timer
+            timer.resume()
         }
     }
 
     public func stop() {
-        guard isRunning else { return }
-        isRunning = false
-        DispatchQueue.main.async { [weak self] in
-            self?.timer?.invalidate()
-            self?.timer = nil
+        queue.async { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.isRunning = false
+            self.timer?.cancel()
+            self.timer = nil
+            self.bridgedSerials.removeAll()
+            Log.info("ADBBridgeDaemon: stopped")
         }
-        Log.info("ADBBridgeDaemon — Stopped")
     }
 
     private func checkAndBridgeADB() {
-        let adbPath = findADBPath()
-        guard !adbPath.isEmpty else {
+        guard isRunning else { return }
+        guard let adbPath = findADBPath() else {
+            if lastNoAdbWarningAt.map({ Date().timeIntervalSince($0) > 60 }) ?? true {
+                Log.warn("ADBBridgeDaemon: Android platform-tools adb was not found; USB direct mode needs platform-tools installed")
+                lastNoAdbWarningAt = Date()
+            }
             return
         }
 
-        // 1. Run `adb devices`
-        let devicesOutput = runProcess(executable: adbPath, arguments: ["devices"])
-        let lines = devicesOutput.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("List of devices") }
-
-        let activeDevices = lines.filter { $0.contains("device") && !$0.contains("offline") }
-        let currentCount = activeDevices.count
-
-        // If devices changed or on initial run, execute `adb reverse tcp:7878 tcp:7878`
-        if currentCount > 0 && currentCount != lastDeviceCount {
-            Log.info("ADBBridgeDaemon — Android device detected via USB (\(currentCount) device(s)). Executing adb reverse tcp:7878 tcp:7878...")
-            let reverseOutput = runProcess(executable: adbPath, arguments: ["reverse", "tcp:7878", "tcp:7878"])
-            Log.info("ADBBridgeDaemon — adb reverse output: \(reverseOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+        let devices = runADB(adbPath, arguments: ["devices"])
+        guard devices.status == 0 else {
+            Log.warn("ADBBridgeDaemon: adb devices failed: \(devices.output.trimmingCharacters(in: .whitespacesAndNewlines))")
+            return
         }
 
-        lastDeviceCount = currentCount
+        let serials = Set(devices.output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> String? in
+                let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                guard fields.count >= 2, fields[1] == "device" else { return nil }
+                let serial = String(fields[0])
+                guard serial != "List", !serial.isEmpty else { return nil }
+                return serial
+            })
+
+        bridgedSerials.formIntersection(serials)
+        for serial in serials.subtracting(bridgedSerials).sorted() {
+            let result = runADB(adbPath, arguments: ["-s", serial, "reverse", "tcp:7878", "tcp:7878"])
+            if result.status == 0 {
+                bridgedSerials.insert(serial)
+                Log.info("ADBBridgeDaemon: reverse route ready for Android device \(serial)")
+            } else {
+                let detail = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                Log.warn("ADBBridgeDaemon: reverse route failed for \(serial): \(detail.isEmpty ? "adb exited with status \(result.status)" : detail)")
+            }
+        }
     }
 
-    private func findADBPath() -> String {
-        let possiblePaths = [
+    private func findADBPath() -> String? {
+        let paths = [
             "/opt/homebrew/bin/adb",
             "/usr/local/bin/adb",
             "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
             "/Users/jordelmirsdevhome/Library/Android/sdk/platform-tools/adb"
         ]
-
-        let fm = FileManager.default
-        for path in possiblePaths {
-            if fm.fileExists(atPath: path) {
-                return path
-            }
-        }
-        return ""
+        return paths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    private func runProcess(executable: String, arguments: [String]) -> String {
-        let task = Process()
+    private func runADB(_ executable: String, arguments: [String]) -> (output: String, status: Int32) {
+        let process = Process()
         let pipe = Pipe()
-
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-        task.standardOutput = pipe
-        task.standardError = pipe
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = pipe
 
         do {
-            try task.run()
-            task.waitUntilExit()
+            try process.run()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8) ?? ""
+            process.waitUntilExit()
+            return (String(data: data, encoding: .utf8) ?? "", process.terminationStatus)
         } catch {
-            return ""
+            return (error.localizedDescription, -1)
         }
     }
 }

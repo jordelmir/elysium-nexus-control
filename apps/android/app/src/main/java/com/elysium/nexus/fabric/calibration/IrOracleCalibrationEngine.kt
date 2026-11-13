@@ -117,7 +117,8 @@ class IrOracleCalibrationEngine(
         // Iterate through candidates
         var candidate = probeEngine.currentCandidate()
         while (candidate != null && candidatesTested < config.maxCandidates) {
-            val signal = candidate.commands.values.firstOrNull() ?: run {
+            val signal = candidate.commands.values.firstOrNull()
+            if (signal == null) {
                 candidate = probeEngine.nextCandidate()
                 continue
             }
@@ -125,11 +126,12 @@ class IrOracleCalibrationEngine(
             candidatesTested++
 
             // §21: For each trial: freeze candidate, freeze action, record metadata
-            val waveform = IrWaveform(
-                frequency = signal.frequency ?: 38000,
-                pattern = signal.pattern,
-                protocol = signal.protocol
-            )
+            val waveform = (IrProtocol.encode(signal) as? EncodeResult.Success)?.waveform
+            if (waveform == null) {
+                // Unknown or invalid physical encodings must not be guessed.
+                candidate = probeEngine.nextCandidate()
+                continue
+            }
 
             // Record pre-state
             val preState = stateSupplier("volume")
@@ -173,7 +175,7 @@ class IrOracleCalibrationEngine(
                         transmitResult = transmitResult,
                         observations = observations,
                         verificationResult = result,
-                        carrier = signal.frequency
+                        carrier = signal.carrierHz
                     )
                     return OracleCalibrationResult.SuccessExact(
                         signalId = candidate.id,

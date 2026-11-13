@@ -8,6 +8,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import CryptoKit
+import Network
 
 // ───────────────────────────────────────────────
 // 0. Parse Command Line Arguments for Headless & Daemon Installation
@@ -51,16 +52,18 @@ for path in possibleIconPaths {
 // 2. Agent keypair (fresh per launch).
 let keyPair = Curve25519.KeyAgreement.PrivateKey()
 let publicKey = keyPair.publicKey.rawRepresentation
-Log.info("Agent public key: \(publicKey.base64EncodedString())")
+let publicKeyFingerprint = SHA256.hash(data: publicKey).prefix(6).map { String(format: "%02x", $0) }.joined()
+Log.info("Agent identity ready fingerprint=\(publicKeyFingerprint)")
 
 // 3. Accessibility permission check.
 let permissions = PermissionManager()
-if !permissions.hasAccessibility() {
-    Log.warn("Accessibility permission NOT granted.")
-}
-if !permissions.hasInputMonitoring() {
-    Log.warn("Input Monitoring permission NOT granted.")
-}
+let accessibilityGranted = permissions.hasAccessibility()
+let inputMonitoringGranted = permissions.hasInputMonitoring()
+let screenRecordingGranted = CGPreflightScreenCaptureAccess()
+Log.info("PERMISSION_SNAPSHOT bundleID=\(Bundle.main.bundleIdentifier ?? "unknown") appPath=\(Bundle.main.bundleURL.path) accessibility=\(accessibilityGranted) inputMonitoring=\(inputMonitoringGranted) screenRecording=\(screenRecordingGranted)")
+if !accessibilityGranted { Log.warn("Accessibility permission NOT granted for bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")") }
+if !inputMonitoringGranted { Log.warn("Input Monitoring permission NOT granted for bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")") }
+if !screenRecordingGranted { Log.warn("Screen Recording permission NOT granted for bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")") }
 
 // 4. Shared state.
 Task { @MainActor in
@@ -90,12 +93,23 @@ Task { @MainActor in
         keyPair: keyPair,
         state: state
     )
+    // Keep the listener owner alive after the startup Task completes.
+    // TCPServer's NWListener callback captures its owner weakly; without this
+    // strong reference the socket stays open but silently drops every client.
+    state.tcpServer = server
     Task {
         do {
             try await server.start()
             Log.info("TCP server listening on port \(port)")
             await MainActor.run {
-                state.status = .waiting
+                // A client can finish pairing immediately after the listener
+                // becomes ready. Do not overwrite .pairing/.connected with
+                // the listener's idle state after that client has connected.
+                if state.status == .starting {
+                    state.status = .waiting
+                } else {
+                    Log.info("Listener ready while agent status=\(state.status.rawValue); preserving active client state")
+                }
             }
         } catch {
             Log.error("TCP server failed to start: \(error)")
@@ -110,7 +124,7 @@ Task { @MainActor in
         let mainView = NeonDashboardView(state: state)
         let hosting = NSHostingController(rootView: mainView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -121,7 +135,7 @@ Task { @MainActor in
         window.center()
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0.02, green: 0.02, blue: 0.07, alpha: 1.0)
-        window.minSize = NSSize(width: 440, height: 500)
+        window.minSize = NSSize(width: 440, height: 660)
         window.makeKeyAndOrderFront(nil)
     }
 }
@@ -138,6 +152,8 @@ app.run()
 // ───────────────────────────────────────────────
 @MainActor
 final class AgentState: ObservableObject {
+    // Runtime service ownership: retaining this object retains the live listener.
+    var tcpServer: TCPServer?
     @Published var status: AgentStatus = .starting
     @Published var lastEventDescription: String = "—"
     @Published var lastEventAt: Date?
@@ -146,6 +162,19 @@ final class AgentState: ObservableObject {
     @Published var publicKeyBase64: String = ""
     @Published var currentPin: String?
     @Published var eventCount: Int = 0
+    @Published var localIPv4Addresses: [LocalNetworkAddress] = LocalNetworkAddresses.current()
+
+    private var addressMonitor: LocalNetworkAddressMonitor?
+
+    init() {
+        let monitor = LocalNetworkAddressMonitor { [weak self] addresses in
+            Task { @MainActor in
+                self?.localIPv4Addresses = addresses
+            }
+        }
+        addressMonitor = monitor
+        monitor.start()
+    }
 
     enum AgentStatus: String {
         case starting = "Iniciando…"
@@ -239,6 +268,57 @@ struct NeonDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 14)
 
+                Button(action: ScreenMirrorWindow.show) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "video.badge.waveform")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(NeonColors.cyan)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("PANTALLA ANDROID · STUDIO")
+                                .font(.system(size: 11, weight: .black, design: .rounded))
+                                .tracking(1.2)
+                                .foregroundColor(NeonColors.textPrimary)
+                            Text("Recibir video Android, grabar y ver estado WebRTC")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(NeonColors.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(NeonColors.cyan)
+                    }
+                    .padding(14)
+                    .background(NeonColors.surfaceHover, in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(NeonColors.cyan.opacity(0.3), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+
+                HStack(spacing: 10) {
+                    Button(action: VanguardFabricWindows.showConsole) {
+                        Label("VANGUARD CONSOLE", systemImage: "rectangle.connected.to.line.below")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(NeonColors.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(NeonColors.surfaceHover, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: VanguardFabricWindows.showNode) {
+                        Label("VANGUARD NODE", systemImage: "server.rack")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(NeonColors.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(NeonColors.surfaceHover, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+
                 // ─── LAST EVENT ───
                 if state.status == .connected {
                     LastEventCardView(state: state)
@@ -255,7 +335,7 @@ struct NeonDashboardView: View {
                     .padding(.bottom, 16)
             }
         }
-        .frame(minWidth: 440, minHeight: 500)
+        .frame(minWidth: 440, minHeight: 660)
         .onAppear {
             withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
                 pulsePhase = 1
@@ -543,6 +623,8 @@ struct PinDisplayCardView: View {
 struct ConnectionInfoCardView: View {
     @ObservedObject var state: AgentState
 
+    private let port = "7878"
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
@@ -569,6 +651,62 @@ struct ConnectionInfoCardView: View {
                     color: NeonColors.green
                 )
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "iphone.radiowaves.left.and.right")
+                        .foregroundColor(NeonColors.cyan)
+                    Text("IP PARA ANDROID")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .tracking(1.5)
+                        .foregroundColor(NeonColors.cyan)
+                    Spacer()
+                    Text("PUERTO \(port)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(NeonColors.textSecondary)
+                }
+
+                if state.localIPv4Addresses.isEmpty {
+                    Text("Conecta esta Mac a la misma Wi-Fi que Android.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(NeonColors.textSecondary)
+                } else {
+                    ForEach(Array(state.localIPv4Addresses.enumerated()), id: \.element.id) { index, address in
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(address.address)
+                                    .font(.system(size: 15, weight: .bold, design: .monospaced))
+                                    .foregroundColor(NeonColors.textPrimary)
+                                    .textSelection(.enabled)
+                                Text(index == 0 ? "Dirección recomendada · \(address.interfaceName)" : address.interfaceName)
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(NeonColors.textSecondary)
+                            }
+                            Spacer(minLength: 8)
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(address.address, forType: .string)
+                            } label: {
+                                Label("Copiar", systemImage: "doc.on.doc")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(NeonColors.cyan)
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+
+                Text("En Android, elige conexión manual e introduce la IP mostrada y el puerto 7878. Ambos dispositivos deben poder comunicarse por la red local.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(NeonColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(NeonColors.surfaceHover, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(NeonColors.cyan.opacity(0.22), lineWidth: 1))
 
             HStack {
                 InfoRowView(
@@ -747,21 +885,50 @@ struct NeonParticlesView: View {
 // Logger
 // ───────────────────────────────────────────────
 enum Log {
-    static func info(_ msg: String) {
-        print("[INFO]  \(timestamp()) \(msg)")
+    private static let lock = NSLock()
+    private static let fileHandle: FileHandle? = {
+        let manager = FileManager.default
+        let directory = manager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Elysium Nexus", isDirectory: true)
+        let logURL = directory.appendingPathComponent("agent.log")
+        do {
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            if let attributes = try? manager.attributesOfItem(atPath: logURL.path),
+               let size = attributes[.size] as? NSNumber, size.intValue >= 5 * 1024 * 1024 {
+                let backupURL = directory.appendingPathComponent("agent.log.1")
+                try? manager.removeItem(at: backupURL)
+                try manager.moveItem(at: logURL, to: backupURL)
+            }
+            if !manager.fileExists(atPath: logURL.path) {
+                manager.createFile(atPath: logURL.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: logURL)
+            try handle.seekToEnd()
+            return handle
+        } catch {
+            fputs("[ERROR] Unable to open Elysium Nexus log file: \(error)\n", stderr)
+            return nil
+        }
+    }()
+
+    static func info(_ msg: String) { write("INFO", msg) }
+    static func warn(_ msg: String) { write("WARN", msg) }
+    static func error(_ msg: String) { write("ERROR", msg) }
+
+    private static func write(_ level: String, _ msg: String) {
+        let line = "[\(level)] \(timestamp()) \(msg)\n"
+        lock.lock()
+        defer { lock.unlock() }
+        fputs(line, stdout)
         fflush(stdout)
+        if let data = line.data(using: .utf8) {
+            try? fileHandle?.write(contentsOf: data)
+        }
     }
-    static func warn(_ msg: String) {
-        print("[WARN]  \(timestamp()) \(msg)")
-        fflush(stdout)
-    }
-    static func error(_ msg: String) {
-        print("[ERROR] \(timestamp()) \(msg)")
-        fflush(stdout)
-    }
+
     private static func timestamp() -> String {
         let f = ISO8601DateFormatter()
-        f.formatOptions = [.withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.string(from: Date())
     }
 }

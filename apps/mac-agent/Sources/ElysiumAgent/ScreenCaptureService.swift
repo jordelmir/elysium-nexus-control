@@ -11,8 +11,16 @@ final class ScreenCaptureService {
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "com.elysium.screen-capture", qos: .userInteractive)
     private var sendBlock: ((Data) -> Void)?
+    private var statusBlock: ((ScreenCaptureStatus) -> Void)?
     private var isRunning = false
     private var isSendingFrame = false
+    private var captureFailureReported = false
+    private var lastCaptureFailureLog = Date.distantPast
+    private var capturedFrames: UInt64 = 0
+    private var skippedBusyFrames: UInt64 = 0
+    private var lastCaptureMetricsAt = Date()
+    private var captureMetricsFrameBase: UInt64 = 0
+    private var hasRequestedScreenCapturePermission = false
     private var quality: CGFloat = 0.65 // Optimized for ultra-fast <3ms JPEG encoding
     /// Target width: 1920px (Full HD text clarity)
     private let targetWidth: CGFloat = 1920
@@ -22,19 +30,38 @@ final class ScreenCaptureService {
     static let shared = ScreenCaptureService()
 
     /// Start streaming screen frames at maximum speed.
-    func start(send: @escaping (Data) -> Void) {
-        guard !isRunning else { return }
-        isRunning = true
-        sendBlock = send
-        Log.info("ScreenCapture: starting ultra-low latency 60 FPS Full HD stream (quality=\(quality))")
+    func start(send: @escaping (Data) -> Void, status: @escaping (ScreenCaptureStatus) -> Void) -> ScreenCaptureStatus {
+        let capturePermissionGranted = CGPreflightScreenCaptureAccess()
+        Log.info("ScreenCapture: START_CHECK permissionGranted=\(capturePermissionGranted) bundleID=\(Bundle.main.bundleIdentifier ?? "unknown") appPath=\(Bundle.main.bundleURL.path)")
+        if isRunning {
+            Log.info("ScreenCapture: already running; rebinding stream callbacks to current session")
+            sendBlock = send
+            statusBlock = status
+            return .streaming
+        }
 
-        // Check & request Screen Recording permission if needed
         if #available(macOS 10.15, *) {
-            if !CGPreflightScreenCaptureAccess() {
-                Log.warn("ScreenCapture: Screen Recording permission NOT granted. Prompting user...")
-                CGRequestScreenCaptureAccess()
+            if !capturePermissionGranted {
+                if !hasRequestedScreenCapturePermission {
+                    hasRequestedScreenCapturePermission = true
+                    Log.warn("ScreenCapture: permission missing; requesting once for this app launch")
+                    CGRequestScreenCaptureAccess()
+                } else {
+                    Log.warn("ScreenCapture: permission still unavailable; waiting for the user to enable it")
+                }
+                return .permissionRequired
             }
         }
+
+        isRunning = true
+        sendBlock = send
+        statusBlock = status
+        captureFailureReported = false
+        capturedFrames = 0
+        skippedBusyFrames = 0
+        lastCaptureMetricsAt = Date()
+        captureMetricsFrameBase = 0
+        Log.info("ScreenCapture: starting ultra-low latency 60 FPS Full HD stream (quality=\(quality))")
 
         let t = DispatchSource.makeTimerSource(queue: queue)
         // 60 FPS (16ms interval) — near-zero latency feeling (<15ms glass-to-glass delay over USB)
@@ -45,6 +72,7 @@ final class ScreenCaptureService {
         }
         t.resume()
         timer = t
+        return .streaming
     }
 
     func stop() {
@@ -53,7 +81,9 @@ final class ScreenCaptureService {
         timer?.cancel()
         timer = nil
         sendBlock = nil
+        statusBlock = nil
         isSendingFrame = false
+        captureFailureReported = false
         Log.info("ScreenCapture: stopped")
     }
 
@@ -66,14 +96,24 @@ final class ScreenCaptureService {
         guard let send = sendBlock else { return }
 
         // Skip frame if previous frame is still being transmitted to eliminate frame buffer queue lag
-        guard !isSendingFrame else { return }
+        guard !isSendingFrame else {
+            skippedBusyFrames += 1
+            return
+        }
         isSendingFrame = true
         defer { isSendingFrame = false }
 
         // 1. Capture the main display.
         let mainDisplayID = CGMainDisplayID()
         guard let cgImage = CGDisplayCreateImage(mainDisplayID) else {
-            Log.error("ScreenCapture: CGDisplayCreateImage returned NIL! Check Screen Recording permissions.")
+            if !captureFailureReported {
+                captureFailureReported = true
+                statusBlock?(.captureFailed)
+            }
+            if Date().timeIntervalSince(lastCaptureFailureLog) >= 5 {
+                lastCaptureFailureLog = Date()
+                Log.error("ScreenCapture: CGDisplayCreateImage returned nil; screen recording permission or display capture is unavailable")
+            }
             return
         }
 
@@ -94,7 +134,10 @@ final class ScreenCaptureService {
             bytesPerRow: 0,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-        ) else { return }
+        ) else {
+            Log.error("ScreenCapture: CGContext creation failed resolution=\(dstWidth)x\(dstHeight)")
+            return
+        }
 
         // Low interpolation for maximum CPU speed (<2ms render time)
         ctx.interpolationQuality = .low
@@ -142,17 +185,34 @@ final class ScreenCaptureService {
             ctx.restoreGState()
         }
 
-        guard let scaledImage = ctx.makeImage() else { return }
+        guard let scaledImage = ctx.makeImage() else {
+            Log.error("ScreenCapture: scaled image creation failed")
+            return
+        }
 
         // 4. Compress to ultra-fast JPEG (<2ms encoding)
         let bitmapRep = NSBitmapImageRep(cgImage: scaledImage)
         guard let jpegData = bitmapRep.representation(
             using: .jpeg,
             properties: [.compressionFactor: quality]
-        ) else { return }
+        ) else {
+            Log.error("ScreenCapture: JPEG encoding failed resolution=\(dstWidth)x\(dstHeight)")
+            return
+        }
 
-        // 5. Send as a SCREEN_FRAME
-        let frame = FrameEncoder.encode(.screenFrame, payload: jpegData)
-        send(frame)
+        capturedFrames += 1
+        let now = Date()
+        if capturedFrames == 1 || now.timeIntervalSince(lastCaptureMetricsAt) >= 5 {
+            let elapsed = max(0.001, now.timeIntervalSince(lastCaptureMetricsAt))
+            let intervalFrames = capturedFrames - captureMetricsFrameBase
+            let measuredFPS = Double(intervalFrames) / elapsed
+            Log.info("ScreenCapture: CAPTURE_METRICS totalFrames=\(capturedFrames) intervalFPS=\(String(format: "%.1f", measuredFPS)) jpegBytes=\(jpegData.count) resolution=\(dstWidth)x\(dstHeight) skippedBusy=\(skippedBusyFrames)")
+            lastCaptureMetricsAt = now
+            captureMetricsFrameBase = capturedFrames
+        }
+
+        // Return JPEG bytes only. The connection encrypts the payload with
+        // its paired channel key before framing it for the Android client.
+        send(jpegData)
     }
 }

@@ -220,3 +220,10 @@ object MacProtocol {
         data class Error(val reason: String, val newConsumed: Int) : StreamReadResult()
     }
 }
+
+/** Decrypts authenticated Mac screen frames before passing JPEG bytes to the renderer. */
+internal object MacScreenFrameDecoder {
+    fun decrypt(framePayload: ByteArray, channelKey: MacCrypto.ChannelKey): ByteArray {
+        return channelKey.decrypt(framePayload)
+    }
+}

@@ -43,7 +43,7 @@ object TvCapabilities {
         CapabilityMapEntry(Capability.OnOff, CapabilityStatus.SUPPORTED),
         CapabilityMapEntry(Capability.Volume, CapabilityStatus.SUPPORTED),
         CapabilityMapEntry(Capability.MediaTransport, CapabilityStatus.SUPPORTED),
-        CapabilityMapEntry(Capability.SourceSelect, CapabilityStatus.SUPPORTED)
+        CapabilityMapEntry(Capability.InputSource, CapabilityStatus.SUPPORTED)
     )
 
     val ACCESSIBILITY_ENHANCED = setOf(

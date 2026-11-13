@@ -1,5 +1,12 @@
 package com.elysium.nexus.ui.mac
 
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -54,6 +61,7 @@ import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -80,6 +88,7 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -90,6 +99,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elysium.nexus.core.transport.mac.MacProtocol
 import com.elysium.nexus.core.transport.mac.MacTransport
+import com.elysium.nexus.core.transport.mac.AndroidScreenShareController
+import com.elysium.nexus.core.transport.mac.AndroidScreenShareState
+import com.elysium.nexus.core.transport.mac.AndroidScreenShareStatus
 import com.elysium.nexus.ui.help.HelpCard
 import com.elysium.nexus.ui.responsive.ResponsiveContainer
 import com.elysium.nexus.ui.theme.ElysiumColors
@@ -209,6 +221,34 @@ fun MacControlSurfaceScreen(
     posture: com.elysium.nexus.core.posture.Posture = com.elysium.nexus.core.posture.Posture.UNKNOWN,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val screenShareStatus by AndroidScreenShareState.status.collectAsState()
+    val projectionManager = remember(context) {
+        context.getSystemService(MediaProjectionManager::class.java)
+    }
+    val projectionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            runCatching {
+                AndroidScreenShareController.start(context, result.resultCode, data)
+            }.onFailure {
+                android.util.Log.e("NexusAndroidScreenShare", "Could not start screen sharing", it)
+            }
+        }
+    }
+    val launchProjectionRequest = {
+        projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        // Continue to the mandatory Android screen-capture consent dialog even
+        // if notifications were declined; Android still shows the FGS in its
+        // active-apps surface.
+        launchProjectionRequest()
+    }
     var showHelp by remember { mutableStateOf(false) }
     var showKeyboard by remember { mutableStateOf(false) }
     // The set of currently-held modifiers.
@@ -350,6 +390,51 @@ fun MacControlSurfaceScreen(
                 }
             }
 
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (screenShareStatus == AndroidScreenShareStatus.CONNECTED)
+                            ElysiumColors.NeonGreen.copy(alpha = 0.18f)
+                        else ElysiumColors.NeonCyan.copy(alpha = 0.12f)
+                    )
+                    .border(1.dp, ElysiumColors.NeonCyan.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+                    .clickable {
+                        if (screenShareStatus != AndroidScreenShareStatus.STOPPED &&
+                            screenShareStatus != AndroidScreenShareStatus.ERROR
+                        ) {
+                            AndroidScreenShareController.stop(context)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            androidx.core.content.ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            launchProjectionRequest()
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = when (screenShareStatus) {
+                        AndroidScreenShareStatus.STOPPED -> "COMPARTIR PANTALLA DEL ANDROID CON EL MAC"
+                        AndroidScreenShareStatus.STARTING -> "INICIANDO TRANSMISIÓN…"
+                        AndroidScreenShareStatus.WAITING_FOR_MAC -> "ANDROID LISTO · ESPERANDO MAC · TOCA PARA DETENER"
+                        AndroidScreenShareStatus.CONNECTED -> "COMPARTIENDO PANTALLA · TOCA PARA DETENER"
+                        AndroidScreenShareStatus.ERROR -> "ERROR DE TRANSMISIÓN · TOCA PARA REINTENTAR"
+                    },
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+
             // === EXPANDED LIVE VIDEO SCREEN + TRACKPAD UNIFIED CONTAINER (weight 1f) ===
             Box(
                 modifier = Modifier
@@ -374,15 +459,17 @@ fun MacControlSurfaceScreen(
             ) {
                 Trackpad(
                     onMouseMove = { dx, dy, nx, ny ->
-                        // Relative mouse movement
-                        val factor = 0.006f
-                        cursorX = (cursorX + dx * factor).coerceIn(0f, 1f)
-                        cursorY = (cursorY + dy * factor).coerceIn(0f, 1f)
+                        // Direct-touch mode maps the finger position to the
+                        // received Mac frame. Sending the delta here made this
+                        // mode indistinguishable from a relative trackpad and
+                        // ignored the normalized target coordinates.
+                        cursorX = nx.coerceIn(0f, 1f)
+                        cursorY = ny.coerceIn(0f, 1f)
                         lastEvent = MacInputEvent(
                             type = EventType.MOUSE_MOVE,
-                            shortLabel = "Trackpad (${dx.roundToInt()}, ${dy.roundToInt()})"
+                            shortLabel = "Toque (${(nx * 100).roundToInt()}%, ${(ny * 100).roundToInt()}%)"
                         )
-                        transport?.sendMouseMove(dx, dy)
+                        transport?.sendMouseAbsMove(nx, ny)
                         if (zoomScale > 1.05f) {
                             panOffset = Offset(0.5f - cursorX, 0.5f - cursorY)
                         }
@@ -487,7 +574,11 @@ fun MacControlSurfaceScreen(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = if (screenMirrorEnabled) "● 1080p HD VIVO" else "● TRACKPAD",
+                                text = when {
+                                    !screenMirrorEnabled -> "● TRACKPAD"
+                                    latestScreenBitmap != null -> "● PANTALLA EN VIVO"
+                                    else -> "● ESPERANDO PANTALLA"
+                                },
                                 style = TextStyle(
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
@@ -1168,7 +1259,7 @@ private fun Trackpad(
         if (backgroundBitmap != null) {
             androidx.compose.foundation.Image(
                 bitmap = backgroundBitmap.asImageBitmap(),
-                contentDescription = "Mac Screen Live Stream 1080p HD",
+                contentDescription = if (currentBitmap != null) "Pantalla del Mac recibida" else "Vista de pantalla esperando datos",
                 contentScale = when (screenScaleMode) {
                     ScreenScaleMode.ADAPTIVE_FILL -> androidx.compose.ui.layout.ContentScale.FillBounds
                     ScreenScaleMode.ORIGINAL_FIT -> androidx.compose.ui.layout.ContentScale.Fit

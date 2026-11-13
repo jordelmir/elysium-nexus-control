@@ -159,6 +159,8 @@ dependencies {
     // AndroidManifest.xml with the authority
     // `${applicationId}.fileprovider`.
     implementation(libs.androidx.core.ktx)
+    // Android screen sharing to the unified Mac ScreenMirror receiver.
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
     // P0.3: ViewModel Compose integration for process-death-safe state
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(platform(libs.androidx.compose.bom))
