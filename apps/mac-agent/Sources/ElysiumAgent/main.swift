@@ -55,11 +55,15 @@ let publicKey = keyPair.publicKey.rawRepresentation
 let publicKeyFingerprint = SHA256.hash(data: publicKey).prefix(6).map { String(format: "%02x", $0) }.joined()
 Log.info("Agent identity ready fingerprint=\(publicKeyFingerprint)")
 
-// 3. Accessibility permission check.
+// 3. Accessibility & Screen Recording permission check and request
 let permissions = PermissionManager()
-let accessibilityGranted = permissions.hasAccessibility()
+let accessibilityGranted = permissions.hasAccessibility(promptIfMissing: !isHeadless)
 let inputMonitoringGranted = permissions.hasInputMonitoring()
-let screenRecordingGranted = CGPreflightScreenCaptureAccess()
+var screenRecordingGranted = CGPreflightScreenCaptureAccess()
+if !screenRecordingGranted && !isHeadless {
+    Log.warn("Screen Recording permission missing; requesting system dialog...")
+    CGRequestScreenCaptureAccess()
+}
 Log.info("PERMISSION_SNAPSHOT bundleID=\(Bundle.main.bundleIdentifier ?? "unknown") appPath=\(Bundle.main.bundleURL.path) accessibility=\(accessibilityGranted) inputMonitoring=\(inputMonitoringGranted) screenRecording=\(screenRecordingGranted)")
 if !accessibilityGranted { Log.warn("Accessibility permission NOT granted for bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")") }
 if !inputMonitoringGranted { Log.warn("Input Monitoring permission NOT granted for bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")") }

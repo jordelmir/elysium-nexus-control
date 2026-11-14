@@ -17,9 +17,12 @@ final class PermissionManager {
     /// `AXIsProcessTrustedWithOptions` API
     /// (deprecated since macOS 10.9 but still the
     /// canonical way to check).
-    func hasAccessibility() -> Bool {
-        // AXIsProcessTrusted returns true if the
-        // app is in the Accessibility allow-list.
+    func hasAccessibility(promptIfMissing: Bool = false) -> Bool {
+        if promptIfMissing {
+            let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+            let options = [key: true] as CFDictionary
+            return AXIsProcessTrustedWithOptions(options)
+        }
         return AXIsProcessTrusted()
     }
 

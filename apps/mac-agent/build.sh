@@ -142,12 +142,14 @@ build() {
         echo "ERROR: Elysium Nexus executable does not declare its bundled WebRTC dependency." >&2
         exit 1
     fi
-    # Copy icon if present
-    if [ -f "/tmp/AppIcon.icns" ]; then
+    # Copy icon
+    if [ -f "$SCRIPT_DIR/Sources/ElysiumAgent/Resources/AppIcon.icns" ]; then
+        cp "$SCRIPT_DIR/Sources/ElysiumAgent/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+    elif [ -f "/tmp/AppIcon.icns" ]; then
         cp "/tmp/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
     fi
-    if [ -f "/tmp/master_1024.png" ]; then
-        cp "/tmp/master_1024.png" "$APP_BUNDLE/Contents/Resources/AppIcon.png"
+    if [ -f "$SCRIPT_DIR/../../icon.png" ]; then
+        cp "$SCRIPT_DIR/../../icon.png" "$APP_BUNDLE/Contents/Resources/AppIcon.png"
     fi
     # Info.plist.
     cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
